@@ -1,0 +1,19 @@
+import './globals.css'
+import type { Metadata } from 'next'
+
+export const metadata: Metadata = {
+  title: 'H&S Compliance Portal',
+  description: 'Precision Engineering Ltd - Compliance Action Plan',
+}
+
+export default function RootLayout({
+  children,
+}: {
+  children: React.ReactNode
+}) {
+  return (
+    <html lang="en">
+      <body className="antialiased font-sans">{children}</body>
+    </html>
+  )
+}
