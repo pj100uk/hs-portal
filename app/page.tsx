@@ -7,20 +7,14 @@ import {
   CheckCircle, Info, Settings, LogOut, Truck, PenTool, BarChart3, TrendingUp
 } from 'lucide-react';
 
-/**
- * H&S COMPLIANCE PORTAL - MEETING DEMO VERSION
- * This file contains the complete UI logic for the interactive dashboard.
- * Includes: Executive Analytics, Site Registry, and the Action-Led Task Manager.
- */
 export default function App() {
   const [view, setView] = useState('portfolio'); 
-  const [dashboardTab, setDashboardTab] = useState('analytics'); // 'analytics' or 'data'
+  const [dashboardTab, setDashboardTab] = useState('analytics');
   const [selectedSite, setSelectedSite] = useState(null);
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncLastRun, setSyncLastRun] = useState('2 hours ago');
   const [resolvedIds, setResolvedIds] = useState([]);
 
-  // Simulated Datto Sync Walkthrough
   const handleDattoSync = () => {
     setIsSyncing(true);
     setTimeout(() => {
@@ -84,34 +78,24 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-slate-50 font-sans text-slate-900 selection:bg-indigo-100">
-      {/* Navigation Sidebar */}
-      <aside className="fixed left-0 top-0 h-full w-20 bg-indigo-950 flex flex-col items-center py-8 gap-10 text-indigo-300 z-20">
-        <div className="w-12 h-12 bg-white rounded-xl flex items-center justify-center text-indigo-950 shadow-lg font-black text-xl italic hover:scale-105 transition-transform">PE</div>
+      <aside className="fixed left-0 top-0 h-full w-20 bg-indigo-950 flex flex-col items-center py-8 gap-10 text-indigo-300 z-20 text-center">
+        <div className="w-12 h-12 bg-white rounded-xl flex items-center justify-center text-indigo-950 shadow-lg font-black text-xl italic hover:scale-105 transition-transform mx-auto">PE</div>
         <nav className="flex flex-col gap-8">
-          <button 
-            title="Dashboard Overview"
-            onClick={() => { setView('portfolio'); setSelectedSite(null); }} 
-            className={`p-3 rounded-xl transition-all ${view === 'portfolio' ? 'bg-indigo-800 text-white shadow-inner' : 'hover:text-white'}`}
-          >
-            <Layout size={24} />
-          </button>
-          <button title="Site Actions" onClick={() => { setView('site'); setSelectedSite(sites[0]); }} className={`p-3 rounded-xl transition-all ${view === 'site' ? 'bg-indigo-800 text-white' : 'hover:text-white'}`}>
-            <ClipboardList size={24} />
-          </button>
+          <button onClick={() => { setView('portfolio'); setSelectedSite(null); }} className={`p-3 rounded-xl transition-all ${view === 'portfolio' ? 'bg-indigo-800 text-white shadow-inner' : 'hover:text-white'}`}><Layout size={24} /></button>
+          <button onClick={() => { setView('site'); setSelectedSite(sites[0]); }} className={`p-3 rounded-xl transition-all ${view === 'site' ? 'bg-indigo-800 text-white shadow-inner' : 'hover:text-white'}`}><ClipboardList size={24} /></button>
           <button className="p-3 rounded-xl hover:text-white transition-colors hover:bg-white/5"><Settings size={24} /></button>
         </nav>
         <div className="mt-auto flex flex-col gap-6">
           <button onClick={handleDattoSync} className={`p-3 rounded-xl transition-all ${isSyncing ? 'text-white animate-spin' : 'hover:text-white hover:bg-white/5'}`} title="Sync with Datto Workplace">
             <RefreshCw size={24} />
           </button>
-          <div className="w-10 h-10 rounded-full bg-indigo-800 flex items-center justify-center font-bold text-white text-xs border border-indigo-700">JD</div>
+          <div className="w-10 h-10 rounded-full bg-indigo-800 flex items-center justify-center font-bold text-white text-xs border border-indigo-700 mx-auto">JD</div>
         </div>
       </aside>
 
       <main className="pl-20">
-        {/* Header */}
         <header className="bg-white/90 backdrop-blur-sm border-b border-slate-200 px-8 py-4 flex items-center justify-between sticky top-0 z-10">
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-4 text-left">
             {view === 'site' && (<button onClick={() => setView('portfolio')} className="p-2 hover:bg-slate-100 rounded-lg text-slate-500 transition-colors"><ArrowLeft size={20} /></button>)}
             <div>
               <h1 className="text-lg font-bold text-slate-900 tracking-tight leading-none">{clientOrg.name}</h1>
@@ -123,61 +107,47 @@ export default function App() {
           </div>
           <div className="flex items-center gap-6">
              <div className="text-right hidden sm:block">
-                <p className="text-xs font-bold text-slate-800">{clientOrg.role}</p>
+                <p className="text-xs font-bold text-slate-800">Operations Director</p>
                 <p className="text-[10px] text-emerald-600 font-bold uppercase tracking-widest italic">Status: Compliant</p>
              </div>
              <div className="hidden lg:flex bg-slate-100 p-1 rounded-lg">
-                <button 
-                  onClick={() => { setView('portfolio'); setSelectedSite(null); }} 
-                  className={`px-4 py-1.5 text-[10px] font-black uppercase rounded transition-all ${view === 'portfolio' ? 'bg-white shadow-sm text-indigo-600' : 'text-slate-500'}`}
-                >
-                  Dashboard
-                </button>
-                <button 
-                  onClick={() => { setView('site'); setSelectedSite(sites[0]); }} 
-                  className={`px-4 py-1.5 text-[10px] font-black uppercase rounded transition-all ${view === 'site' ? 'bg-white shadow-sm text-indigo-600' : 'text-slate-500'}`}
-                >
-                  Action Plan
-                </button>
+                <button onClick={() => { setView('portfolio'); setSelectedSite(null); }} className={`px-4 py-1.5 text-[10px] font-black uppercase rounded transition-all ${view === 'portfolio' ? 'bg-white shadow-sm text-indigo-600' : 'text-slate-500'}`}>Dashboard</button>
+                <button onClick={() => { setView('site'); setSelectedSite(sites[0]); }} className={`px-4 py-1.5 text-[10px] font-black uppercase rounded transition-all ${view === 'site' ? 'bg-white shadow-sm text-indigo-600' : 'text-slate-500'}`}>Action Plan</button>
              </div>
           </div>
         </header>
 
         <div className="p-8 max-w-7xl mx-auto">
           {view === 'portfolio' ? (
-            /* --- DASHBOARD VIEW --- */
             <div className="space-y-8 animate-in fade-in duration-500">
-              {/* Executive Summary */}
-              <div className="bg-gradient-to-br from-indigo-900 via-indigo-950 to-slate-900 rounded-3xl p-10 text-white flex justify-between items-center shadow-2xl relative overflow-hidden">
+              <div className="bg-gradient-to-br from-indigo-900 via-indigo-950 to-slate-900 rounded-3xl p-10 text-white flex justify-between items-center shadow-2xl relative overflow-hidden text-left">
                 <div className="absolute top-0 right-0 w-96 h-96 bg-indigo-500 rounded-full -mr-32 -mt-32 blur-[100px] opacity-20" />
                 <div className="relative z-10">
                   <span className="text-[10px] font-black uppercase tracking-[0.3em] text-indigo-300">Executive Summary</span>
                   <h2 className="text-4xl font-black italic tracking-tighter uppercase mt-2">Divisional Compliance</h2>
                   <p className="text-indigo-200 mt-2 font-medium max-w-md italic italic">Real-time safety performance across all site operations.</p>
                 </div>
-                <div className="flex gap-6 relative z-10">
-                   <div className="bg-white/5 backdrop-blur-md rounded-2xl p-6 text-center border border-white/10 w-32">
-                     <p className="text-[10px] uppercase font-bold opacity-60 tracking-widest mb-1">Overdue</p>
-                     <p className="text-4xl font-black text-rose-400">{clientOrg.status.red}</p>
+                <div className="flex gap-6 relative z-10 text-center">
+                   <div className="bg-white/5 backdrop-blur-md rounded-2xl p-6 border border-white/10 w-32">
+                     <p className="text-[10px] uppercase font-bold opacity-60 tracking-widest mb-1 text-white">Overdue</p>
+                     <p className="text-4xl font-black text-rose-400">5</p>
                    </div>
-                   <div className="bg-white/5 backdrop-blur-md rounded-2xl p-6 text-center border border-white/10 w-32">
-                     <p className="text-[10px] uppercase font-bold opacity-60 tracking-widest mb-1">Upcoming</p>
-                     <p className="text-4xl font-black text-amber-400">{clientOrg.status.amber}</p>
+                   <div className="bg-white/5 backdrop-blur-md rounded-2xl p-6 border border-white/10 w-32">
+                     <p className="text-[10px] uppercase font-bold opacity-60 tracking-widest mb-1 text-white">Upcoming</p>
+                     <p className="text-4xl font-black text-amber-400">12</p>
                    </div>
                 </div>
               </div>
 
-              {/* View Selector Tabs */}
               <div className="flex border-b border-slate-200 gap-8">
                  <button onClick={() => setDashboardTab('analytics')} className={`pb-4 px-2 text-xs font-black uppercase tracking-widest flex items-center gap-2 transition-all border-b-2 ${dashboardTab === 'analytics' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-slate-400 hover:text-slate-600'}`}><BarChart3 size={16} /> Visual Analytics</button>
                  <button onClick={() => setDashboardTab('data')} className={`pb-4 px-2 text-xs font-black uppercase tracking-widest flex items-center gap-2 transition-all border-b-2 ${dashboardTab === 'data' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-slate-400 hover:text-slate-600'}`}><Building2 size={16} /> Division Registry</button>
               </div>
 
               {dashboardTab === 'analytics' ? (
-                /* --- ANALYTICS VIEW --- */
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 animate-in slide-in-from-bottom-4 duration-500">
-                  <div className="lg:col-span-2 bg-white rounded-3xl border border-slate-200 p-8 shadow-sm">
-                    <h3 className="font-black text-slate-900 text-xl tracking-tight mb-8">Compliance Benchmarking</h3>
+                  <div className="lg:col-span-2 bg-white rounded-3xl border border-slate-200 p-8 shadow-sm text-left">
+                    <h3 className="font-black text-slate-900 text-xl tracking-tight mb-8 uppercase">Compliance Benchmarking</h3>
                     <div className="space-y-6">
                       {sites.map(site => (
                         <div key={site.id}>
@@ -193,9 +163,9 @@ export default function App() {
                     </div>
                   </div>
                   <div className="bg-white rounded-3xl border border-slate-200 p-8 shadow-sm flex flex-col items-center justify-center text-center">
-                    <h3 className="font-black text-slate-900 text-xl tracking-tight w-full mb-8 text-left">Risk Distribution</h3>
+                    <h3 className="font-black text-slate-900 text-xl tracking-tight w-full mb-8 text-left uppercase">Risk Map</h3>
                     <div className="relative w-40 h-40 flex items-center justify-center mb-8">
-                       <svg className="w-full h-full -rotate-90">
+                       <svg className="w-full h-full -rotate-90" viewBox="0 0 160 160">
                          <circle cx="80" cy="80" r="70" stroke="#f1f5f9" strokeWidth="18" fill="none" />
                          <circle cx="80" cy="80" r="70" stroke="#f43f5e" strokeWidth="18" fill="none" strokeDasharray="440" strokeDashoffset="400" />
                        </svg>
@@ -208,8 +178,7 @@ export default function App() {
                   </div>
                 </div>
               ) : (
-                /* --- DATA GRID VIEW --- */
-                <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden animate-in fade-in duration-500">
+                <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden text-left">
                   <table className="w-full text-left">
                     <thead>
                       <tr className="bg-slate-50/50 text-[10px] uppercase font-black text-slate-400 border-b border-slate-100"><th className="px-8 py-4">Department / Site</th><th className="px-8 py-4">Status</th><th className="px-8 py-4">Score</th><th className="px-8 py-4"></th></tr>
@@ -232,21 +201,20 @@ export default function App() {
               )}
             </div>
           ) : (
-            /* --- ACTION PLAN VIEW --- */
-            <div className="space-y-6 animate-in slide-in-from-right-8 duration-500">
+            <div className="space-y-6 animate-in slide-in-from-right-8 duration-500 text-left">
               <div className="bg-white border border-slate-200 p-8 rounded-3xl flex flex-col md:flex-row justify-between items-center gap-8 shadow-sm border-l-[12px] border-l-indigo-600 relative overflow-hidden">
                 <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-50 rounded-full -mr-16 -mt-16 opacity-50" />
                 <div className="flex items-center gap-8 z-10">
                   <div className="w-20 h-20 bg-slate-900 rounded-3xl flex items-center justify-center text-white shadow-xl transform rotate-3">{getSiteIcon(selectedSite?.type || 'Manufacturing')}</div>
-                  <div><h2 className="text-3xl font-black text-slate-900 tracking-tight leading-none">{selectedSite?.name} Action Plan</h2><p className="text-slate-500 font-medium mt-3 italic max-w-lg">Requirement extraction synced from latest safety documentation.</p></div>
+                  <div><h2 className="text-3xl font-black text-slate-900 tracking-tight leading-none">{selectedSite?.name} Action Plan</h2><p className="text-slate-500 font-medium mt-3 italic max-w-lg text-left">Live requirement extraction synced from latest safety documentation.</p></div>
                 </div>
                 <div className="flex gap-3 z-10">
-                   <button className="bg-slate-100 text-slate-600 px-8 py-3 rounded-2xl text-xs font-black uppercase tracking-widest hover:bg-slate-200 transition-all">Audit Archive</button>
-                   <button className="bg-indigo-600 text-white px-8 py-3 rounded-2xl text-xs font-black uppercase shadow-xl hover:bg-indigo-700 transition-all">Export PDF</button>
+                   <button className="bg-slate-100 text-slate-600 px-8 py-3 rounded-2xl text-xs font-black uppercase tracking-widest hover:bg-slate-200 transition-all shadow-sm">Audit Archive</button>
+                   <button className="bg-indigo-600 text-white px-8 py-3 rounded-2xl text-xs font-black uppercase shadow-xl hover:bg-indigo-700 transition-all">Export Plan</button>
                 </div>
               </div>
 
-              <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
+              <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden text-left">
                 <div className="divide-y divide-slate-100">
                   {siteActions.map(action => (
                     <div key={action.id} className={`p-8 flex flex-col md:flex-row md:items-center gap-8 transition-all duration-300 ${resolvedIds.includes(action.id) ? 'bg-emerald-50/30 opacity-60' : 'hover:bg-slate-50/50'}`}>
@@ -257,12 +225,12 @@ export default function App() {
                           <span className={`text-[10px] font-black uppercase px-3 py-1.5 rounded-lg border shrink-0 ml-4 shadow-sm ${resolvedIds.includes(action.id) ? 'border-emerald-200 bg-white text-emerald-600' : action.priority === 'red' ? 'border-rose-100 bg-rose-50 text-rose-600' : 'border-amber-100 bg-amber-50 text-amber-600'}`}>{resolvedIds.includes(action.id) ? 'Resolved' : action.priority === 'red' ? 'Urgent' : 'Upcoming'}</span>
                         </div>
                         <div className="flex flex-wrap gap-x-10 gap-y-4 mt-6 text-[11px] font-bold text-slate-400 uppercase tracking-wider">
-                          <span className="flex items-center gap-2.5"><Clock size={14}/> Deadline: <span className="text-slate-700">{action.date}</span></span>
-                          <span className="flex items-center gap-2.5"><User size={14}/> Owner: <span className="text-slate-700">{action.who}</span></span>
+                          <span className="flex items-center gap-2.5"><Clock size={14}/> Deadline: <span className="text-slate-700 font-bold">{action.date}</span></span>
+                          <span className="flex items-center gap-2.5"><User size={14}/> Owner: <span className="text-slate-700 font-bold">{action.who}</span></span>
                           <span className="flex items-center gap-2.5 text-indigo-500 underline decoration-indigo-200 underline-offset-4 font-black"><FileText size={14}/> Source: {action.source}</span>
                         </div>
                       </div>
-                      <button onClick={() => toggleResolve(action.id)} className={`flex-1 md:flex-none px-8 py-3.5 rounded-2xl font-black text-xs transition-all active:scale-95 shadow-md ${resolvedIds.includes(action.id) ? 'bg-white border border-slate-200 text-slate-400' : 'bg-emerald-600 text-white hover:bg-emerald-700'}`}>{resolvedIds.includes(action.id) ? "Undo" : "Resolve"}</button>
+                      <button onClick={() => toggleResolve(action.id)} className={`flex-1 md:flex-none px-8 py-3.5 rounded-2xl font-black text-xs transition-all active:scale-95 shadow-md ${resolvedIds.includes(action.id) ? 'bg-white border border-slate-200 text-slate-400 shadow-none' : 'bg-emerald-600 text-white hover:bg-emerald-700 hover:shadow-emerald-100'}`}>{resolvedIds.includes(action.id) ? "Undo" : "Resolve"}</button>
                     </div>
                   ))}
                 </div>
