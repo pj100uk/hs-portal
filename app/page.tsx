@@ -1,5 +1,5 @@
 "use client";
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   ShieldAlert, ChevronRight, Building2, ClipboardList, AlertCircle,
   CheckCircle2, FileText, ArrowLeft, User, Layout, MapPin,
@@ -8,8 +8,8 @@ import {
   ChevronDown, ChevronUp, Paperclip, MessageSquare, HardHat, Calendar,
   Zap, AlertTriangle, Target, Activity, Shield, ArrowUpRight, X, Plus
 } from 'lucide-react';
+import { supabase } from './lib/supabase';
 
-// ─── Types ────────────────────────────────────────────────────────────────────
 type Priority = 'red' | 'amber' | 'green';
 type ActionStatus = 'open' | 'resolved';
 
@@ -40,14 +40,6 @@ interface Site {
   lastReview: string;
   trend: number;
 }
-
-// ─── Data ─────────────────────────────────────────────────────────────────────
-const sites: Site[] = [
-  { id: 1, name: "Main Assembly Factory", type: "Manufacturing", red: 2, amber: 4, green: 30, compliance: 82, lastReview: '2024-02-20', trend: +3 },
-  { id: 2, name: "Tooling & Die Workshop", type: "Workshop", red: 2, amber: 3, green: 15, compliance: 75, lastReview: '2024-02-22', trend: -2 },
-  { id: 3, name: "Logistics & Storage Hub", type: "Logistics", red: 1, amber: 2, green: 22, compliance: 90, lastReview: '2024-01-15', trend: +5 },
-  { id: 4, name: "Design & R&D Studio", type: "Office", red: 0, amber: 3, green: 20, compliance: 95, lastReview: '2024-02-10', trend: +1 },
-];
 
 const allActions: Action[] = [
   {
@@ -138,7 +130,6 @@ const allActions: Action[] = [
   },
 ];
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
 const getSiteIcon = (type: string, size = 20) => {
   switch (type) {
     case 'Manufacturing': return <Factory size={size} />;
@@ -155,7 +146,6 @@ const priorityConfig = {
   green: { label: 'Scheduled', bg: 'bg-emerald-50', border: 'border-emerald-200', text: 'text-emerald-700', bar: 'bg-emerald-500', dot: 'bg-emerald-500', badge: 'bg-emerald-100 text-emerald-700 border-emerald-200' },
 };
 
-// ─── Sub-components ───────────────────────────────────────────────────────────
 const StatusBadge = ({ type, count }: { type: Priority; count: number }) => {
   const c = priorityConfig[type];
   return (
@@ -184,15 +174,10 @@ const ComplianceRing = ({ score, size = 56 }: { score: number; size?: number }) 
   );
 };
 
-// ─── Action Card ──────────────────────────────────────────────────────────────
 const ActionCard = ({
-  action,
-  isResolved,
-  onToggleResolve,
-  onAddNote,
+  action, isResolved, onToggleResolve, onAddNote,
 }: {
-  action: Action;
-  isResolved: boolean;
+  action: Action; isResolved: boolean;
   onToggleResolve: (id: number) => void;
   onAddNote: (id: number, note: string) => void;
 }) => {
@@ -203,18 +188,12 @@ const ActionCard = ({
 
   return (
     <div className={`rounded-2xl border transition-all duration-300 overflow-hidden ${
-      isResolved
-        ? 'bg-slate-50/60 border-slate-100 opacity-60'
-        : `${cfg.bg} ${cfg.border}`
+      isResolved ? 'bg-slate-50/60 border-slate-100 opacity-60' : `${cfg.bg} ${cfg.border}`
     }`}>
-      {/* ── Main row ── */}
       <div className="p-6 flex flex-col md:flex-row md:items-start gap-4">
-        {/* Priority bar */}
         <div className={`w-1.5 rounded-full self-stretch hidden md:block flex-shrink-0 transition-colors ${
           isResolved ? 'bg-slate-300' : cfg.bar
         }`} style={{ minHeight: 64 }} />
-
-        {/* Content */}
         <div className="flex-1 min-w-0">
           <div className="flex items-start justify-between gap-4 flex-wrap">
             <h4 className={`font-bold text-lg leading-snug ${isResolved ? 'text-slate-400 line-through' : 'text-slate-900'}`}>
@@ -226,8 +205,6 @@ const ActionCard = ({
               {isResolved ? 'Resolved' : cfg.label}
             </span>
           </div>
-
-          {/* Meta row */}
           <div className="flex flex-wrap gap-x-8 gap-y-2 mt-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider">
             <span className="flex items-center gap-1.5"><Clock size={12} /> <span className="text-slate-700">{action.date}</span></span>
             <span className="flex items-center gap-1.5"><User size={12} /> <span className="text-slate-700">{action.who}</span></span>
@@ -240,48 +217,33 @@ const ActionCard = ({
             </span>
           </div>
         </div>
-
-        {/* Actions */}
         <div className="flex items-center gap-2 flex-shrink-0">
-          <button
-            onClick={() => setExpanded(e => !e)}
-            className="p-2.5 rounded-xl bg-white/80 border border-white/60 text-slate-400 hover:text-indigo-600 hover:border-indigo-200 transition-all shadow-sm"
-            title="Expand details"
-          >
+          <button onClick={() => setExpanded(e => !e)}
+            className="p-2.5 rounded-xl bg-white/80 border border-white/60 text-slate-400 hover:text-indigo-600 hover:border-indigo-200 transition-all shadow-sm">
             {expanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
           </button>
-          <button
-            onClick={() => onToggleResolve(action.id)}
+          <button onClick={() => onToggleResolve(action.id)}
             className={`px-5 py-2.5 rounded-xl font-black text-xs uppercase tracking-wider transition-all active:scale-95 shadow-sm flex items-center gap-2 ${
-              isResolved
-                ? 'bg-white border border-slate-200 text-slate-400'
-                : 'bg-slate-900 text-white hover:bg-indigo-700'
-            }`}
-          >
+              isResolved ? 'bg-white border border-slate-200 text-slate-400' : 'bg-slate-900 text-white hover:bg-indigo-700'
+            }`}>
             {isResolved ? <><X size={13} /> Undo</> : <><CheckCircle size={13} /> Resolve</>}
           </button>
         </div>
       </div>
 
-      {/* ── Expanded detail panel ── */}
       {expanded && (
         <div className="border-t border-white/60 bg-white/60 backdrop-blur-sm px-6 py-5 space-y-5 animate-in slide-in-from-top-2 duration-200">
-          {/* Description */}
           <div>
             <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1.5">Requirement Detail</p>
             <p className="text-sm text-slate-700 leading-relaxed">{action.description}</p>
           </div>
-
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {/* Current notes */}
             <div className="md:col-span-2">
               <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1.5 flex items-center gap-1.5"><MessageSquare size={11} /> Advisor Notes</p>
               <div className="bg-white rounded-xl border border-slate-200 px-4 py-3 text-sm text-slate-700 leading-relaxed min-h-[48px]">
                 {action.notes || <span className="text-slate-300 italic">No notes added.</span>}
               </div>
             </div>
-
-            {/* Evidence / source doc */}
             <div>
               <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1.5 flex items-center gap-1.5"><Paperclip size={11} /> Evidence</p>
               {action.evidenceLabel ? (
@@ -298,33 +260,21 @@ const ActionCard = ({
               )}
             </div>
           </div>
-
-          {/* Add note input */}
           {showNoteInput ? (
             <div className="flex gap-2 items-start">
-              <textarea
-                value={noteText}
-                onChange={e => setNoteText(e.target.value)}
-                placeholder="Add a progress note…"
-                rows={2}
-                className="flex-1 text-sm border border-slate-200 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-indigo-300 resize-none bg-white"
-              />
+              <textarea value={noteText} onChange={e => setNoteText(e.target.value)}
+                placeholder="Add a progress note…" rows={2}
+                className="flex-1 text-sm border border-slate-200 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-indigo-300 resize-none bg-white" />
               <div className="flex flex-col gap-2">
-                <button
-                  onClick={() => { onAddNote(action.id, noteText); setNoteText(''); setShowNoteInput(false); }}
-                  className="px-4 py-2.5 bg-indigo-600 text-white rounded-xl text-xs font-black hover:bg-indigo-700 transition-colors"
-                >Save</button>
-                <button
-                  onClick={() => setShowNoteInput(false)}
-                  className="px-4 py-2.5 bg-white border border-slate-200 text-slate-400 rounded-xl text-xs font-black hover:bg-slate-50 transition-colors"
-                >Cancel</button>
+                <button onClick={() => { onAddNote(action.id, noteText); setNoteText(''); setShowNoteInput(false); }}
+                  className="px-4 py-2.5 bg-indigo-600 text-white rounded-xl text-xs font-black hover:bg-indigo-700 transition-colors">Save</button>
+                <button onClick={() => setShowNoteInput(false)}
+                  className="px-4 py-2.5 bg-white border border-slate-200 text-slate-400 rounded-xl text-xs font-black hover:bg-slate-50 transition-colors">Cancel</button>
               </div>
             </div>
           ) : (
-            <button
-              onClick={() => setShowNoteInput(true)}
-              className="text-[11px] font-black uppercase tracking-wider text-indigo-500 hover:text-indigo-700 flex items-center gap-1.5 transition-colors"
-            >
+            <button onClick={() => setShowNoteInput(true)}
+              className="text-[11px] font-black uppercase tracking-wider text-indigo-500 hover:text-indigo-700 flex items-center gap-1.5 transition-colors">
               <Plus size={13} /> Add Note
             </button>
           )}
@@ -334,7 +284,6 @@ const ActionCard = ({
   );
 };
 
-// ─── Main App ─────────────────────────────────────────────────────────────────
 export default function App() {
   const [view, setView] = useState<'portfolio' | 'site'>('portfolio');
   const [dashboardTab, setDashboardTab] = useState<'analytics' | 'data'>('analytics');
@@ -344,6 +293,23 @@ export default function App() {
   const [resolvedIds, setResolvedIds] = useState<number[]>([]);
   const [filterPriority, setFilterPriority] = useState<Priority | 'all'>('all');
   const [actionNotes, setActionNotes] = useState<Record<number, string>>({});
+  const [sites, setSites] = useState<Site[]>([]);
+
+  useEffect(() => {
+    supabase.from('sites').select('*').then(({ data }) => {
+      if (data) setSites(data.map((s: any) => ({
+        id: s.id,
+        name: s.name,
+        type: s.type,
+        compliance: s.compliance_score,
+        trend: s.trend,
+        red: 0,
+        amber: 0,
+        green: 0,
+        lastReview: '—',
+      })));
+    });
+  }, []);
 
   const handleDattoSync = () => {
     setIsSyncing(true);
@@ -374,39 +340,27 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-slate-50 font-sans text-slate-900 selection:bg-indigo-100">
-
-      {/* ── Sidebar ── */}
       <aside className="fixed left-0 top-0 h-full w-20 bg-indigo-950 flex flex-col items-center py-8 gap-10 text-indigo-300 z-20">
         <div className="w-12 h-12 bg-white rounded-xl flex items-center justify-center text-indigo-950 shadow-lg font-black text-xl italic hover:scale-105 transition-transform">PE</div>
         <nav className="flex flex-col gap-6">
           <button onClick={() => { setView('portfolio'); setSelectedSite(null); }}
             className={`p-3 rounded-xl transition-all ${view === 'portfolio' ? 'bg-indigo-700 text-white shadow-inner' : 'hover:text-white hover:bg-white/5'}`}
-            title="Portfolio Dashboard">
-            <Layout size={22} />
-          </button>
+            title="Portfolio Dashboard"><Layout size={22} /></button>
           <button onClick={() => { setView('site'); setSelectedSite(sites[0]); }}
             className={`p-3 rounded-xl transition-all ${view === 'site' ? 'bg-indigo-700 text-white shadow-inner' : 'hover:text-white hover:bg-white/5'}`}
-            title="Action Plans">
-            <ClipboardList size={22} />
-          </button>
+            title="Action Plans"><ClipboardList size={22} /></button>
           <button className="p-3 rounded-xl hover:text-white hover:bg-white/5 transition-colors" title="Settings">
-            <Settings size={22} />
-          </button>
+            <Settings size={22} /></button>
         </nav>
         <div className="mt-auto flex flex-col gap-5 items-center">
           <button onClick={handleDattoSync}
             className={`p-3 rounded-xl transition-all ${isSyncing ? 'text-white animate-spin' : 'hover:text-white hover:bg-white/5'}`}
-            title="Sync with Datto Workplace">
-            <RefreshCw size={22} />
-          </button>
+            title="Sync"><RefreshCw size={22} /></button>
           <div className="w-10 h-10 rounded-full bg-indigo-800 flex items-center justify-center font-black text-white text-xs border border-indigo-700">JD</div>
         </div>
       </aside>
 
-      {/* ── Main ── */}
       <main className="pl-20">
-
-        {/* Header */}
         <header className="bg-white/95 backdrop-blur-sm border-b border-slate-200 px-8 py-4 flex items-center justify-between sticky top-0 z-10">
           <div className="flex items-center gap-3">
             {view === 'site' && (
@@ -429,25 +383,17 @@ export default function App() {
             <div className="hidden lg:flex bg-slate-100 p-1 rounded-xl">
               <button onClick={() => { setView('portfolio'); setSelectedSite(null); }}
                 className={`px-4 py-1.5 text-[10px] font-black uppercase rounded-lg transition-all ${view === 'portfolio' ? 'bg-white shadow-sm text-indigo-600' : 'text-slate-400 hover:text-slate-600'}`}>
-                Dashboard
-              </button>
+                Dashboard</button>
               <button onClick={() => { setView('site'); setSelectedSite(sites[0]); }}
                 className={`px-4 py-1.5 text-[10px] font-black uppercase rounded-lg transition-all ${view === 'site' ? 'bg-white shadow-sm text-indigo-600' : 'text-slate-400 hover:text-slate-600'}`}>
-                Action Plan
-              </button>
+                Action Plan</button>
             </div>
           </div>
         </header>
 
         <div className="p-8 max-w-7xl mx-auto">
-
-          {/* ══════════════════════════════════════════════════════
-              PORTFOLIO VIEW
-          ══════════════════════════════════════════════════════ */}
           {view === 'portfolio' && (
             <div className="space-y-8 animate-in fade-in duration-500">
-
-              {/* Hero banner */}
               <div className="bg-gradient-to-br from-indigo-900 via-indigo-950 to-slate-900 rounded-3xl p-10 text-white flex flex-col lg:flex-row justify-between items-start lg:items-center gap-8 shadow-2xl relative overflow-hidden">
                 <div className="absolute top-0 right-0 w-96 h-96 bg-indigo-500 rounded-full -mr-32 -mt-32 blur-[100px] opacity-20 pointer-events-none" />
                 <div className="absolute bottom-0 left-1/3 w-64 h-64 bg-violet-600 rounded-full -mb-32 blur-[80px] opacity-10 pointer-events-none" />
@@ -470,7 +416,6 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Tabs */}
               <div className="flex border-b border-slate-200 gap-6">
                 {[
                   { key: 'analytics', label: 'Visual Analytics', icon: <BarChart3 size={14} /> },
@@ -480,18 +425,14 @@ export default function App() {
                     onClick={() => setDashboardTab(tab.key as 'analytics' | 'data')}
                     className={`pb-4 px-1 text-[11px] font-black uppercase tracking-widest flex items-center gap-2 border-b-2 transition-all ${
                       dashboardTab === tab.key ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-slate-400 hover:text-slate-600'
-                    }`}
-                  >
+                    }`}>
                     {tab.icon} {tab.label}
                   </button>
                 ))}
               </div>
 
-              {/* Analytics tab */}
               {dashboardTab === 'analytics' && (
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 animate-in slide-in-from-bottom-4 duration-500">
-
-                  {/* Compliance bars */}
                   <div className="lg:col-span-2 bg-white rounded-3xl border border-slate-200 p-8 shadow-sm">
                     <div className="flex items-center justify-between mb-8">
                       <h3 className="font-black text-slate-900 text-lg tracking-tight uppercase">Compliance Benchmarking</h3>
@@ -516,27 +457,22 @@ export default function App() {
                             </div>
                           </div>
                           <div className="w-full bg-slate-100 h-3 rounded-full overflow-hidden shadow-inner">
-                            <div
-                              className={`h-full rounded-full transition-all duration-1000 ${site.compliance >= 90 ? 'bg-emerald-500' : site.compliance >= 75 ? 'bg-indigo-500' : 'bg-rose-500'}`}
-                              style={{ width: `${site.compliance}%` }}
-                            />
+                            <div className={`h-full rounded-full transition-all duration-1000 ${site.compliance >= 90 ? 'bg-emerald-500' : site.compliance >= 75 ? 'bg-indigo-500' : 'bg-rose-500'}`}
+                              style={{ width: `${site.compliance}%` }} />
                           </div>
                         </div>
                       ))}
                     </div>
                   </div>
 
-                  {/* Risk summary */}
                   <div className="bg-white rounded-3xl border border-slate-200 p-8 shadow-sm flex flex-col">
                     <h3 className="font-black text-slate-900 text-lg tracking-tight uppercase mb-6">Action Summary</h3>
                     <div className="flex-1 flex flex-col justify-center items-center">
-                      {/* Big ring */}
                       <div className="relative w-36 h-36 flex items-center justify-center mb-6">
                         <svg className="w-full h-full -rotate-90" viewBox="0 0 160 160">
                           <circle cx="80" cy="80" r="70" stroke="#f1f5f9" strokeWidth="16" fill="none" />
                           <circle cx="80" cy="80" r="70" stroke="#f43f5e" strokeWidth="16" fill="none"
-                            strokeDasharray="440" strokeDashoffset="418"
-                            strokeLinecap="round" />
+                            strokeDasharray="440" strokeDashoffset="418" strokeLinecap="round" />
                         </svg>
                         <div className="absolute text-center">
                           <p className="text-3xl font-black text-slate-900 leading-none">{allActions.length}</p>
@@ -558,7 +494,6 @@ export default function App() {
                     </div>
                   </div>
 
-                  {/* Site cards strip */}
                   <div className="lg:col-span-3 grid grid-cols-2 md:grid-cols-4 gap-4">
                     {sites.map(site => (
                       <div key={site.id}
@@ -582,7 +517,6 @@ export default function App() {
                 </div>
               )}
 
-              {/* Registry tab */}
               {dashboardTab === 'data' && (
                 <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden animate-in slide-in-from-bottom-4 duration-500">
                   <table className="w-full text-left">
@@ -620,9 +554,7 @@ export default function App() {
                             </div>
                           </td>
                           <td className="px-8 py-5">
-                            <div className="flex items-center gap-3">
-                              <ComplianceRing score={site.compliance} size={40} />
-                            </div>
+                            <ComplianceRing score={site.compliance} size={40} />
                           </td>
                           <td className="px-8 py-5 text-sm font-bold text-slate-600">{site.lastReview}</td>
                           <td className="px-8 py-5 text-right">
@@ -637,13 +569,8 @@ export default function App() {
             </div>
           )}
 
-          {/* ══════════════════════════════════════════════════════
-              SITE ACTION PLAN VIEW
-          ══════════════════════════════════════════════════════ */}
           {view === 'site' && selectedSite && (
             <div className="space-y-6 animate-in slide-in-from-right-8 duration-400">
-
-              {/* Site header card */}
               <div className="bg-white border border-slate-200 p-8 rounded-3xl shadow-sm relative overflow-hidden border-l-[8px] border-l-indigo-600">
                 <div className="absolute inset-0 bg-gradient-to-r from-indigo-50/40 to-transparent pointer-events-none" />
                 <div className="relative flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
@@ -663,16 +590,13 @@ export default function App() {
                   </div>
                   <div className="flex gap-3">
                     <button className="bg-slate-100 text-slate-600 px-6 py-2.5 rounded-xl text-[11px] font-black uppercase tracking-widest hover:bg-slate-200 transition-all">
-                      Audit Archive
-                    </button>
+                      Audit Archive</button>
                     <button className="bg-indigo-600 text-white px-6 py-2.5 rounded-xl text-[11px] font-black uppercase tracking-widest shadow-lg hover:bg-indigo-700 transition-all">
-                      Export Plan
-                    </button>
+                      Export Plan</button>
                   </div>
                 </div>
               </div>
 
-              {/* Stats strip */}
               <div className="grid grid-cols-3 gap-4">
                 {[
                   { label: 'Open Actions', value: openCount, color: 'text-slate-900', sub: 'requires attention' },
@@ -687,12 +611,10 @@ export default function App() {
                 ))}
               </div>
 
-              {/* Filter bar */}
               <div className="flex items-center gap-2 flex-wrap">
                 <span className="text-[10px] font-black uppercase tracking-widest text-slate-400 mr-2">Filter:</span>
                 {(['all', 'red', 'amber', 'green'] as const).map(f => (
-                  <button key={f}
-                    onClick={() => setFilterPriority(f)}
+                  <button key={f} onClick={() => setFilterPriority(f)}
                     className={`px-4 py-2 rounded-xl text-[11px] font-black uppercase tracking-wider border transition-all ${
                       filterPriority === f
                         ? f === 'all' ? 'bg-slate-900 text-white border-slate-900'
@@ -700,20 +622,14 @@ export default function App() {
                           : f === 'amber' ? 'bg-amber-500 text-white border-amber-500'
                           : 'bg-emerald-600 text-white border-emerald-600'
                         : 'bg-white text-slate-500 border-slate-200 hover:border-slate-300'
-                    }`}
-                  >
+                    }`}>
                     {f === 'all' ? 'All' : f === 'red' ? 'Critical' : f === 'amber' ? 'Upcoming' : 'Scheduled'}
-                    {f !== 'all' && (
-                      <span className="ml-1.5 opacity-70">
-                        ({siteActions.filter(a => a.priority === f).length})
-                      </span>
-                    )}
+                    {f !== 'all' && <span className="ml-1.5 opacity-70">({siteActions.filter(a => a.priority === f).length})</span>}
                   </button>
                 ))}
                 <span className="ml-auto text-[11px] font-bold text-slate-400">{filteredActions.length} action{filteredActions.length !== 1 ? 's' : ''}</span>
               </div>
 
-              {/* Action cards */}
               <div className="space-y-3">
                 {filteredActions.length === 0 ? (
                   <div className="bg-white rounded-2xl border border-slate-200 p-12 text-center">
@@ -734,19 +650,16 @@ export default function App() {
                 )}
               </div>
 
-              {/* Site switcher */}
               <div className="pt-2">
                 <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-3">Switch Site</p>
                 <div className="flex gap-3 flex-wrap">
                   {sites.map(site => (
-                    <button key={site.id}
-                      onClick={() => setSelectedSite(site)}
+                    <button key={site.id} onClick={() => setSelectedSite(site)}
                       className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-black border transition-all ${
                         selectedSite.id === site.id
                           ? 'bg-indigo-600 text-white border-indigo-600 shadow-md'
                           : 'bg-white text-slate-600 border-slate-200 hover:border-indigo-300 hover:text-indigo-600'
-                      }`}
-                    >
+                      }`}>
                       {getSiteIcon(site.type, 14)}
                       {site.name}
                     </button>
