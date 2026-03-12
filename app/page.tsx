@@ -1,12 +1,12 @@
 "use client";
 import React, { useState, useEffect } from 'react';
 import {
-  ShieldAlert, ChevronRight, Building2, ClipboardList, AlertCircle,
-  CheckCircle2, FileText, ArrowLeft, User, Layout, MapPin,
-  Clock, Briefcase, Factory, Wrench, RefreshCw, Database, ExternalLink,
-  CheckCircle, Settings, LogOut, Truck, PenTool, BarChart3, TrendingUp,
-  ChevronDown, ChevronUp, Paperclip, MessageSquare, HardHat, Calendar,
-  Zap, AlertTriangle, Target, Activity, Shield, ArrowUpRight, X, Plus
+  ChevronRight, Building2, ClipboardList,
+  CheckCircle2, FileText, ArrowLeft, User, Layout,
+  Clock, Factory, Wrench, RefreshCw, Database, ExternalLink,
+  CheckCircle, Settings, Truck, PenTool, BarChart3, TrendingUp,
+  ChevronDown, ChevronUp, Paperclip, MessageSquare, HardHat,
+  Zap, Shield, ArrowUpRight, X, Plus, LogOut, Lock, Mail
 } from 'lucide-react';
 import { supabase } from './lib/supabase';
 
@@ -30,7 +30,7 @@ interface Action {
 }
 
 interface Site {
-  id: number;
+  id: string;
   name: string;
   type: string;
   red: number;
@@ -39,6 +39,11 @@ interface Site {
   compliance: number;
   lastReview: string;
   trend: number;
+}
+
+interface Profile {
+  role: 'advisor' | 'client';
+  site_id: string | null;
 }
 
 const allActions: Action[] = [
@@ -132,10 +137,10 @@ const allActions: Action[] = [
 
 const getSiteIcon = (type: string, size = 20) => {
   switch (type) {
-    case 'Manufacturing': return <Factory size={size} />;
-    case 'Workshop': return <Wrench size={size} />;
-    case 'Logistics': return <Truck size={size} />;
-    case 'Office': return <PenTool size={size} />;
+    case 'Manufacturing': case 'MANUFACTURING': return <Factory size={size} />;
+    case 'Workshop': case 'WORKSHOP': return <Wrench size={size} />;
+    case 'Logistics': case 'LOGISTICS': return <Truck size={size} />;
+    case 'Office': case 'OFFICE': return <PenTool size={size} />;
     default: return <Building2 size={size} />;
   }
 };
@@ -230,9 +235,8 @@ const ActionCard = ({
           </button>
         </div>
       </div>
-
       {expanded && (
-        <div className="border-t border-white/60 bg-white/60 backdrop-blur-sm px-6 py-5 space-y-5 animate-in slide-in-from-top-2 duration-200">
+        <div className="border-t border-white/60 bg-white/60 backdrop-blur-sm px-6 py-5 space-y-5">
           <div>
             <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1.5">Requirement Detail</p>
             <p className="text-sm text-slate-700 leading-relaxed">{action.description}</p>
@@ -284,7 +288,87 @@ const ActionCard = ({
   );
 };
 
+// ─── Login Screen ─────────────────────────────────────────────────────────────
+const LoginScreen = ({ onLogin }: { onLogin: () => void }) => {
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  const handleLogin = async () => {
+    setLoading(true);
+    setError('');
+    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    if (error) {
+      setError('Invalid email or password');
+      setLoading(false);
+    } else {
+      onLogin();
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-indigo-950 flex items-center justify-center p-4">
+      <div className="w-full max-w-md">
+        <div className="text-center mb-8">
+          <div className="w-16 h-16 bg-white rounded-2xl flex items-center justify-center text-indigo-950 font-black text-2xl mx-auto mb-4 shadow-xl">MB</div>
+          <h1 className="text-2xl font-black text-white tracking-tight">McCormack Benson</h1>
+          <p className="text-indigo-300 text-sm mt-1">H&S Compliance Portal</p>
+        </div>
+        <div className="bg-white rounded-3xl p-8 shadow-2xl">
+          <h2 className="text-lg font-black text-slate-900 mb-6">Sign in to your account</h2>
+          {error && (
+            <div className="bg-rose-50 border border-rose-200 text-rose-700 text-sm font-bold px-4 py-3 rounded-xl mb-4">
+              {error}
+            </div>
+          )}
+          <div className="space-y-4">
+            <div>
+              <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1.5 block">Email</label>
+              <div className="relative">
+                <Mail size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300" />
+                <input
+                  type="email"
+                  value={email}
+                  onChange={e => setEmail(e.target.value)}
+                  placeholder="you@company.com"
+                  className="w-full pl-10 pr-4 py-3 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
+                />
+              </div>
+            </div>
+            <div>
+              <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1.5 block">Password</label>
+              <div className="relative">
+                <Lock size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300" />
+                <input
+                  type="password"
+                  value={password}
+                  onChange={e => setPassword(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && handleLogin()}
+                  placeholder="••••••••"
+                  className="w-full pl-10 pr-4 py-3 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
+                />
+              </div>
+            </div>
+            <button
+              onClick={handleLogin}
+              disabled={loading}
+              className="w-full bg-indigo-600 text-white py-3 rounded-xl font-black text-sm uppercase tracking-wider hover:bg-indigo-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed mt-2"
+            >
+              {loading ? 'Signing in...' : 'Sign In'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ─── Main App ─────────────────────────────────────────────────────────────────
 export default function App() {
+  const [user, setUser] = useState<any>(null);
+  const [profile, setProfile] = useState<Profile | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
   const [view, setView] = useState<'portfolio' | 'site'>('portfolio');
   const [dashboardTab, setDashboardTab] = useState<'analytics' | 'data'>('analytics');
   const [selectedSite, setSelectedSite] = useState<Site | null>(null);
@@ -296,20 +380,53 @@ export default function App() {
   const [sites, setSites] = useState<Site[]>([]);
 
   useEffect(() => {
-    supabase.from('sites').select('*').then(({ data }) => {
-      if (data) setSites(data.map((s: any) => ({
-        id: s.id,
-        name: s.name,
-        type: s.type,
-        compliance: s.compliance_score,
-        trend: s.trend,
-        red: 0,
-        amber: 0,
-        green: 0,
-        lastReview: '—',
-      })));
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setUser(session?.user ?? null);
+      setAuthLoading(false);
     });
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user ?? null);
+    });
+    return () => subscription.unsubscribe();
   }, []);
+
+  useEffect(() => {
+    if (!user) return;
+    supabase.from('profiles').select('*').eq('id', user.id).single().then(({ data }) => {
+      if (data) setProfile(data);
+    });
+  }, [user]);
+
+  useEffect(() => {
+    if (!user) return;
+    supabase.from('sites').select('*').then(({ data }) => {
+      if (data) {
+        let mapped = data.map((s: any) => ({
+          id: s.id,
+          name: s.name,
+          type: s.type,
+          compliance: s.compliance_score,
+          trend: s.trend,
+          red: 0,
+          amber: 0,
+          green: 0,
+          lastReview: '—',
+        }));
+        if (profile?.role === 'client' && profile.site_id) {
+          mapped = mapped.filter((s: Site) => s.id === profile.site_id);
+        }
+        setSites(mapped);
+        if (mapped.length > 0) setSelectedSite(mapped[0]);
+      }
+    });
+  }, [user, profile]);
+
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+    setUser(null);
+    setProfile(null);
+    setSites([]);
+  };
 
   const handleDattoSync = () => {
     setIsSyncing(true);
@@ -338,38 +455,55 @@ export default function App() {
   const criticalCount = allActions.filter(a => a.priority === 'red').length;
   const upcomingCount = allActions.filter(a => a.priority === 'amber').length;
 
+  if (authLoading) return (
+    <div className="min-h-screen bg-indigo-950 flex items-center justify-center">
+      <div className="text-indigo-300 font-black text-sm uppercase tracking-widest animate-pulse">Loading...</div>
+    </div>
+  );
+
+  if (!user) return <LoginScreen onLogin={() => {}} />;
+
   return (
     <div className="min-h-screen bg-slate-50 font-sans text-slate-900 selection:bg-indigo-100">
       <aside className="fixed left-0 top-0 h-full w-20 bg-indigo-950 flex flex-col items-center py-8 gap-10 text-indigo-300 z-20">
-        <div className="w-12 h-12 bg-white rounded-xl flex items-center justify-center text-indigo-950 shadow-lg font-black text-xl italic hover:scale-105 transition-transform">PE</div>
+        <div className="w-12 h-12 bg-white rounded-xl flex items-center justify-center text-indigo-950 shadow-lg font-black text-xl italic hover:scale-105 transition-transform">MB</div>
         <nav className="flex flex-col gap-6">
-          <button onClick={() => { setView('portfolio'); setSelectedSite(null); }}
-            className={`p-3 rounded-xl transition-all ${view === 'portfolio' ? 'bg-indigo-700 text-white shadow-inner' : 'hover:text-white hover:bg-white/5'}`}
-            title="Portfolio Dashboard"><Layout size={22} /></button>
-          <button onClick={() => { setView('site'); setSelectedSite(sites[0]); }}
+          {profile?.role === 'advisor' && (
+            <button onClick={() => { setView('portfolio'); setSelectedSite(null); }}
+              className={`p-3 rounded-xl transition-all ${view === 'portfolio' ? 'bg-indigo-700 text-white shadow-inner' : 'hover:text-white hover:bg-white/5'}`}
+              title="Portfolio Dashboard"><Layout size={22} /></button>
+          )}
+          <button onClick={() => { setView('site'); if (sites.length > 0) setSelectedSite(sites[0]); }}
             className={`p-3 rounded-xl transition-all ${view === 'site' ? 'bg-indigo-700 text-white shadow-inner' : 'hover:text-white hover:bg-white/5'}`}
             title="Action Plans"><ClipboardList size={22} /></button>
           <button className="p-3 rounded-xl hover:text-white hover:bg-white/5 transition-colors" title="Settings">
             <Settings size={22} /></button>
         </nav>
         <div className="mt-auto flex flex-col gap-5 items-center">
-          <button onClick={handleDattoSync}
-            className={`p-3 rounded-xl transition-all ${isSyncing ? 'text-white animate-spin' : 'hover:text-white hover:bg-white/5'}`}
-            title="Sync"><RefreshCw size={22} /></button>
-          <div className="w-10 h-10 rounded-full bg-indigo-800 flex items-center justify-center font-black text-white text-xs border border-indigo-700">JD</div>
+          {profile?.role === 'advisor' && (
+            <button onClick={handleDattoSync}
+              className={`p-3 rounded-xl transition-all ${isSyncing ? 'text-white animate-spin' : 'hover:text-white hover:bg-white/5'}`}
+              title="Sync"><RefreshCw size={22} /></button>
+          )}
+          <button onClick={handleLogout} className="p-3 rounded-xl hover:text-white hover:bg-white/5 transition-colors" title="Sign out">
+            <LogOut size={22} />
+          </button>
+          <div className="w-10 h-10 rounded-full bg-indigo-800 flex items-center justify-center font-black text-white text-xs border border-indigo-700">
+            {user.email?.substring(0, 2).toUpperCase()}
+          </div>
         </div>
       </aside>
 
       <main className="pl-20">
         <header className="bg-white/95 backdrop-blur-sm border-b border-slate-200 px-8 py-4 flex items-center justify-between sticky top-0 z-10">
           <div className="flex items-center gap-3">
-            {view === 'site' && (
+            {view === 'site' && profile?.role === 'advisor' && (
               <button onClick={() => setView('portfolio')} className="p-2 hover:bg-slate-100 rounded-lg text-slate-400 transition-colors">
                 <ArrowLeft size={18} />
               </button>
             )}
             <div>
-              <h1 className="text-base font-black text-slate-900 tracking-tight leading-none">Precision Engineering Ltd</h1>
+              <h1 className="text-base font-black text-slate-900 tracking-tight leading-none">McCormack Benson H&S</h1>
               <div className="flex items-center gap-2 text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1">
                 <Database size={9} /> <span>Portal Sync: {syncLastRun}</span>
               </div>
@@ -377,30 +511,31 @@ export default function App() {
           </div>
           <div className="flex items-center gap-5">
             <div className="text-right hidden sm:block">
-              <p className="text-xs font-black text-slate-800">Operations Director</p>
-              <p className="text-[10px] text-emerald-600 font-bold uppercase tracking-widest">● Compliant</p>
+              <p className="text-xs font-black text-slate-800">{user.email}</p>
+              <p className="text-[10px] text-indigo-600 font-bold uppercase tracking-widest">● {profile?.role}</p>
             </div>
-            <div className="hidden lg:flex bg-slate-100 p-1 rounded-xl">
-              <button onClick={() => { setView('portfolio'); setSelectedSite(null); }}
-                className={`px-4 py-1.5 text-[10px] font-black uppercase rounded-lg transition-all ${view === 'portfolio' ? 'bg-white shadow-sm text-indigo-600' : 'text-slate-400 hover:text-slate-600'}`}>
-                Dashboard</button>
-              <button onClick={() => { setView('site'); setSelectedSite(sites[0]); }}
-                className={`px-4 py-1.5 text-[10px] font-black uppercase rounded-lg transition-all ${view === 'site' ? 'bg-white shadow-sm text-indigo-600' : 'text-slate-400 hover:text-slate-600'}`}>
-                Action Plan</button>
-            </div>
+            {profile?.role === 'advisor' && (
+              <div className="hidden lg:flex bg-slate-100 p-1 rounded-xl">
+                <button onClick={() => { setView('portfolio'); setSelectedSite(null); }}
+                  className={`px-4 py-1.5 text-[10px] font-black uppercase rounded-lg transition-all ${view === 'portfolio' ? 'bg-white shadow-sm text-indigo-600' : 'text-slate-400 hover:text-slate-600'}`}>
+                  Dashboard</button>
+                <button onClick={() => { setView('site'); if (sites.length > 0) setSelectedSite(sites[0]); }}
+                  className={`px-4 py-1.5 text-[10px] font-black uppercase rounded-lg transition-all ${view === 'site' ? 'bg-white shadow-sm text-indigo-600' : 'text-slate-400 hover:text-slate-600'}`}>
+                  Action Plan</button>
+              </div>
+            )}
           </div>
         </header>
 
         <div className="p-8 max-w-7xl mx-auto">
-          {view === 'portfolio' && (
+          {view === 'portfolio' && profile?.role === 'advisor' && (
             <div className="space-y-8 animate-in fade-in duration-500">
               <div className="bg-gradient-to-br from-indigo-900 via-indigo-950 to-slate-900 rounded-3xl p-10 text-white flex flex-col lg:flex-row justify-between items-start lg:items-center gap-8 shadow-2xl relative overflow-hidden">
                 <div className="absolute top-0 right-0 w-96 h-96 bg-indigo-500 rounded-full -mr-32 -mt-32 blur-[100px] opacity-20 pointer-events-none" />
-                <div className="absolute bottom-0 left-1/3 w-64 h-64 bg-violet-600 rounded-full -mb-32 blur-[80px] opacity-10 pointer-events-none" />
                 <div className="relative z-10">
                   <span className="text-[10px] font-black uppercase tracking-[0.3em] text-indigo-300">Executive Summary</span>
                   <h2 className="text-4xl font-black tracking-tighter mt-2">Divisional Compliance</h2>
-                  <p className="text-indigo-300 mt-2 max-w-md text-sm">Real-time H&S status across all manufacturing departments and sites.</p>
+                  <p className="text-indigo-300 mt-2 max-w-md text-sm">Real-time H&S status across all sites.</p>
                 </div>
                 <div className="flex gap-4 relative z-10">
                   {[
@@ -432,7 +567,7 @@ export default function App() {
               </div>
 
               {dashboardTab === 'analytics' && (
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 animate-in slide-in-from-bottom-4 duration-500">
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                   <div className="lg:col-span-2 bg-white rounded-3xl border border-slate-200 p-8 shadow-sm">
                     <div className="flex items-center justify-between mb-8">
                       <h3 className="font-black text-slate-900 text-lg tracking-tight uppercase">Compliance Benchmarking</h3>
@@ -518,7 +653,7 @@ export default function App() {
               )}
 
               {dashboardTab === 'data' && (
-                <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden animate-in slide-in-from-bottom-4 duration-500">
+                <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
                   <table className="w-full text-left">
                     <thead>
                       <tr className="bg-slate-50/80 text-[10px] uppercase font-black text-slate-400 border-b border-slate-100">
@@ -532,9 +667,7 @@ export default function App() {
                     </thead>
                     <tbody className="divide-y divide-slate-100">
                       {sites.map(site => (
-                        <tr key={site.id}
-                          className="hover:bg-indigo-50/30 transition-colors cursor-pointer group"
-                          onClick={() => handleSiteClick(site)}>
+                        <tr key={site.id} className="hover:bg-indigo-50/30 transition-colors cursor-pointer group" onClick={() => handleSiteClick(site)}>
                           <td className="px-8 py-5">
                             <div className="flex items-center gap-3">
                               <div className="w-10 h-10 bg-slate-50 rounded-xl flex items-center justify-center text-slate-400 group-hover:bg-indigo-600 group-hover:text-white transition-all shadow-sm">
@@ -543,9 +676,7 @@ export default function App() {
                               <span className="font-bold text-slate-800">{site.name}</span>
                             </div>
                           </td>
-                          <td className="px-8 py-5">
-                            <span className="text-[11px] font-black uppercase tracking-wider text-slate-500 bg-slate-50 border border-slate-100 px-3 py-1 rounded-lg">{site.type}</span>
-                          </td>
+                          <td className="px-8 py-5"><span className="text-[11px] font-black uppercase tracking-wider text-slate-500 bg-slate-50 border border-slate-100 px-3 py-1 rounded-lg">{site.type}</span></td>
                           <td className="px-8 py-5">
                             <div className="flex gap-1.5">
                               {site.red > 0 && <StatusBadge type="red" count={site.red} />}
@@ -553,13 +684,9 @@ export default function App() {
                               <StatusBadge type="green" count={site.green} />
                             </div>
                           </td>
-                          <td className="px-8 py-5">
-                            <ComplianceRing score={site.compliance} size={40} />
-                          </td>
+                          <td className="px-8 py-5"><ComplianceRing score={site.compliance} size={40} /></td>
                           <td className="px-8 py-5 text-sm font-bold text-slate-600">{site.lastReview}</td>
-                          <td className="px-8 py-5 text-right">
-                            <ChevronRight size={16} className="text-slate-300 inline group-hover:translate-x-1 transition-transform" />
-                          </td>
+                          <td className="px-8 py-5 text-right"><ChevronRight size={16} className="text-slate-300 inline group-hover:translate-x-1 transition-transform" /></td>
                         </tr>
                       ))}
                     </tbody>
@@ -589,10 +716,8 @@ export default function App() {
                     </div>
                   </div>
                   <div className="flex gap-3">
-                    <button className="bg-slate-100 text-slate-600 px-6 py-2.5 rounded-xl text-[11px] font-black uppercase tracking-widest hover:bg-slate-200 transition-all">
-                      Audit Archive</button>
-                    <button className="bg-indigo-600 text-white px-6 py-2.5 rounded-xl text-[11px] font-black uppercase tracking-widest shadow-lg hover:bg-indigo-700 transition-all">
-                      Export Plan</button>
+                    <button className="bg-slate-100 text-slate-600 px-6 py-2.5 rounded-xl text-[11px] font-black uppercase tracking-widest hover:bg-slate-200 transition-all">Audit Archive</button>
+                    <button className="bg-indigo-600 text-white px-6 py-2.5 rounded-xl text-[11px] font-black uppercase tracking-widest shadow-lg hover:bg-indigo-700 transition-all">Export Plan</button>
                   </div>
                 </div>
               </div>
@@ -639,8 +764,7 @@ export default function App() {
                   </div>
                 ) : (
                   filteredActions.map(action => (
-                    <ActionCard
-                      key={action.id}
+                    <ActionCard key={action.id}
                       action={{ ...action, notes: actionNotes[action.id] || action.notes }}
                       isResolved={resolvedIds.includes(action.id)}
                       onToggleResolve={toggleResolve}
@@ -650,22 +774,24 @@ export default function App() {
                 )}
               </div>
 
-              <div className="pt-2">
-                <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-3">Switch Site</p>
-                <div className="flex gap-3 flex-wrap">
-                  {sites.map(site => (
-                    <button key={site.id} onClick={() => setSelectedSite(site)}
-                      className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-black border transition-all ${
-                        selectedSite.id === site.id
-                          ? 'bg-indigo-600 text-white border-indigo-600 shadow-md'
-                          : 'bg-white text-slate-600 border-slate-200 hover:border-indigo-300 hover:text-indigo-600'
-                      }`}>
-                      {getSiteIcon(site.type, 14)}
-                      {site.name}
-                    </button>
-                  ))}
+              {profile?.role === 'advisor' && sites.length > 1 && (
+                <div className="pt-2">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-3">Switch Site</p>
+                  <div className="flex gap-3 flex-wrap">
+                    {sites.map(site => (
+                      <button key={site.id} onClick={() => setSelectedSite(site)}
+                        className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-black border transition-all ${
+                          selectedSite.id === site.id
+                            ? 'bg-indigo-600 text-white border-indigo-600 shadow-md'
+                            : 'bg-white text-slate-600 border-slate-200 hover:border-indigo-300 hover:text-indigo-600'
+                        }`}>
+                        {getSiteIcon(site.type, 14)}
+                        {site.name}
+                      </button>
+                    ))}
+                  </div>
                 </div>
-              </div>
+              )}
             </div>
           )}
         </div>
