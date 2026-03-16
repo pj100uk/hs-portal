@@ -1,8 +1,7 @@
 node_modules
 .env.local
 .next
-git"test-download/" 
-"test.docx" 
-"test2.docx" 
-"datto-test.js" 
-.next 
+test-download/
+test.docx
+test2.docx
+datto-test.js
