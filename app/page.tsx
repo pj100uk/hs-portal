@@ -14,7 +14,7 @@ type Priority = 'red' | 'amber' | 'green';
 type ActionStatus = 'open' | 'resolved';
 
 interface Action {
-  id: number;
+  id: string;
   action: string;
   description: string;
   date: string;
@@ -45,95 +45,6 @@ interface Profile {
   role: 'advisor' | 'client';
   site_id: string | null;
 }
-
-const allActions: Action[] = [
-  {
-    id: 1,
-    action: "Install interlocking guarding on CNC Milling Machine #08",
-    description: "Machine #08 currently has no interlocking guard fitted to the spindle access panel. Risk of entanglement with rotating parts during operation. Immediate isolation and guarding required before return to service.",
-    date: "2024-03-01",
-    site: "Main Assembly Factory",
-    who: "Factory Manager",
-    contractor: "SafeGuard Engineering Ltd",
-    source: "PUWER Audit — Feb 2024",
-    priority: "red",
-    regulation: "PUWER 1998, Reg. 11",
-    notes: "Machine has been isolated pending repair. Contractor quotation received — awaiting sign-off.",
-    evidenceLabel: "PUWER_Audit_Feb24.pdf",
-    status: "open",
-  },
-  {
-    id: 2,
-    action: "Thorough examination of LEV system in grinding bay",
-    description: "The local exhaust ventilation (LEV) system serving the grinding bay is overdue its 14-month statutory thorough examination. Airborne dust levels may exceed WELs without confirmed extraction performance.",
-    date: "2024-03-05",
-    site: "Tooling & Die Workshop",
-    who: "Workshop Lead",
-    contractor: "AirCheck Compliance Services",
-    source: "LEV Certification Log",
-    priority: "red",
-    regulation: "COSHH 2002, Reg. 9",
-    notes: "Annual certificate expired Jan 2024. Contractor booked for w/c 04 March.",
-    evidenceLabel: "LEV_Cert_Expired_Jan24.pdf",
-    status: "open",
-  },
-  {
-    id: 3,
-    action: "Replace damaged racking uprights in Aisle 4",
-    description: "Two uprights in Aisle 4 show visible impact damage at base plate level, reducing rated load capacity. Area has been cordoned off. Structural assessment and replacement required before re-use.",
-    date: "2024-03-12",
-    site: "Logistics & Storage Hub",
-    who: "Warehouse Supervisor",
-    contractor: "RackSafe Ltd",
-    source: "Racking Inspection — Jan 2024",
-    priority: "amber",
-    regulation: "PUWER 1998 / SEMA CoP",
-    notes: "Aisle 4 cordoned with barrier tape. Awaiting structural engineer sign-off on adjacent bays.",
-    evidenceLabel: "Racking_Inspection_Jan24.pdf",
-    status: "open",
-  },
-  {
-    id: 4,
-    action: "Update Display Screen Equipment assessments for design team",
-    description: "DSE self-assessments for 8 members of the design team are due for renewal. Three staff members have raised musculoskeletal concerns in recent months which should be captured in updated assessments.",
-    date: "2024-04-05",
-    site: "Design & R&D Studio",
-    who: "Studio Lead",
-    source: "DSE Review Schedule",
-    priority: "green",
-    regulation: "DSE Regulations 1992",
-    notes: "Template updated. Team lead to distribute and collect by end of March.",
-    status: "open",
-  },
-  {
-    id: 5,
-    action: "Review and update site-specific COSHH inventory for new adhesive compounds",
-    description: "Two new adhesive compounds (Araldite 2047 and Loctite 3090) have been introduced to the assembly process without formal COSHH assessment. Safety data sheets received but assessments not yet completed.",
-    date: "2024-03-20",
-    site: "Main Assembly Factory",
-    who: "Factory Manager",
-    source: "COSHH Register Review",
-    priority: "amber",
-    regulation: "COSHH 2002",
-    notes: "SDSs filed. H&S Advisor to complete assessments during site visit w/c 18 March.",
-    status: "open",
-  },
-  {
-    id: 6,
-    action: "Renew forklift operator certifications for 3 warehouse staff",
-    description: "Certificates for operators J. Patel, R. Clarke, and M. Osei expired in February 2024. Operators must not use FLT equipment until renewed certification is in place.",
-    date: "2024-03-08",
-    site: "Logistics & Storage Hub",
-    who: "Warehouse Supervisor",
-    contractor: "RTITB Accredited Training Centre",
-    source: "Training Matrix — Q1 Review",
-    priority: "amber",
-    regulation: "LOLER 1998 / ACOP L117",
-    notes: "Operators temporarily reassigned to ground duties. Training course confirmed for 07 March.",
-    evidenceLabel: "Training_Matrix_Q1_2024.xlsx",
-    status: "open",
-  },
-];
 
 const getSiteIcon = (type: string, size = 20) => {
   switch (type) {
@@ -183,8 +94,8 @@ const ActionCard = ({
   action, isResolved, onToggleResolve, onAddNote,
 }: {
   action: Action; isResolved: boolean;
-  onToggleResolve: (id: number) => void;
-  onAddNote: (id: number, note: string) => void;
+  onToggleResolve: (id: string) => void;
+  onAddNote: (id: string, note: string) => void;
 }) => {
   const [expanded, setExpanded] = useState(false);
   const [noteText, setNoteText] = useState('');
@@ -212,14 +123,16 @@ const ActionCard = ({
           </div>
           <div className="flex flex-wrap gap-x-8 gap-y-2 mt-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider">
             <span className="flex items-center gap-1.5"><Clock size={12} /> <span className="text-slate-700">{action.date}</span></span>
-            <span className="flex items-center gap-1.5"><User size={12} /> <span className="text-slate-700">{action.who}</span></span>
+            {action.who && <span className="flex items-center gap-1.5"><User size={12} /> <span className="text-slate-700">{action.who}</span></span>}
             {action.contractor && (
               <span className="flex items-center gap-1.5"><HardHat size={12} /> <span className="text-slate-700">{action.contractor}</span></span>
             )}
-            <span className="flex items-center gap-1.5 text-indigo-500"><Shield size={12} /> {action.regulation}</span>
-            <span className="flex items-center gap-1.5 text-indigo-400 underline decoration-indigo-200 underline-offset-2 cursor-pointer hover:text-indigo-600 transition-colors">
-              <FileText size={12} /> {action.source}
-            </span>
+            {action.regulation && <span className="flex items-center gap-1.5 text-indigo-500"><Shield size={12} /> {action.regulation}</span>}
+            {action.source && (
+              <span className="flex items-center gap-1.5 text-indigo-400 underline decoration-indigo-200 underline-offset-2 cursor-pointer hover:text-indigo-600 transition-colors">
+                <FileText size={12} /> {action.source}
+              </span>
+            )}
           </div>
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">
@@ -288,6 +201,131 @@ const ActionCard = ({
   );
 };
 
+// ─── Add Action Form ──────────────────────────────────────────────────────────
+const AddActionForm = ({ site, onSave, onCancel }: { site: Site; onSave: (action: Action) => void; onCancel: () => void }) => {
+  const [title, setTitle] = useState('');
+  const [description, setDescription] = useState('');
+  const [priority, setPriority] = useState<'critical' | 'upcoming' | 'scheduled'>('upcoming');
+  const [who, setWho] = useState('');
+  const [contractor, setContractor] = useState('');
+  const [regulation, setRegulation] = useState('');
+  const [dueDate, setDueDate] = useState('');
+  const [source, setSource] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  const priorityMap: Record<string, Priority> = { critical: 'red', upcoming: 'amber', scheduled: 'green' };
+
+  const handleSave = async () => {
+    if (!title.trim()) { setError('Title is required'); return; }
+    if (!dueDate) { setError('Target date is required'); return; }
+    setSaving(true);
+    setError('');
+    const { data, error: err } = await supabase.from('actions').insert({
+      site_id: site.id,
+      title: title.trim(),
+      description: description.trim(),
+      priority,
+      status: 'open',
+      regulation: regulation.trim(),
+      contractor: contractor.trim() || null,
+      due_date: dueDate,
+    }).select().single();
+
+    if (err) { setError('Failed to save. Please try again.'); setSaving(false); return; }
+
+    onSave({
+      id: data.id,
+      action: data.title,
+      description: data.description || '',
+      date: data.due_date,
+      site: site.name,
+      who,
+      contractor: data.contractor || '',
+      source,
+      priority: priorityMap[data.priority] as Priority,
+      regulation: data.regulation || '',
+      notes: '',
+      status: 'open',
+    });
+    setSaving(false);
+  };
+
+  const inputClass = "w-full px-4 py-3 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 bg-white";
+  const labelClass = "text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1.5 block";
+
+  return (
+    <div className="bg-white rounded-2xl border border-indigo-200 shadow-lg overflow-hidden">
+      <div className="bg-indigo-600 px-6 py-4 flex items-center justify-between">
+        <h3 className="font-black text-white uppercase tracking-widest text-sm">Add New Action</h3>
+        <button onClick={onCancel} className="text-indigo-200 hover:text-white transition-colors"><X size={18} /></button>
+      </div>
+      <div className="p-6 space-y-5">
+        {error && <div className="bg-rose-50 border border-rose-200 text-rose-700 text-sm font-bold px-4 py-3 rounded-xl">{error}</div>}
+        <div>
+          <label className={labelClass}>Action Required *</label>
+          <input value={title} onChange={e => setTitle(e.target.value)} placeholder="Describe the action required..." className={inputClass} />
+        </div>
+        <div>
+          <label className={labelClass}>Detail / Context</label>
+          <textarea value={description} onChange={e => setDescription(e.target.value)} placeholder="Additional detail or background..." rows={3} className={`${inputClass} resize-none`} />
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <label className={labelClass}>Priority *</label>
+            <div className="flex gap-2">
+              {([
+                { val: 'critical', label: 'Critical', active: 'bg-rose-600 text-white border-rose-600' },
+                { val: 'upcoming', label: 'Upcoming', active: 'bg-amber-500 text-white border-amber-500' },
+                { val: 'scheduled', label: 'Scheduled', active: 'bg-emerald-600 text-white border-emerald-600' },
+              ] as const).map(p => (
+                <button key={p.val} onClick={() => setPriority(p.val)}
+                  className={`flex-1 py-2.5 rounded-xl text-[11px] font-black border transition-all ${priority === p.val ? p.active : 'bg-white text-slate-500 border-slate-200 hover:border-slate-300'}`}>
+                  {p.label}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div>
+            <label className={labelClass}>Target Date *</label>
+            <input type="date" value={dueDate} onChange={e => setDueDate(e.target.value)} className={inputClass} />
+          </div>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <label className={labelClass}>Person Responsible</label>
+            <input value={who} onChange={e => setWho(e.target.value)} placeholder="e.g. Factory Manager" className={inputClass} />
+          </div>
+          <div>
+            <label className={labelClass}>Contractor</label>
+            <input value={contractor} onChange={e => setContractor(e.target.value)} placeholder="e.g. SafeGuard Engineering Ltd" className={inputClass} />
+          </div>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <label className={labelClass}>Regulation / Legislation</label>
+            <input value={regulation} onChange={e => setRegulation(e.target.value)} placeholder="e.g. PUWER 1998, Reg. 11" className={inputClass} />
+          </div>
+          <div>
+            <label className={labelClass}>Source Document</label>
+            <input value={source} onChange={e => setSource(e.target.value)} placeholder="e.g. Premises RA v3 03.24" className={inputClass} />
+          </div>
+        </div>
+        <div className="flex gap-3 pt-2">
+          <button onClick={handleSave} disabled={saving}
+            className="flex-1 bg-indigo-600 text-white py-3 rounded-xl font-black text-sm uppercase tracking-wider hover:bg-indigo-700 transition-all disabled:opacity-50">
+            {saving ? 'Saving...' : 'Save Action'}
+          </button>
+          <button onClick={onCancel}
+            className="px-6 py-3 bg-white border border-slate-200 text-slate-500 rounded-xl font-black text-sm uppercase tracking-wider hover:bg-slate-50 transition-all">
+            Cancel
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 // ─── Login Screen ─────────────────────────────────────────────────────────────
 const LoginScreen = ({ onLogin }: { onLogin: () => void }) => {
   const [email, setEmail] = useState('');
@@ -327,34 +365,23 @@ const LoginScreen = ({ onLogin }: { onLogin: () => void }) => {
               <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1.5 block">Email</label>
               <div className="relative">
                 <Mail size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300" />
-                <input
-                  type="email"
-                  value={email}
-                  onChange={e => setEmail(e.target.value)}
+                <input type="email" value={email} onChange={e => setEmail(e.target.value)}
                   placeholder="you@company.com"
-                  className="w-full pl-10 pr-4 py-3 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
-                />
+                  className="w-full pl-10 pr-4 py-3 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300" />
               </div>
             </div>
             <div>
               <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1.5 block">Password</label>
               <div className="relative">
                 <Lock size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300" />
-                <input
-                  type="password"
-                  value={password}
-                  onChange={e => setPassword(e.target.value)}
+                <input type="password" value={password} onChange={e => setPassword(e.target.value)}
                   onKeyDown={e => e.key === 'Enter' && handleLogin()}
                   placeholder="••••••••"
-                  className="w-full pl-10 pr-4 py-3 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
-                />
+                  className="w-full pl-10 pr-4 py-3 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300" />
               </div>
             </div>
-            <button
-              onClick={handleLogin}
-              disabled={loading}
-              className="w-full bg-indigo-600 text-white py-3 rounded-xl font-black text-sm uppercase tracking-wider hover:bg-indigo-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed mt-2"
-            >
+            <button onClick={handleLogin} disabled={loading}
+              className="w-full bg-indigo-600 text-white py-3 rounded-xl font-black text-sm uppercase tracking-wider hover:bg-indigo-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed mt-2">
               {loading ? 'Signing in...' : 'Sign In'}
             </button>
           </div>
@@ -374,10 +401,12 @@ export default function App() {
   const [selectedSite, setSelectedSite] = useState<Site | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncLastRun, setSyncLastRun] = useState('2 hours ago');
-  const [resolvedIds, setResolvedIds] = useState<number[]>([]);
+  const [resolvedIds, setResolvedIds] = useState<string[]>([]);
   const [filterPriority, setFilterPriority] = useState<Priority | 'all'>('all');
-  const [actionNotes, setActionNotes] = useState<Record<number, string>>({});
+  const [actionNotes, setActionNotes] = useState<Record<string, string>>({});
   const [sites, setSites] = useState<Site[]>([]);
+  const [allActions, setAllActions] = useState<Action[]>([]);
+  const [showAddAction, setShowAddAction] = useState(false);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -407,9 +436,7 @@ export default function App() {
           type: s.type,
           compliance: s.compliance_score,
           trend: s.trend,
-          red: 0,
-          amber: 0,
-          green: 0,
+          red: 0, amber: 0, green: 0,
           lastReview: '—',
         }));
         if (profile?.role === 'client' && profile.site_id) {
@@ -421,11 +448,32 @@ export default function App() {
     });
   }, [user, profile]);
 
+  useEffect(() => {
+    if (!user || sites.length === 0) return;
+    const priorityMap: Record<string, Priority> = { critical: 'red', upcoming: 'amber', scheduled: 'green' };
+    supabase.from('actions').select('*').then(({ data }) => {
+      if (data) {
+        setAllActions(data.map((a: any) => ({
+          id: a.id,
+          action: a.title,
+          description: a.description || '',
+          date: a.due_date || '',
+          site: sites.find(s => s.id === a.site_id)?.name || '',
+          who: '',
+          contractor: a.contractor || '',
+          source: '',
+          priority: priorityMap[a.priority] || 'green' as Priority,
+          regulation: a.regulation || '',
+          notes: '',
+          status: a.status as ActionStatus,
+        })));
+      }
+    });
+  }, [user, sites]);
+
   const handleLogout = async () => {
     await supabase.auth.signOut();
-    setUser(null);
-    setProfile(null);
-    setSites([]);
+    setUser(null); setProfile(null); setSites([]);
   };
 
   const handleDattoSync = () => {
@@ -433,23 +481,22 @@ export default function App() {
     setTimeout(() => { setIsSyncing(false); setSyncLastRun('Just now'); }, 2000);
   };
 
-  const toggleResolve = (id: number) =>
+  const toggleResolve = (id: string) =>
     setResolvedIds(prev => prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]);
 
-  const handleAddNote = (id: number, note: string) => {
+  const handleAddNote = (id: string, note: string) => {
     if (note.trim()) setActionNotes(prev => ({ ...prev, [id]: note.trim() }));
   };
 
   const handleSiteClick = (site: Site) => { setSelectedSite(site); setView('site'); };
 
-  const siteActions = selectedSite
-    ? allActions.filter(a => a.site === selectedSite.name)
-    : allActions;
+  const handleActionSaved = (action: Action) => {
+    setAllActions(prev => [...prev, action]);
+    setShowAddAction(false);
+  };
 
-  const filteredActions = filterPriority === 'all'
-    ? siteActions
-    : siteActions.filter(a => a.priority === filterPriority);
-
+  const siteActions = selectedSite ? allActions.filter(a => a.site === selectedSite.name) : allActions;
+  const filteredActions = filterPriority === 'all' ? siteActions : siteActions.filter(a => a.priority === filterPriority);
   const openCount = siteActions.filter(a => !resolvedIds.includes(a.id)).length;
   const resolvedCount = siteActions.filter(a => resolvedIds.includes(a.id)).length;
   const criticalCount = allActions.filter(a => a.priority === 'red').length;
@@ -753,7 +800,21 @@ export default function App() {
                   </button>
                 ))}
                 <span className="ml-auto text-[11px] font-bold text-slate-400">{filteredActions.length} action{filteredActions.length !== 1 ? 's' : ''}</span>
+                {profile?.role === 'advisor' && (
+                  <button onClick={() => setShowAddAction(true)}
+                    className="ml-2 flex items-center gap-2 px-5 py-2 bg-indigo-600 text-white rounded-xl text-[11px] font-black uppercase tracking-wider hover:bg-indigo-700 transition-all shadow-sm">
+                    <Plus size={13} /> Add Action
+                  </button>
+                )}
               </div>
+
+              {showAddAction && selectedSite && (
+                <AddActionForm
+                  site={selectedSite}
+                  onSave={handleActionSaved}
+                  onCancel={() => setShowAddAction(false)}
+                />
+              )}
 
               <div className="space-y-3">
                 {filteredActions.length === 0 ? (
