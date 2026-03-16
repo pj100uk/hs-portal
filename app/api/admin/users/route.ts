@@ -1,0 +1,66 @@
+import { NextRequest, NextResponse } from 'next/server';
+import { createClient } from '@supabase/supabase-js';
+
+// Service role client — never exposed to the browser, server-side only
+const supabaseAdmin = createClient(
+  'https://uhwnwsuryrwoetryhqfh.supabase.co',
+  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVod253c3VyeXJ3b2V0cnlocWZoIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3MzMxOTcwNSwiZXhwIjoyMDg4ODk1NzA1fQ.e_ejWJ-jm0Ct5vK6ATOrgG1P440LKQ1Kago6Z3kmGJ0'
+);
+
+// GET — list all users with their profiles
+export async function GET() {
+  const { data: { users }, error } = await supabaseAdmin.auth.admin.listUsers();
+  if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+
+  const { data: profiles } = await supabaseAdmin.from('profiles').select('*');
+
+  const combined = users.map(user => ({
+    id: user.id,
+    email: user.email,
+    profile: profiles?.find(p => p.id === user.id) || null,
+  }));
+
+  return NextResponse.json(combined);
+}
+
+// POST — create a new user
+export async function POST(request: NextRequest) {
+  const { email, password, role, organisation_id } = await request.json();
+
+  if (!email || !password || !role) {
+    return NextResponse.json({ error: 'Email, password and role are required' }, { status: 400 });
+  }
+
+  // Create the auth user (email already confirmed)
+  const { data: userData, error: userError } = await supabaseAdmin.auth.admin.createUser({
+    email,
+    password,
+    email_confirm: true,
+  });
+
+  if (userError) return NextResponse.json({ error: userError.message }, { status: 400 });
+
+  // Update the auto-created profile with role and organisation
+  const { error: profileError } = await supabaseAdmin
+    .from('profiles')
+    .update({
+      role,
+      organisation_id: organisation_id || null,
+    })
+    .eq('id', userData.user.id);
+
+  if (profileError) return NextResponse.json({ error: profileError.message }, { status: 400 });
+
+  return NextResponse.json({ user: userData.user });
+}
+
+// DELETE — delete a user
+export async function DELETE(request: NextRequest) {
+  const { userId } = await request.json();
+  if (!userId) return NextResponse.json({ error: 'userId is required' }, { status: 400 });
+
+  const { error } = await supabaseAdmin.auth.admin.deleteUser(userId);
+  if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+
+  return NextResponse.json({ success: true });
+}
