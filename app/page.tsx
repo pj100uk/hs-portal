@@ -73,8 +73,8 @@ const ComplianceRing = ({ score, size = 56 }: { score: number; size?: number }) 
 };
 
 // ─── Action Card ──────────────────────────────────────────────────────────────
-const ActionCard = ({ action, isResolved, onToggleResolve, onAddNote }: {
-  action: Action; isResolved: boolean; onToggleResolve: (id: string) => void; onAddNote: (id: string, note: string) => void;
+const ActionCard = ({ action, isResolved, onToggleResolve, onAddNote, role }: {
+  action: Action; isResolved: boolean; onToggleResolve: (id: string) => void; onAddNote: (id: string, note: string) => void; role: string;
 }) => {
   const [expanded, setExpanded] = useState(false);
   const [noteText, setNoteText] = useState('');
@@ -94,7 +94,7 @@ const ActionCard = ({ action, isResolved, onToggleResolve, onAddNote }: {
             {action.who && <span className="flex items-center gap-1.5"><User size={12} /><span className="text-slate-700">{action.who}</span></span>}
             {action.contractor && <span className="flex items-center gap-1.5"><HardHat size={12} /><span className="text-slate-700">{action.contractor}</span></span>}
             {action.regulation && <span className="flex items-center gap-1.5 text-indigo-500"><Shield size={12} />{action.regulation}</span>}
-            {action.source && <span className="flex items-center gap-1.5 text-indigo-400 underline cursor-pointer hover:text-indigo-600"><FileText size={12} />{action.source}</span>}
+            {action.source && action.source_document_id ? (<a href={`/viewer?fileId=${action.source_document_id}&fileName=${encodeURIComponent(action.source)}&role=${role}`} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 text-indigo-400 underline cursor-pointer hover:text-indigo-600" onClick={e => e.stopPropagation()}><FileText size={12} />{action.source}</a>) : action.source ? (<span className="flex items-center gap-1.5 text-indigo-400"><FileText size={12} />{action.source}</span>) : null}
           </div>
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">
@@ -957,12 +957,7 @@ export default function App() {
   useEffect(() => {
     if (!user) return;
     supabase.from('profiles').select('*').eq('id', user.id).single().then(({ data }) => {
-      if (data) {
-        setProfile(data);
-        if (data.role === 'superadmin') setView('admin');
-        else if (data.role === 'advisor') setView('portfolio');
-        else if (data.role === 'client') setView('site');
-      }
+      if (data) { setProfile(data); if (data.role === 'superadmin') setView('admin'); }
     });
   }, [user]);
 
@@ -1170,7 +1165,7 @@ export default function App() {
               <div className="space-y-3">
                 {filteredActions.length === 0 ? (
                   <div className="bg-white rounded-2xl border border-slate-200 p-12 text-center"><CheckCircle2 size={32} className="text-emerald-400 mx-auto mb-3" /><p className="font-black text-slate-700">No actions in this category</p><p className="text-sm text-slate-400 mt-1">All items resolved or filtered out.</p></div>
-                ) : filteredActions.map(action => <ActionCard key={action.id} action={{ ...action, notes: actionNotes[action.id] || action.notes }} isResolved={resolvedIds.includes(action.id)} onToggleResolve={toggleResolve} onAddNote={handleAddNote} />)}
+                ) : filteredActions.map(action => <ActionCard key={action.id} action={{ ...action, notes: actionNotes[action.id] || action.notes }} isResolved={resolvedIds.includes(action.id)} onToggleResolve={toggleResolve} onAddNote={handleAddNote} role={profile?.role || 'client'} />)}
               </div>
               {(profile?.role === 'advisor' || profile?.role === 'client') && sites.length > 1 && (
                 <div className="pt-2">

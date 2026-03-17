@@ -33,7 +33,6 @@ export async function GET(request: NextRequest) {
 
     const data = await res.json();
 
-    // Normalise into a simple { id, name, type } list for the browser
     const items = (data.result || []).map((item: any) => ({
       id: String(item.id),
       name: item.name,
