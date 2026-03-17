@@ -3,8 +3,8 @@ import { createClient } from '@supabase/supabase-js';
 
 // Service role client — never exposed to the browser, server-side only
 const supabaseAdmin = createClient(
-  'https://uhwnwsuryrwoetryhqfh.supabase.co',
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVod253c3VyeXJ3b2V0cnlocWZoIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3MzMxOTcwNSwiZXhwIjoyMDg4ODk1NzA1fQ.e_ejWJ-jm0Ct5vK6ATOrgG1P440LKQ1Kago6Z3kmGJ0'
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
 // GET — list all users with their profiles
@@ -31,7 +31,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Email, password and role are required' }, { status: 400 });
   }
 
-  // Create the auth user (email already confirmed)
   const { data: userData, error: userError } = await supabaseAdmin.auth.admin.createUser({
     email,
     password,
@@ -40,7 +39,6 @@ export async function POST(request: NextRequest) {
 
   if (userError) return NextResponse.json({ error: userError.message }, { status: 400 });
 
-  // Update the auto-created profile with role and organisation
   const { error: profileError } = await supabaseAdmin
     .from('profiles')
     .update({
