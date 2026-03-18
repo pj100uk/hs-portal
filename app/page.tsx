@@ -978,6 +978,7 @@ export default function App() {
   const [view, setView] = useState<AppView>('portfolio');
   const [dashboardTab, setDashboardTab] = useState<'analytics' | 'data'>('analytics');
   const [selectedSite, setSelectedSite] = useState<Site | null>(null);
+  const [filterOrgId, setFilterOrgId] = useState('');
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncLastRun, setSyncLastRun] = useState('2 hours ago');
   const [resolvedIds, setResolvedIds] = useState<string[]>([]);
@@ -1065,12 +1066,14 @@ export default function App() {
   const handleSiteClick = (site: Site) => { setSelectedSite(site); setView('site'); };
   const handleActionSaved = (action: Action) => { setAllActions(prev => [...prev, action]); setShowAddAction(false); };
 
+  const viewSites = filterOrgId ? sites.filter(s => s.organisation_id === filterOrgId) : sites;
+  const viewActions = allActions.filter(a => viewSites.some(s => s.name === a.site));
   const siteActions = selectedSite ? allActions.filter(a => a.site === selectedSite.name) : allActions;
   const filteredActions = filterPriority === 'all' ? siteActions : siteActions.filter(a => a.priority === filterPriority);
   const openCount = siteActions.filter(a => !resolvedIds.includes(a.id)).length;
   const resolvedCount = siteActions.filter(a => resolvedIds.includes(a.id)).length;
-  const criticalCount = allActions.filter(a => a.priority === 'red').length;
-  const upcomingCount = allActions.filter(a => a.priority === 'amber').length;
+  const criticalCount = viewActions.filter(a => a.priority === 'red').length;
+  const upcomingCount = viewActions.filter(a => a.priority === 'amber').length;
 
   if (authLoading) return <div className="min-h-screen bg-indigo-950 flex items-center justify-center"><div className="text-indigo-300 font-black text-sm uppercase tracking-widest animate-pulse">Loading…</div></div>;
   if (!user) return <LoginScreen onLogin={() => {}} />;
@@ -1121,13 +1124,23 @@ export default function App() {
                 <div className="absolute top-0 right-0 w-96 h-96 bg-indigo-500 rounded-full -mr-32 -mt-32 blur-[100px] opacity-20 pointer-events-none" />
                 <div className="relative z-10"><span className="text-[10px] font-black uppercase tracking-[0.3em] text-indigo-300">Executive Summary</span><h2 className="text-4xl font-black tracking-tighter mt-2">Divisional Compliance</h2><p className="text-indigo-300 mt-2 max-w-md text-sm">Real-time H&S status across all sites.</p></div>
                 <div className="flex gap-4 relative z-10">
-                  {[{ label: 'Critical', value: criticalCount, color: 'text-rose-400', icon: <Zap size={14} /> }, { label: 'Upcoming', value: upcomingCount, color: 'text-amber-400', icon: <Clock size={14} /> }, { label: 'Sites', value: sites.length, color: 'text-indigo-300', icon: <Building2 size={14} /> }].map(stat => (
+                  {[{ label: 'Critical', value: criticalCount, color: 'text-rose-400', icon: <Zap size={14} /> }, { label: 'Upcoming', value: upcomingCount, color: 'text-amber-400', icon: <Clock size={14} /> }, { label: 'Sites', value: viewSites.length, color: 'text-indigo-300', icon: <Building2 size={14} /> }].map(stat => (
                     <div key={stat.label} className="bg-white/5 backdrop-blur-md rounded-2xl p-5 border border-white/10 text-center min-w-[90px]">
                       <div className={`flex items-center justify-center gap-1 text-[10px] font-black uppercase tracking-widest opacity-70 mb-1.5 ${stat.color}`}>{stat.icon}{stat.label}</div>
                       <p className={`text-4xl font-black ${stat.color}`}>{stat.value}</p>
                     </div>
                   ))}
                 </div>
+              </div>
+              {/* Org / site filter bar */}
+              <div className="flex items-center gap-3 flex-wrap">
+                {organisations.length > 1 && (
+                  <select value={filterOrgId} onChange={e => { setFilterOrgId(e.target.value); }} className="px-3 py-2 border border-slate-200 rounded-xl text-xs font-bold text-slate-600 focus:outline-none bg-white">
+                    <option value="">All Organisations</option>
+                    {organisations.map(o => <option key={o.id} value={o.id}>{o.name}</option>)}
+                  </select>
+                )}
+                {filterOrgId && <button onClick={() => setFilterOrgId('')} className="text-xs font-bold text-indigo-500 hover:text-indigo-700 flex items-center gap-1"><X size={12} />Clear filter</button>}
               </div>
               <div className="flex border-b border-slate-200 gap-6">
                 {[{ key: 'analytics', label: 'Visual Analytics', icon: <BarChart3 size={14} /> }, { key: 'data', label: 'Division Registry', icon: <Building2 size={14} /> }].map(tab => (
@@ -1139,7 +1152,7 @@ export default function App() {
                   <div className="lg:col-span-2 bg-white rounded-3xl border border-slate-200 p-8 shadow-sm">
                     <h3 className="font-black text-slate-900 text-lg tracking-tight uppercase mb-8">Compliance Benchmarking</h3>
                     <div className="space-y-6">
-                      {sites.map(site => (
+                      {viewSites.map(site => (
                         <div key={site.id} className="group cursor-pointer" onClick={() => handleSiteClick(site)}>
                           <div className="flex justify-between items-center mb-2">
                             <div className="flex items-center gap-3"><div className="w-7 h-7 bg-slate-50 rounded-lg flex items-center justify-center text-slate-400 group-hover:bg-indigo-600 group-hover:text-white transition-all text-xs">{getSiteIcon(site.type, 14)}</div><span className="text-sm font-bold text-slate-700 group-hover:text-indigo-700">{site.name}</span></div>
@@ -1148,7 +1161,7 @@ export default function App() {
                           <div className="w-full bg-slate-100 h-3 rounded-full overflow-hidden shadow-inner"><div className={`h-full rounded-full transition-all duration-1000 ${site.compliance >= 90 ? 'bg-emerald-500' : site.compliance >= 75 ? 'bg-indigo-500' : 'bg-rose-500'}`} style={{ width: `${site.compliance}%` }} /></div>
                         </div>
                       ))}
-                      {sites.length === 0 && <p className="text-sm text-slate-400 text-center py-8">No sites assigned yet.</p>}
+                      {viewSites.length === 0 && <p className="text-sm text-slate-400 text-center py-8">No sites assigned yet.</p>}
                     </div>
                   </div>
                   <div className="bg-white rounded-3xl border border-slate-200 p-8 shadow-sm flex flex-col">
@@ -1156,17 +1169,17 @@ export default function App() {
                     <div className="flex-1 flex flex-col justify-center items-center">
                       <div className="relative w-36 h-36 flex items-center justify-center mb-6">
                         <svg className="w-full h-full -rotate-90" viewBox="0 0 160 160"><circle cx="80" cy="80" r="70" stroke="#f1f5f9" strokeWidth="16" fill="none" /><circle cx="80" cy="80" r="70" stroke="#f43f5e" strokeWidth="16" fill="none" strokeDasharray="440" strokeDashoffset="418" strokeLinecap="round" /></svg>
-                        <div className="absolute text-center"><p className="text-3xl font-black text-slate-900 leading-none">{allActions.length}</p><p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mt-0.5">Total</p></div>
+                        <div className="absolute text-center"><p className="text-3xl font-black text-slate-900 leading-none">{viewActions.length}</p><p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mt-0.5">Total</p></div>
                       </div>
                       <div className="w-full space-y-2.5">
-                        {[{ label: 'Critical / Urgent', count: criticalCount, color: 'bg-rose-50 text-rose-700 border-rose-100' }, { label: 'Upcoming (Amber)', count: upcomingCount, color: 'bg-amber-50 text-amber-700 border-amber-100' }, { label: 'Scheduled (Green)', count: allActions.filter(a => a.priority === 'green').length, color: 'bg-emerald-50 text-emerald-700 border-emerald-100' }].map(item => (
+                        {[{ label: 'Critical / Urgent', count: criticalCount, color: 'bg-rose-50 text-rose-700 border-rose-100' }, { label: 'Upcoming (Amber)', count: upcomingCount, color: 'bg-amber-50 text-amber-700 border-amber-100' }, { label: 'Scheduled (Green)', count: viewActions.filter(a => a.priority === 'green').length, color: 'bg-emerald-50 text-emerald-700 border-emerald-100' }].map(item => (
                           <div key={item.label} className={`flex items-center justify-between text-xs font-black px-4 py-2.5 rounded-xl border ${item.color}`}><span>{item.label}</span><span className="text-base font-black">{item.count}</span></div>
                         ))}
                       </div>
                     </div>
                   </div>
                   <div className="lg:col-span-3 grid grid-cols-2 md:grid-cols-4 gap-4">
-                    {sites.map(site => (
+                    {viewSites.map(site => (
                       <div key={site.id} className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm cursor-pointer hover:border-indigo-300 hover:shadow-md transition-all group" onClick={() => handleSiteClick(site)}>
                         <div className="flex items-start justify-between mb-4"><div className="w-10 h-10 bg-slate-50 rounded-xl flex items-center justify-center text-slate-400 group-hover:bg-indigo-600 group-hover:text-white transition-all">{getSiteIcon(site.type)}</div><ComplianceRing score={site.compliance} /></div>
                         <p className="font-black text-sm text-slate-800 leading-tight mb-1">{site.name}</p>
@@ -1181,7 +1194,7 @@ export default function App() {
                   <table className="w-full text-left">
                     <thead><tr className="bg-slate-50/80 text-[10px] uppercase font-black text-slate-400 border-b border-slate-100"><th className="px-8 py-4">Site</th><th className="px-8 py-4">Type</th><th className="px-8 py-4">Score</th><th className="px-8 py-4">Last Review</th><th className="px-8 py-4"></th></tr></thead>
                     <tbody className="divide-y divide-slate-100">
-                      {sites.map(site => (
+                      {viewSites.map(site => (
                         <tr key={site.id} className="hover:bg-indigo-50/30 cursor-pointer group" onClick={() => handleSiteClick(site)}>
                           <td className="px-8 py-5"><div className="flex items-center gap-3"><div className="w-10 h-10 bg-slate-50 rounded-xl flex items-center justify-center text-slate-400 group-hover:bg-indigo-600 group-hover:text-white transition-all shadow-sm">{getSiteIcon(site.type)}</div><span className="font-bold text-slate-800">{site.name}</span></div></td>
                           <td className="px-8 py-5"><span className="text-[11px] font-black uppercase tracking-wider text-slate-500 bg-slate-50 border border-slate-100 px-3 py-1 rounded-lg">{site.type}</span></td>
@@ -1212,6 +1225,20 @@ export default function App() {
                   </div>
                 </div>
               </div>
+              {/* Org / site filter bar */}
+              <div className="flex items-center gap-3 flex-wrap">
+                {organisations.length > 1 && (
+                  <select value={filterOrgId} onChange={e => { setFilterOrgId(e.target.value); const first = sites.find(s => !e.target.value || s.organisation_id === e.target.value); if (first) setSelectedSite(first); }} className="px-3 py-2 border border-slate-200 rounded-xl text-xs font-bold text-slate-600 focus:outline-none bg-white">
+                    <option value="">All Organisations</option>
+                    {organisations.map(o => <option key={o.id} value={o.id}>{o.name}</option>)}
+                  </select>
+                )}
+                {viewSites.length > 1 && (
+                  <select value={selectedSite?.id || ''} onChange={e => { const s = sites.find(s => s.id === e.target.value); if (s) setSelectedSite(s); }} className="px-3 py-2 border border-slate-200 rounded-xl text-xs font-bold text-slate-600 focus:outline-none bg-white">
+                    {viewSites.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                  </select>
+                )}
+              </div>
               <div className="grid grid-cols-3 gap-4">
                 {[{ label: 'Open Actions', value: openCount, color: 'text-slate-900', sub: 'requires attention' }, { label: 'Resolved', value: resolvedCount, color: 'text-emerald-600', sub: 'this session' }, { label: 'Compliance Score', value: `${selectedSite.compliance}%`, color: 'text-indigo-600', sub: `${selectedSite.trend >= 0 ? '+' : ''}${selectedSite.trend}% vs last period` }].map(stat => (
                   <div key={stat.label} className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm text-center"><p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1">{stat.label}</p><p className={`text-3xl font-black ${stat.color}`}>{stat.value}</p><p className="text-[10px] text-slate-400 font-medium mt-1">{stat.sub}</p></div>
@@ -1234,14 +1261,6 @@ export default function App() {
                   <div className="bg-white rounded-2xl border border-slate-200 p-12 text-center"><CheckCircle2 size={32} className="text-emerald-400 mx-auto mb-3" /><p className="font-black text-slate-700">No actions in this category</p><p className="text-sm text-slate-400 mt-1">All items resolved or filtered out.</p></div>
                 ) : filteredActions.map(action => <ActionCard key={action.id} action={{ ...action, notes: actionNotes[action.id] || action.notes }} isResolved={resolvedIds.includes(action.id)} onToggleResolve={toggleResolve} onAddNote={handleAddNote} role={profile?.role || 'client'} />)}
               </div>
-              {(profile?.role === 'advisor' || profile?.role === 'client') && sites.length > 1 && (
-                <div className="pt-2">
-                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-3">Switch Site</p>
-                  <div className="flex gap-3 flex-wrap">
-                    {sites.map(site => <button key={site.id} onClick={() => setSelectedSite(site)} className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-black border transition-all ${selectedSite.id === site.id ? 'bg-indigo-600 text-white border-indigo-600 shadow-md' : 'bg-white text-slate-600 border-slate-200 hover:border-indigo-300 hover:text-indigo-600'}`}>{getSiteIcon(site.type, 14)}{site.name}</button>)}
-                  </div>
-                </div>
-              )}
             </div>
           )}
         </div>
