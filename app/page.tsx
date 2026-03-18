@@ -1015,13 +1015,37 @@ export default function App() {
 
   useEffect(() => {
     if (!user || !profile) return;
-    supabase.from('organisations').select('*').then(({ data }) => { if (data) setOrganisations(data); });
+    const load = async () => {
+      let orgsQuery = supabase.from('organisations').select('*');
+      if (profile.role === 'advisor') {
+        const { data: assignments } = await supabase.from('advisor_organisations').select('organisation_id').eq('advisor_id', user.id);
+        const orgIds = (assignments || []).map((a: any) => a.organisation_id);
+        if (orgIds.length === 0) { setOrganisations([]); return; }
+        orgsQuery = orgsQuery.in('id', orgIds);
+      } else if (profile.role === 'client') {
+        if (profile.organisation_id) orgsQuery = orgsQuery.eq('id', profile.organisation_id);
+        else { setOrganisations([]); return; }
+      }
+      const { data } = await orgsQuery;
+      if (data) setOrganisations(data);
+    };
+    load();
   }, [user, profile]);
 
   useEffect(() => {
     if (!user || !profile || organisations.length === 0) return;
-    const orgFolderMap = new Map(organisations.map(o => [o.id, o.datto_folder_id]));
-    supabase.from('sites').select('*').then(({ data }) => {
+    const load = async () => {
+      const orgFolderMap = new Map(organisations.map(o => [o.id, o.datto_folder_id]));
+      let sitesQuery = supabase.from('sites').select('*');
+      if (profile.role === 'advisor') {
+        const orgIds = organisations.map(o => o.id);
+        sitesQuery = sitesQuery.in('organisation_id', orgIds);
+      } else if (profile.role === 'client') {
+        if (profile.site_id) sitesQuery = sitesQuery.eq('id', profile.site_id);
+        else if (profile.organisation_id) sitesQuery = sitesQuery.eq('organisation_id', profile.organisation_id);
+        else { setSites([]); return; }
+      }
+      const { data } = await sitesQuery;
       if (data) {
         const mapped: Site[] = data.map((s: any) => ({
           id: s.id, name: s.name, type: s.type, organisation_id: s.organisation_id,
@@ -1033,7 +1057,8 @@ export default function App() {
         setSites(mapped);
         if (mapped.length > 0 && !selectedSite) setSelectedSite(mapped[0]);
       }
-    });
+    };
+    load();
   }, [user, profile, organisations]);
 
   useEffect(() => {
