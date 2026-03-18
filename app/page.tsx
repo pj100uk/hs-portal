@@ -8,8 +8,10 @@ import {
   ChevronDown, ChevronUp, Paperclip, MessageSquare, HardHat,
   Zap, Shield, ArrowUpRight, X, Plus, LogOut, Lock, Mail,
   Folder, FolderOpen, File, Pencil, GraduationCap, Heart,
-  Warehouse, ShoppingBag, Home
+  Warehouse, ShoppingBag, Home, Sparkles
 } from 'lucide-react';
+import mammoth from 'mammoth';
+import * as XLSX from 'xlsx';
 import { supabase } from './lib/supabase';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -27,6 +29,21 @@ interface Site {
   id: string; name: string; type: string; organisation_id: string | null;
   red: number; amber: number; green: number; compliance: number; lastReview: string;
   trend: number; datto_folder_id: string | null; advisor_id: string | null;
+  last_ai_sync: string | null;
+}
+
+interface ExtractedAction {
+  description: string;
+  dueDate: string | null;
+  responsiblePerson: string | null;
+  priority: 'HIGH' | 'MEDIUM' | 'LOW' | null;
+}
+
+interface ReviewAction extends ExtractedAction {
+  id: string;
+  docName: string;
+  selected: boolean;
+  added: boolean;
 }
 interface Organisation { id: string; name: string; datto_folder_id: string | null; }
 interface Profile { role: 'superadmin' | 'advisor' | 'client'; site_id: string | null; organisation_id: string | null; }
@@ -988,6 +1005,11 @@ export default function App() {
   const [organisations, setOrganisations] = useState<Organisation[]>([]);
   const [allActions, setAllActions] = useState<Action[]>([]);
   const [showAddAction, setShowAddAction] = useState(false);
+  const [aiSyncing, setAiSyncing] = useState(false);
+  const [aiSyncProgress, setAiSyncProgress] = useState('');
+  const [aiError, setAiError] = useState<string | null>(null);
+  const [reviewActions, setReviewActions] = useState<ReviewAction[]>([]);
+  const [showAiPanel, setShowAiPanel] = useState(false);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => { setUser(session?.user ?? null); setAuthLoading(false); });
@@ -1042,6 +1064,7 @@ export default function App() {
           red: 0, amber: 0, green: 0, lastReview: '—',
           datto_folder_id: s.datto_folder_id || orgFolderMap.get(s.organisation_id) || null,
           advisor_id: s.advisor_id ?? null,
+          last_ai_sync: s.last_ai_sync ?? null,
         }));
         setSites(mapped);
         if (mapped.length > 0 && !selectedSite) setSelectedSite(mapped[0]);
@@ -1065,6 +1088,118 @@ export default function App() {
   const handleAddNote = (id: string, note: string) => { if (note.trim()) setActionNotes(prev => ({ ...prev, [id]: note.trim() })); };
   const handleSiteClick = (site: Site) => { setSelectedSite(site); setView('site'); };
   const handleActionSaved = (action: Action) => { setAllActions(prev => [...prev, action]); setShowAddAction(false); };
+
+  const handleAddReviewAction = async (actionId: string) => {
+    const ra = reviewActions.find(a => a.id === actionId);
+    if (!ra || !selectedSite) return;
+    const priorityMap: Record<string, string> = { HIGH: 'critical', MEDIUM: 'upcoming', LOW: 'scheduled' };
+    const dbPriority = ra.priority ? priorityMap[ra.priority] || 'upcoming' : 'upcoming';
+    const { data } = await supabase.from('actions').insert({
+      site_id: selectedSite.id,
+      title: ra.description,
+      description: '',
+      priority: dbPriority,
+      status: 'open',
+      due_date: ra.dueDate || null,
+      source_document_name: ra.docName,
+    }).select().single();
+    setReviewActions(prev => prev.map(a => a.id === actionId ? { ...a, added: true } : a));
+    if (data) {
+      const priorityColour: Record<string, Priority> = { critical: 'red', upcoming: 'amber', scheduled: 'green' };
+      setAllActions(prev => [...prev, { id: data.id, action: ra.description, description: '', date: ra.dueDate || '', site: selectedSite.name, who: ra.responsiblePerson || '', contractor: '', source: ra.docName, source_document_id: '', priority: (priorityColour[dbPriority] || 'green') as Priority, regulation: '', notes: '', status: 'open' }]);
+    }
+  };
+
+  const handleAddSelectedReviewActions = async () => {
+    const toAdd = reviewActions.filter(a => a.selected && !a.added);
+    for (const ra of toAdd) await handleAddReviewAction(ra.id);
+  };
+
+  const handleAiSync = async (site: Site) => {
+    if (!site.datto_folder_id) return;
+    setAiSyncing(true);
+    setAiError(null);
+    setReviewActions([]);
+    setShowAiPanel(true);
+    try {
+      const listRes = await fetch(`/api/datto?folderId=${site.datto_folder_id}`);
+      if (!listRes.ok) throw new Error('Failed to fetch Datto file list');
+      const rawItems = await listRes.json();
+      const allItems: DattoItem[] = normaliseItems(rawItems);
+      const SUPPORTED_EXTS = ['.docx', '.doc', '.pdf', '.xlsx', '.xls'];
+      let docxFiles = allItems.filter(i => i.type === 'file' && SUPPORTED_EXTS.some(ext => i.name.toLowerCase().endsWith(ext)));
+      if (site.last_ai_sync) {
+        const lastSync = new Date(site.last_ai_sync).getTime();
+        docxFiles = docxFiles.filter(i => {
+          const mod = i.modified || null;
+          if (!mod) return true;
+          return new Date(mod).getTime() > lastSync;
+        });
+      }
+      if (docxFiles.length === 0) {
+        setAiSyncProgress('No new documents since last sync.');
+        setAiSyncing(false);
+        return;
+      }
+      for (let i = 0; i < docxFiles.length; i++) {
+        const doc = docxFiles[i];
+        setAiSyncProgress(`Processing ${i + 1}/${docxFiles.length}: ${doc.name}`);
+        try {
+          const fileRes = await fetch(`/api/datto/file?fileId=${doc.id}&fileName=${encodeURIComponent(doc.name)}`);
+          if (!fileRes.ok) throw new Error(`Failed to fetch ${doc.name}`);
+          const buffer = await fileRes.arrayBuffer();
+          const ext = doc.name.split('.').pop()?.toLowerCase() || '';
+
+          let aiBody: Record<string, string>;
+          if (ext === 'docx' || ext === 'doc') {
+            const extracted = await mammoth.extractRawText({ arrayBuffer: buffer });
+            aiBody = { text: extracted.value, docName: doc.name };
+          } else if (ext === 'xlsx' || ext === 'xls') {
+            const workbook = XLSX.read(buffer);
+            const text = workbook.SheetNames.map(name =>
+              `Sheet: ${name}\n${XLSX.utils.sheet_to_csv(workbook.Sheets[name])}`
+            ).join('\n\n');
+            aiBody = { text, docName: doc.name };
+          } else if (ext === 'pdf') {
+            const bytes = new Uint8Array(buffer);
+            let binary = '';
+            for (let b = 0; b < bytes.byteLength; b++) binary += String.fromCharCode(bytes[b]);
+            const base64 = btoa(binary);
+            aiBody = { fileBase64: base64, mimeType: 'application/pdf', docName: doc.name };
+          } else {
+            throw new Error(`Unsupported file type: .${ext}`);
+          }
+
+          const aiRes = await fetch('/api/ai-extract', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(aiBody),
+          });
+          if (!aiRes.ok) throw new Error(`AI extraction failed for ${doc.name}`);
+          const { actions } = await aiRes.json();
+          const newActions: ReviewAction[] = (actions as ExtractedAction[]).map((a: ExtractedAction) => ({
+            ...a,
+            id: `${doc.id}-${Math.random().toString(36).slice(2)}`,
+            docName: doc.name,
+            selected: true,
+            added: false,
+          }));
+          setReviewActions(prev => [...prev, ...newActions]);
+        } catch (docErr: any) {
+          setReviewActions(prev => [...prev, { id: `err-${doc.id}-${Math.random().toString(36).slice(2)}`, description: `⚠ Error processing ${doc.name}: ${docErr.message}`, dueDate: null, responsiblePerson: null, priority: null, docName: doc.name, selected: false, added: false }]);
+        }
+      }
+      const now = new Date().toISOString();
+      await supabase.from('sites').update({ last_ai_sync: now }).eq('id', site.id);
+      setSites(prev => prev.map(s => s.id === site.id ? { ...s, last_ai_sync: now } : s));
+      setSelectedSite(prev => prev?.id === site.id ? { ...prev, last_ai_sync: now } : prev);
+    } catch (err: any) {
+      setAiError(err.message || 'Sync failed');
+    } finally {
+      setAiSyncing(false);
+      setAiSyncProgress('');
+    }
+  };
 
   const viewSites = filterOrgId ? sites.filter(s => s.organisation_id === filterOrgId) : sites;
   const viewActions = allActions.filter(a => viewSites.some(s => s.name === a.site));
@@ -1221,6 +1356,17 @@ export default function App() {
                   </div>
                   <div className="flex gap-3">
                     <button className="bg-slate-100 text-slate-600 px-6 py-2.5 rounded-xl text-[11px] font-black uppercase tracking-widest hover:bg-slate-200">Audit Archive</button>
+                    {profile?.role === 'advisor' && (
+                      <button
+                        onClick={() => handleAiSync(selectedSite)}
+                        disabled={aiSyncing || !selectedSite.datto_folder_id}
+                        title={!selectedSite.datto_folder_id ? 'No Datto folder configured' : 'Extract actions from Word documents'}
+                        className="flex items-center gap-2 bg-violet-600 text-white px-5 py-2.5 rounded-xl text-[11px] font-black uppercase tracking-widest shadow-lg hover:bg-violet-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        <Sparkles className="w-4 h-4" />
+                        {aiSyncing ? aiSyncProgress || 'Syncing…' : 'AI Sync'}
+                      </button>
+                    )}
                     <button className="bg-indigo-600 text-white px-6 py-2.5 rounded-xl text-[11px] font-black uppercase tracking-widest shadow-lg hover:bg-indigo-700">Export Plan</button>
                   </div>
                 </div>
@@ -1256,6 +1402,87 @@ export default function App() {
                 {profile?.role === 'advisor' && <button onClick={() => setShowAddAction(true)} className="ml-2 flex items-center gap-2 px-5 py-2 bg-indigo-600 text-white rounded-xl text-[11px] font-black uppercase tracking-wider hover:bg-indigo-700 shadow-sm"><Plus size={13} />Add Action</button>}
               </div>
               {showAddAction && selectedSite && <AddActionForm site={selectedSite} onSave={handleActionSaved} onCancel={() => setShowAddAction(false)} />}
+
+              {/* ── AI Review Panel ── */}
+              {showAiPanel && (
+                <div className="bg-white border border-violet-200 rounded-2xl overflow-hidden shadow-lg">
+                  <div className="bg-violet-600 px-6 py-4 flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <Sparkles className="w-4 h-4 text-violet-200" />
+                      <h3 className="font-black text-white uppercase tracking-widest text-sm">AI Extracted Actions</h3>
+                      {aiSyncing && <span className="text-violet-200 text-xs font-bold animate-pulse">{aiSyncProgress}</span>}
+                    </div>
+                    <div className="flex items-center gap-3">
+                      {!aiSyncing && reviewActions.some(a => a.selected && !a.added) && (
+                        <button onClick={handleAddSelectedReviewActions} className="px-4 py-2 bg-white text-violet-700 rounded-xl text-[11px] font-black uppercase tracking-wider hover:bg-violet-50">Add Selected</button>
+                      )}
+                      <button onClick={() => setShowAiPanel(false)} className="text-violet-200 hover:text-white"><X size={18} /></button>
+                    </div>
+                  </div>
+                  {aiError && <div className="px-6 py-3 bg-rose-50 border-b border-rose-200 text-rose-700 text-sm font-bold">⚠ {aiError}</div>}
+                  {aiSyncing && reviewActions.length === 0 && (
+                    <div className="p-8 text-center text-sm font-bold text-slate-400 animate-pulse">{aiSyncProgress || 'Processing documents…'}</div>
+                  )}
+                  {!aiSyncing && reviewActions.length === 0 && !aiError && (
+                    <div className="p-8 text-center text-sm font-bold text-slate-400">{aiSyncProgress || 'No actions extracted.'}</div>
+                  )}
+                  {reviewActions.length > 0 && (
+                    <div className="divide-y divide-slate-100 max-h-[600px] overflow-y-auto">
+                      {reviewActions.map(ra => (
+                        <div key={ra.id} className={`p-5 flex gap-4 items-start transition-colors ${ra.added ? 'bg-emerald-50/60' : 'hover:bg-slate-50'}`}>
+                          <input type="checkbox" checked={ra.selected} onChange={e => setReviewActions(prev => prev.map(a => a.id === ra.id ? { ...a, selected: e.target.checked } : a))} disabled={ra.added} className="mt-1 w-4 h-4 accent-violet-600 flex-shrink-0" />
+                          <div className="flex-1 min-w-0 space-y-2">
+                            <textarea
+                              value={ra.description}
+                              onChange={e => setReviewActions(prev => prev.map(a => a.id === ra.id ? { ...a, description: e.target.value } : a))}
+                              disabled={ra.added}
+                              rows={2}
+                              className="w-full text-sm font-bold text-slate-800 border border-slate-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-violet-300 resize-none bg-white disabled:bg-slate-50 disabled:text-slate-500"
+                            />
+                            <div className="flex flex-wrap gap-2 items-center">
+                              <input
+                                type="date"
+                                value={ra.dueDate || ''}
+                                onChange={e => setReviewActions(prev => prev.map(a => a.id === ra.id ? { ...a, dueDate: e.target.value || null } : a))}
+                                disabled={ra.added}
+                                className="px-3 py-1.5 border border-slate-200 rounded-lg text-xs text-slate-600 focus:outline-none focus:ring-2 focus:ring-violet-300 bg-white disabled:bg-slate-50"
+                              />
+                              <input
+                                type="text"
+                                value={ra.responsiblePerson || ''}
+                                onChange={e => setReviewActions(prev => prev.map(a => a.id === ra.id ? { ...a, responsiblePerson: e.target.value || null } : a))}
+                                disabled={ra.added}
+                                placeholder="Responsible person"
+                                className="px-3 py-1.5 border border-slate-200 rounded-lg text-xs text-slate-600 focus:outline-none focus:ring-2 focus:ring-violet-300 bg-white disabled:bg-slate-50 w-40"
+                              />
+                              <select
+                                value={ra.priority || ''}
+                                onChange={e => setReviewActions(prev => prev.map(a => a.id === ra.id ? { ...a, priority: (e.target.value || null) as ReviewAction['priority'] } : a))}
+                                disabled={ra.added}
+                                className="px-3 py-1.5 border border-slate-200 rounded-lg text-xs text-slate-600 focus:outline-none focus:ring-2 focus:ring-violet-300 bg-white disabled:bg-slate-50"
+                              >
+                                <option value="">No priority</option>
+                                <option value="HIGH">High</option>
+                                <option value="MEDIUM">Medium</option>
+                                <option value="LOW">Low</option>
+                              </select>
+                              <span className="text-[10px] text-slate-400 font-bold flex items-center gap-1"><FileText size={10} />{ra.docName}</span>
+                            </div>
+                          </div>
+                          <div className="flex-shrink-0">
+                            {ra.added ? (
+                              <span className="flex items-center gap-1.5 text-[11px] font-black text-emerald-600 bg-emerald-50 border border-emerald-200 px-3 py-1.5 rounded-xl"><CheckCircle size={12} />Added</span>
+                            ) : (
+                              <button onClick={() => handleAddReviewAction(ra.id)} className="px-4 py-1.5 bg-violet-600 text-white rounded-xl text-[11px] font-black hover:bg-violet-700">Add</button>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
               <div className="space-y-3">
                 {filteredActions.length === 0 ? (
                   <div className="bg-white rounded-2xl border border-slate-200 p-12 text-center"><CheckCircle2 size={32} className="text-emerald-400 mx-auto mb-3" /><p className="font-black text-slate-700">No actions in this category</p><p className="text-sm text-slate-400 mt-1">All items resolved or filtered out.</p></div>
