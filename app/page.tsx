@@ -301,6 +301,31 @@ const DattoFolderPicker = ({ startFolderId = DATTO_ROOT_ID, startFolderName = 'C
   );
 };
 
+// ─── Folder Picker Field ──────────────────────────────────────────────────────
+const FIELD_INPUT_CLASS = 'w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 bg-white';
+const FIELD_LABEL_CLASS = 'text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1.5 block';
+const FolderPickerField = ({ folderId, folderName, showPicker, onOpenPicker, onSelectFolder, onNavigate, orgForPicker, labelText, labelHint }: any) => (
+  <div>
+    <label className={FIELD_LABEL_CLASS}>{labelText}{labelHint && <span className="ml-2 text-indigo-400 normal-case font-bold tracking-normal">— {labelHint}</span>}</label>
+    {showPicker ? (
+      <DattoFolderPicker
+        startFolderId={orgForPicker?.datto_folder_id || DATTO_ROOT_ID}
+        startFolderName={orgForPicker?.name || 'Customer Documents'}
+        onSelect={onSelectFolder}
+        onNavigate={onNavigate}
+        onClose={() => onOpenPicker(false)}
+      />
+    ) : (
+      <div onClick={() => onOpenPicker(true)} className={`${FIELD_INPUT_CLASS} flex items-center justify-between gap-2 cursor-pointer hover:border-indigo-300`}>
+        {folderName
+          ? <span className="flex items-center gap-2 text-indigo-700 font-bold"><Folder size={14} className="text-amber-400" />{folderName}{folderId && <span className="text-slate-400 font-normal text-xs">({folderId})</span>}</span>
+          : <span className="text-slate-400">Click to browse Datto folders…</span>}
+        <FolderOpen size={16} className="text-slate-300" />
+      </div>
+    )}
+  </div>
+);
+
 // ─── Add Action Form ──────────────────────────────────────────────────────────
 const AddActionForm = ({ site, onSave, onCancel }: { site: Site; onSave: (action: Action) => void; onCancel: () => void }) => {
   const [title, setTitle] = useState(''); const [description, setDescription] = useState('');
@@ -554,27 +579,6 @@ const SuperadminPanel = () => {
   ];
 
   // Reusable folder picker field
-  const FolderPickerField = ({ folderId, folderName, showPicker, onOpenPicker, onSelectFolder, onNavigate, orgForPicker, labelText, labelHint }: any) => (
-    <div>
-      <label className={labelClass}>{labelText}{labelHint && <span className="ml-2 text-indigo-400 normal-case font-bold tracking-normal">— {labelHint}</span>}</label>
-      {showPicker ? (
-        <DattoFolderPicker
-          startFolderId={orgForPicker?.datto_folder_id || DATTO_ROOT_ID}
-          startFolderName={orgForPicker?.name || 'Customer Documents'}
-          onSelect={onSelectFolder}
-          onNavigate={onNavigate}
-          onClose={() => onOpenPicker(false)}
-        />
-      ) : (
-        <div onClick={() => onOpenPicker(true)} className={`${inputClass} flex items-center justify-between gap-2 cursor-pointer hover:border-indigo-300`}>
-          {folderName
-            ? <span className="flex items-center gap-2 text-indigo-700 font-bold"><Folder size={14} className="text-amber-400" />{folderName}{folderId && <span className="text-slate-400 font-normal text-xs">({folderId})</span>}</span>
-            : <span className="text-slate-400">Click to browse Datto folders…</span>}
-          <FolderOpen size={16} className="text-slate-300" />
-        </div>
-      )}
-    </div>
-  );
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
