@@ -1128,7 +1128,7 @@ export default function App() {
       if (!listRes.ok) throw new Error('Failed to fetch Datto file list');
       const rawItems = await listRes.json();
       const allItems: DattoItem[] = normaliseItems(rawItems);
-      const SUPPORTED_EXTS = ['.docx', '.doc', '.pdf', '.xlsx', '.xls'];
+      const SUPPORTED_EXTS = ['.docx', '.doc', '.pdf', '.xlsx', '.xls']; // .doc will error with a helpful message
       let docxFiles = allItems.filter(i => i.type === 'file' && SUPPORTED_EXTS.some(ext => i.name.toLowerCase().endsWith(ext)));
       if (!forceAll && site.last_ai_sync) {
         const lastSync = new Date(site.last_ai_sync).getTime();
@@ -1152,9 +1152,11 @@ export default function App() {
           const ext = doc.name.split('.').pop()?.toLowerCase() || '';
 
           let aiBody: Record<string, string>;
-          if (ext === 'docx' || ext === 'doc') {
+          if (ext === 'docx') {
             const extracted = await mammoth.extractRawText({ arrayBuffer: buffer });
             aiBody = { text: extracted.value, docName: doc.name };
+          } else if (ext === 'doc') {
+            throw new Error(`.doc format not supported — please open in Word and Save As .docx`);
           } else if (ext === 'xlsx' || ext === 'xls') {
             const workbook = XLSX.read(buffer);
             const text = workbook.SheetNames.map(name =>
