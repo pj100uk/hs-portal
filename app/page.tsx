@@ -1019,7 +1019,11 @@ export default function App() {
       let orgsQuery = supabase.from('organisations').select('*');
       if (profile.role === 'advisor') {
         const { data: assignments } = await supabase.from('advisor_organisations').select('organisation_id').eq('advisor_id', user.id);
-        const orgIds = (assignments || []).map((a: any) => a.organisation_id);
+        const assignedIds = (assignments || []).map((a: any) => a.organisation_id);
+        // Also include orgs where advisor_id is set directly on the org record
+        const { data: directOrgs } = await supabase.from('organisations').select('id').eq('advisor_id', user.id);
+        const directIds = (directOrgs || []).map((o: any) => o.id);
+        const orgIds = Array.from(new Set([...assignedIds, ...directIds]));
         if (orgIds.length === 0) { setOrganisations([]); return; }
         orgsQuery = orgsQuery.in('id', orgIds);
       } else if (profile.role === 'client') {
