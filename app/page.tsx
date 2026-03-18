@@ -540,7 +540,11 @@ const SuperadminPanel = () => {
     const finalId = editOrgFolderId || (showEditOrgPicker ? editOrgFolderId : '');
     const { error } = await supabase.from('organisations').update({ name: editOrgName.trim(), datto_folder_id: finalId || null, advisor_id: editOrgAdvisorId || null }).eq('id', id);
     if (error) { flash(error.message, true); return; }
-    flash('Organisation updated!'); setEditingOrgId(null); setShowEditOrgPicker(false); loadOrgs();
+    // Propagate advisor to any sites under this org that don't have their own advisor set
+    if (editOrgAdvisorId) {
+      await supabase.from('sites').update({ advisor_id: editOrgAdvisorId }).eq('organisation_id', id).is('advisor_id', null);
+    }
+    flash('Organisation updated!'); setEditingOrgId(null); setShowEditOrgPicker(false); loadOrgs(); loadSites();
   };
 
   const startEditSite = (site: any) => {
@@ -549,7 +553,8 @@ const SuperadminPanel = () => {
     setEditSiteType(knownType ? site.type : 'OTHER');
     setEditSiteTypeOther(knownType ? '' : site.type);
     setEditSiteFolderId(site.datto_folder_id || ''); setEditSiteFolderName(site.datto_folder_id ? `ID: ${site.datto_folder_id}` : '');
-    setEditSiteAdvisorId(site.advisor_id || '');
+    const orgAdvisorId = organisations.find(o => o.id === site.organisation_id)?.advisor_id || '';
+    setEditSiteAdvisorId(site.advisor_id || orgAdvisorId);
     setShowEditSitePicker(false);
   };
 
@@ -768,7 +773,7 @@ const SuperadminPanel = () => {
                         <tr className="hover:bg-slate-50">
                           <td className="px-6 py-4 font-bold text-slate-800">{site.name}</td>
                           <td className="px-6 py-4 text-sm text-slate-500">{site.organisations?.name || '—'}</td>
-                          <td className="px-6 py-4 text-sm text-slate-600">{site.advisor_id ? (advisors.find(a => a.id === site.advisor_id)?.email || '—') : <span className="text-slate-300">Unassigned</span>}</td>
+                          <td className="px-6 py-4 text-sm text-slate-600">{(() => { const effectiveId = site.advisor_id || organisations.find(o => o.id === site.organisation_id)?.advisor_id; const advisor = effectiveId ? advisors.find(a => a.id === effectiveId) : null; return advisor ? <span className={site.advisor_id ? '' : 'text-slate-400 italic'}>{advisor.email}{!site.advisor_id && ' (org)'}</span> : <span className="text-slate-300">Unassigned</span>; })()}</td>
                           <td className="px-6 py-4"><span className="text-[10px] font-black uppercase tracking-wider text-slate-500 bg-slate-50 border border-slate-100 px-2 py-1 rounded-lg">{getSiteLabel(site.type)}</span></td>
                           <td className="px-6 py-4 text-xs font-mono">
                             {site.datto_folder_id
