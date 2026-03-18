@@ -1064,7 +1064,8 @@ export default function App() {
   useEffect(() => {
     if (!user || sites.length === 0) return;
     const priorityMap: Record<string, Priority> = { critical: 'red', upcoming: 'amber', scheduled: 'green' };
-    supabase.from('actions').select('*').then(({ data }) => {
+    const siteIds = sites.map(s => s.id);
+    supabase.from('actions').select('*').in('site_id', siteIds).then(({ data }) => {
       if (data) setAllActions(data.map((a: any) => ({ id: a.id, action: a.title, description: a.description || '', date: a.due_date || '', site: sites.find(s => s.id === a.site_id)?.name || '', who: '', contractor: a.contractor || '', source: a.source_document_name || '', source_document_id: a.source_document_id || '', priority: (priorityMap[a.priority] || 'green') as Priority, regulation: a.regulation || '', notes: '', status: a.status as ActionStatus })));
     });
   }, [user, sites]);
