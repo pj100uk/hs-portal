@@ -1007,6 +1007,7 @@ export default function App() {
   const [showAddAction, setShowAddAction] = useState(false);
   const [aiSyncing, setAiSyncing] = useState(false);
   const [aiSyncProgress, setAiSyncProgress] = useState('');
+  const [aiStatusMessage, setAiStatusMessage] = useState('');
   const [aiError, setAiError] = useState<string | null>(null);
   const [reviewActions, setReviewActions] = useState<ReviewAction[]>([]);
   const [showAiPanel, setShowAiPanel] = useState(false);
@@ -1115,10 +1116,11 @@ export default function App() {
     for (const ra of toAdd) await handleAddReviewAction(ra.id);
   };
 
-  const handleAiSync = async (site: Site) => {
+  const handleAiSync = async (site: Site, forceAll = false) => {
     if (!site.datto_folder_id) return;
     setAiSyncing(true);
     setAiError(null);
+    setAiStatusMessage('');
     setReviewActions([]);
     setShowAiPanel(true);
     try {
@@ -1128,7 +1130,7 @@ export default function App() {
       const allItems: DattoItem[] = normaliseItems(rawItems);
       const SUPPORTED_EXTS = ['.docx', '.doc', '.pdf', '.xlsx', '.xls'];
       let docxFiles = allItems.filter(i => i.type === 'file' && SUPPORTED_EXTS.some(ext => i.name.toLowerCase().endsWith(ext)));
-      if (site.last_ai_sync) {
+      if (!forceAll && site.last_ai_sync) {
         const lastSync = new Date(site.last_ai_sync).getTime();
         docxFiles = docxFiles.filter(i => {
           const mod = i.modified || null;
@@ -1137,8 +1139,7 @@ export default function App() {
         });
       }
       if (docxFiles.length === 0) {
-        setAiSyncProgress('No new documents since last sync.');
-        setAiSyncing(false);
+        setAiStatusMessage(site.last_ai_sync && !forceAll ? 'No new documents since last sync. Use "Sync all" to reprocess everything.' : 'No supported documents found in this folder.');
         return;
       }
       for (let i = 0; i < docxFiles.length; i++) {
@@ -1200,6 +1201,8 @@ export default function App() {
       setAiSyncProgress('');
     }
   };
+
+  const handleForceAiSync = (site: Site) => handleAiSync(site, true);
 
   const viewSites = filterOrgId ? sites.filter(s => s.organisation_id === filterOrgId) : sites;
   const viewActions = allActions.filter(a => viewSites.some(s => s.name === a.site));
@@ -1413,6 +1416,9 @@ export default function App() {
                       {aiSyncing && <span className="text-violet-200 text-xs font-bold animate-pulse">{aiSyncProgress}</span>}
                     </div>
                     <div className="flex items-center gap-3">
+                      {!aiSyncing && (
+                        <button onClick={() => handleForceAiSync(selectedSite)} title="Reprocess all docs regardless of date" className="px-4 py-2 bg-violet-500 text-white rounded-xl text-[11px] font-black uppercase tracking-wider hover:bg-violet-400">Sync all</button>
+                      )}
                       {!aiSyncing && reviewActions.some(a => a.selected && !a.added) && (
                         <button onClick={handleAddSelectedReviewActions} className="px-4 py-2 bg-white text-violet-700 rounded-xl text-[11px] font-black uppercase tracking-wider hover:bg-violet-50">Add Selected</button>
                       )}
@@ -1424,7 +1430,12 @@ export default function App() {
                     <div className="p-8 text-center text-sm font-bold text-slate-400 animate-pulse">{aiSyncProgress || 'Processing documents…'}</div>
                   )}
                   {!aiSyncing && reviewActions.length === 0 && !aiError && (
-                    <div className="p-8 text-center text-sm font-bold text-slate-400">{aiSyncProgress || 'No actions extracted.'}</div>
+                    <div className="p-8 text-center space-y-3">
+                      <p className="text-sm font-bold text-slate-400">{aiStatusMessage || 'No actions extracted.'}</p>
+                      {aiStatusMessage.includes('Sync all') && (
+                        <button onClick={() => handleForceAiSync(selectedSite)} className="px-4 py-2 bg-violet-600 text-white rounded-xl text-[11px] font-black uppercase tracking-wider hover:bg-violet-700">Sync all docs</button>
+                      )}
+                    </div>
                   )}
                   {reviewActions.length > 0 && (
                     <div className="divide-y divide-slate-100 max-h-[600px] overflow-y-auto">
