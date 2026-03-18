@@ -644,7 +644,7 @@ const SuperadminPanel = () => {
                     {organisations.map(org => (
                       <React.Fragment key={org.id}>
                         <tr className="hover:bg-slate-50">
-                          <td className="px-6 py-4 font-bold text-slate-800">{org.name}</td>
+                          <td className="px-6 py-4 font-bold text-slate-800"><button onClick={() => { setSelectedOrgFilter(org.id); setActiveTab('sites'); }} className="hover:text-indigo-600 hover:underline text-left">{org.name}</button></td>
                           <td className="px-6 py-4 text-sm">{org.datto_folder_id ? <span className="flex items-center gap-1.5 text-amber-600 font-mono text-xs"><Folder size={12} />{org.datto_folder_id}</span> : <span className="text-slate-300">Not set</span>}</td>
                           <td className="px-6 py-4 text-sm font-bold text-slate-600">{sites.filter(s => s.organisation_id === org.id).length}</td>
                           <td className="px-6 py-4 text-right flex items-center justify-end gap-2">
