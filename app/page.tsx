@@ -7,7 +7,8 @@ import {
   CheckCircle, Settings, Truck, PenTool, BarChart3, TrendingUp,
   ChevronDown, ChevronUp, Paperclip, MessageSquare, HardHat,
   Zap, Shield, ArrowUpRight, X, Plus, LogOut, Lock, Mail,
-  Folder, FolderOpen, File, Pencil
+  Folder, FolderOpen, File, Pencil, GraduationCap, Heart,
+  Warehouse, ShoppingBag, Home
 } from 'lucide-react';
 import { supabase } from './lib/supabase';
 
@@ -32,15 +33,24 @@ interface Profile { role: 'superadmin' | 'advisor' | 'client'; site_id: string |
 interface DattoItem { id: string; name: string; type: 'folder' | 'file'; [key: string]: any; }
 
 const DATTO_ROOT_ID = '175942289';
-const SITE_TYPES = ['MANUFACTURING', 'WORKSHOP', 'LOGISTICS', 'OFFICE', 'WAREHOUSE', 'RETAIL', 'OTHER'];
+const SITE_TYPES = ['OFFICE', 'SCHOOL', 'HEALTHCARE', 'WAREHOUSE', 'RETAIL', 'CONSTRUCTION', 'CARE_HOME', 'OTHER'];
+const SITE_TYPE_LABELS: Record<string, string> = {
+  OFFICE: 'Office', SCHOOL: 'School', HEALTHCARE: 'Healthcare',
+  WAREHOUSE: 'Warehouse / Industrial', RETAIL: 'Retail',
+  CONSTRUCTION: 'Construction', CARE_HOME: 'Care Home', OTHER: 'Other',
+};
+const getSiteLabel = (type: string) => SITE_TYPE_LABELS[type] ?? type;
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 const getSiteIcon = (type: string, size = 20) => {
   switch (type) {
-    case 'Manufacturing': case 'MANUFACTURING': return <Factory size={size} />;
-    case 'Workshop': case 'WORKSHOP': return <Wrench size={size} />;
-    case 'Logistics': case 'LOGISTICS': return <Truck size={size} />;
-    case 'Office': case 'OFFICE': return <PenTool size={size} />;
+    case 'OFFICE': return <Building2 size={size} />;
+    case 'SCHOOL': return <GraduationCap size={size} />;
+    case 'HEALTHCARE': return <Heart size={size} />;
+    case 'WAREHOUSE': return <Warehouse size={size} />;
+    case 'RETAIL': return <ShoppingBag size={size} />;
+    case 'CONSTRUCTION': return <HardHat size={size} />;
+    case 'CARE_HOME': return <Home size={size} />;
     default: return <Building2 size={size} />;
   }
 };
@@ -410,7 +420,9 @@ const SuperadminPanel = () => {
 
   // Create form — site
   const [siteName, setSiteName] = useState('');
-  const [siteType, setSiteType] = useState('MANUFACTURING');
+  const [siteType, setSiteType] = useState('OFFICE');
+  const [siteTypeOther, setSiteTypeOther] = useState('');
+  const [editSiteTypeOther, setEditSiteTypeOther] = useState('');
   const [siteOrgId, setSiteOrgId] = useState('');
   const [siteFolderId, setSiteFolderId] = useState('');
   const [siteFolderName, setSiteFolderName] = useState('');
@@ -462,10 +474,11 @@ const SuperadminPanel = () => {
     if (!siteName.trim()) { flash('Name is required', true); return; }
     if (!siteOrgId) { flash('Organisation is required', true); return; }
     const finalId = siteFolderId || (showSiteFolderPicker ? sitePickerCurrentId : '');
-    const { error } = await supabase.from('sites').insert({ name: siteName.trim(), type: siteType, organisation_id: siteOrgId, datto_folder_id: finalId || null, compliance_score: 0, trend: 0 });
+    const typeValue = siteType === 'OTHER' ? (siteTypeOther.trim() || 'OTHER') : siteType;
+    const { error } = await supabase.from('sites').insert({ name: siteName.trim(), type: typeValue, organisation_id: siteOrgId, datto_folder_id: finalId || null, compliance_score: 0, trend: 0 });
     if (error) { flash(error.message, true); return; }
     flash('Site created!');
-    setSiteName(''); setSiteType('MANUFACTURING'); setSiteOrgId(''); setSiteFolderId(''); setSiteFolderName(''); setShowSiteFolderPicker(false); setShowSiteForm(false);
+    setSiteName(''); setSiteType('OFFICE'); setSiteTypeOther(''); setSiteOrgId(''); setSiteFolderId(''); setSiteFolderName(''); setShowSiteFolderPicker(false); setShowSiteForm(false);
     loadSites();
   };
 
@@ -503,7 +516,10 @@ const SuperadminPanel = () => {
   };
 
   const startEditSite = (site: any) => {
-    setEditingSiteId(site.id); setEditSiteName(site.name); setEditSiteType(site.type);
+    setEditingSiteId(site.id); setEditSiteName(site.name);
+    const knownType = SITE_TYPES.includes(site.type);
+    setEditSiteType(knownType ? site.type : 'OTHER');
+    setEditSiteTypeOther(knownType ? '' : site.type);
     setEditSiteFolderId(site.datto_folder_id || ''); setEditSiteFolderName(site.datto_folder_id ? `ID: ${site.datto_folder_id}` : '');
     setShowEditSitePicker(false);
   };
@@ -511,7 +527,8 @@ const SuperadminPanel = () => {
   const handleUpdateSite = async (id: string) => {
     if (!editSiteName.trim()) { flash('Name is required', true); return; }
     const finalId = editSiteFolderId || (showEditSitePicker ? editSiteFolderId : '');
-    const { error } = await supabase.from('sites').update({ name: editSiteName.trim(), type: editSiteType, datto_folder_id: finalId || null }).eq('id', id);
+    const editTypeValue = editSiteType === 'OTHER' ? (editSiteTypeOther.trim() || 'OTHER') : editSiteType;
+    const { error } = await supabase.from('sites').update({ name: editSiteName.trim(), type: editTypeValue, datto_folder_id: finalId || null }).eq('id', id);
     if (error) { flash(error.message, true); return; }
     flash('Site updated!'); setEditingSiteId(null); setShowEditSitePicker(false); loadSites();
   };
@@ -698,8 +715,11 @@ const SuperadminPanel = () => {
               <div>
                 <label className={labelClass}>Site Type</label>
                 <div className="flex gap-2 flex-wrap">
-                  {SITE_TYPES.map(t => <button key={t} onClick={() => setSiteType(t)} className={`px-3 py-2 rounded-xl text-[11px] font-black border transition-all ${siteType === t ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-slate-500 border-slate-200 hover:border-slate-300'}`}>{t}</button>)}
+                  {SITE_TYPES.map(t => <button key={t} onClick={() => setSiteType(t)} className={`px-3 py-2 rounded-xl text-[11px] font-black border transition-all ${siteType === t ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-slate-500 border-slate-200 hover:border-slate-300'}`}>{getSiteLabel(t)}</button>)}
                 </div>
+                {siteType === 'OTHER' && (
+                  <input value={siteTypeOther} onChange={e => setSiteTypeOther(e.target.value)} placeholder="Describe the site type…" className={`${inputClass} mt-2`} />
+                )}
               </div>
               <FolderPickerField
                 folderId={siteFolderId} folderName={siteFolderName} showPicker={showSiteFolderPicker}
@@ -731,7 +751,7 @@ const SuperadminPanel = () => {
                         <tr className="hover:bg-slate-50">
                           <td className="px-6 py-4 font-bold text-slate-800">{site.name}</td>
                           <td className="px-6 py-4 text-sm text-slate-500">{site.organisations?.name || '—'}</td>
-                          <td className="px-6 py-4"><span className="text-[10px] font-black uppercase tracking-wider text-slate-500 bg-slate-50 border border-slate-100 px-2 py-1 rounded-lg">{site.type}</span></td>
+                          <td className="px-6 py-4"><span className="text-[10px] font-black uppercase tracking-wider text-slate-500 bg-slate-50 border border-slate-100 px-2 py-1 rounded-lg">{getSiteLabel(site.type)}</span></td>
                           <td className="px-6 py-4 text-xs font-mono">
                             {site.datto_folder_id
                               ? <span className="text-amber-600 flex items-center gap-1.5"><Folder size={12} />{site.datto_folder_id}</span>
@@ -753,8 +773,11 @@ const SuperadminPanel = () => {
                                 <div>
                                   <label className={labelClass}>Type</label>
                                   <select value={editSiteType} onChange={e => setEditSiteType(e.target.value)} className={inputClass}>
-                                    {SITE_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                                    {SITE_TYPES.map(t => <option key={t} value={t}>{getSiteLabel(t)}</option>)}
                                   </select>
+                                  {editSiteType === 'OTHER' && (
+                                    <input value={editSiteTypeOther} onChange={e => setEditSiteTypeOther(e.target.value)} placeholder="Describe the site type…" className={`${inputClass} mt-2`} />
+                                  )}
                                 </div>
                               </div>
                               <div>
