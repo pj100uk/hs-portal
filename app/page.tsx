@@ -26,9 +26,9 @@ interface Action {
 interface Site {
   id: string; name: string; type: string; organisation_id: string | null;
   red: number; amber: number; green: number; compliance: number; lastReview: string;
-  trend: number; datto_folder_id: string | null;
+  trend: number; datto_folder_id: string | null; advisor_id: string | null;
 }
-interface Organisation { id: string; name: string; datto_folder_id: string | null; }
+interface Organisation { id: string; name: string; datto_folder_id: string | null; advisor_id: string | null; }
 interface Profile { role: 'superadmin' | 'advisor' | 'client'; site_id: string | null; organisation_id: string | null; }
 interface DattoItem { id: string; name: string; type: 'folder' | 'file'; [key: string]: any; }
 
@@ -426,6 +426,7 @@ const SuperadminPanel = () => {
   const [editOrgFolderId, setEditOrgFolderId] = useState('');
   const [editOrgFolderName, setEditOrgFolderName] = useState('');
   const [showEditOrgPicker, setShowEditOrgPicker] = useState(false);
+  const [editOrgAdvisorId, setEditOrgAdvisorId] = useState('');
 
   // Edit form values — site
   const [editSiteName, setEditSiteName] = useState('');
@@ -433,6 +434,7 @@ const SuperadminPanel = () => {
   const [editSiteFolderId, setEditSiteFolderId] = useState('');
   const [editSiteFolderName, setEditSiteFolderName] = useState('');
   const [showEditSitePicker, setShowEditSitePicker] = useState(false);
+  const [editSiteAdvisorId, setEditSiteAdvisorId] = useState('');
 
   // Create form — org
   const [orgName, setOrgName] = useState('');
@@ -529,13 +531,14 @@ const SuperadminPanel = () => {
   const startEditOrg = (org: Organisation) => {
     setEditingOrgId(org.id); setEditOrgName(org.name);
     setEditOrgFolderId(org.datto_folder_id || ''); setEditOrgFolderName(org.datto_folder_id ? `ID: ${org.datto_folder_id}` : '');
+    setEditOrgAdvisorId(org.advisor_id || '');
     setShowEditOrgPicker(false);
   };
 
   const handleUpdateOrg = async (id: string) => {
     if (!editOrgName.trim()) { flash('Name is required', true); return; }
     const finalId = editOrgFolderId || (showEditOrgPicker ? editOrgFolderId : '');
-    const { error } = await supabase.from('organisations').update({ name: editOrgName.trim(), datto_folder_id: finalId || null }).eq('id', id);
+    const { error } = await supabase.from('organisations').update({ name: editOrgName.trim(), datto_folder_id: finalId || null, advisor_id: editOrgAdvisorId || null }).eq('id', id);
     if (error) { flash(error.message, true); return; }
     flash('Organisation updated!'); setEditingOrgId(null); setShowEditOrgPicker(false); loadOrgs();
   };
@@ -546,6 +549,7 @@ const SuperadminPanel = () => {
     setEditSiteType(knownType ? site.type : 'OTHER');
     setEditSiteTypeOther(knownType ? '' : site.type);
     setEditSiteFolderId(site.datto_folder_id || ''); setEditSiteFolderName(site.datto_folder_id ? `ID: ${site.datto_folder_id}` : '');
+    setEditSiteAdvisorId(site.advisor_id || '');
     setShowEditSitePicker(false);
   };
 
@@ -553,7 +557,7 @@ const SuperadminPanel = () => {
     if (!editSiteName.trim()) { flash('Name is required', true); return; }
     const finalId = editSiteFolderId || (showEditSitePicker ? editSiteFolderId : '');
     const editTypeValue = editSiteType === 'OTHER' ? (editSiteTypeOther.trim() || 'OTHER') : editSiteType;
-    const { error } = await supabase.from('sites').update({ name: editSiteName.trim(), type: editTypeValue, datto_folder_id: finalId || null }).eq('id', id);
+    const { error } = await supabase.from('sites').update({ name: editSiteName.trim(), type: editTypeValue, datto_folder_id: finalId || null, advisor_id: editSiteAdvisorId || null }).eq('id', id);
     if (error) { flash(error.message, true); return; }
     flash('Site updated!'); setEditingSiteId(null); setShowEditSitePicker(false); loadSites();
   };
@@ -639,12 +643,13 @@ const SuperadminPanel = () => {
             ) : (
               <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
                 <table className="w-full text-left">
-                  <thead><tr className="bg-slate-50 text-[10px] uppercase font-black text-slate-400 border-b border-slate-100"><th className="px-6 py-3">Name</th><th className="px-6 py-3">Datto Folder</th><th className="px-6 py-3">Sites</th><th className="px-6 py-3"></th></tr></thead>
+                  <thead><tr className="bg-slate-50 text-[10px] uppercase font-black text-slate-400 border-b border-slate-100"><th className="px-6 py-3">Name</th><th className="px-6 py-3">Advisor</th><th className="px-6 py-3">Datto Folder</th><th className="px-6 py-3">Sites</th><th className="px-6 py-3"></th></tr></thead>
                   <tbody className="divide-y divide-slate-100">
                     {organisations.map(org => (
                       <React.Fragment key={org.id}>
                         <tr className="hover:bg-slate-50">
                           <td className="px-6 py-4 font-bold text-slate-800"><button onClick={() => { setSelectedOrgFilter(org.id); setActiveTab('sites'); }} className="hover:text-indigo-600 hover:underline text-left">{org.name}</button></td>
+                          <td className="px-6 py-4 text-sm text-slate-600">{org.advisor_id ? (advisors.find(a => a.id === org.advisor_id)?.email || '—') : <span className="text-slate-300">Unassigned</span>}</td>
                           <td className="px-6 py-4 text-sm">{org.datto_folder_id ? <span className="flex items-center gap-1.5 text-amber-600 font-mono text-xs"><Folder size={12} />{org.datto_folder_id}</span> : <span className="text-slate-300">Not set</span>}</td>
                           <td className="px-6 py-4 text-sm font-bold text-slate-600">{sites.filter(s => s.organisation_id === org.id).length}</td>
                           <td className="px-6 py-4 text-right flex items-center justify-end gap-2">
@@ -653,11 +658,19 @@ const SuperadminPanel = () => {
                           </td>
                         </tr>
                         {editingOrgId === org.id && (
-                          <tr><td colSpan={4} className="px-6 py-4 bg-indigo-50/50 border-b border-indigo-100">
+                          <tr><td colSpan={5} className="px-6 py-4 bg-indigo-50/50 border-b border-indigo-100">
                             <div className="space-y-3">
                               <h5 className="text-[10px] font-black uppercase tracking-widest text-indigo-600">Edit Organisation</h5>
                               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                                 <div><label className={labelClass}>Name</label><input value={editOrgName} onChange={e => setEditOrgName(e.target.value)} className={inputClass} /></div>
+                                <div><label className={labelClass}>Advisor</label>
+                                  <select value={editOrgAdvisorId} onChange={e => setEditOrgAdvisorId(e.target.value)} className={inputClass}>
+                                    <option value="">Unassigned</option>
+                                    {advisors.map(a => <option key={a.id} value={a.id}>{a.email}</option>)}
+                                  </select>
+                                </div>
+                              </div>
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                                 <div>
                                   <label className={labelClass}>Datto Folder</label>
                                   {showEditOrgPicker ? (
@@ -748,13 +761,14 @@ const SuperadminPanel = () => {
             ) : (
               <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
                 <table className="w-full text-left">
-                  <thead><tr className="bg-slate-50 text-[10px] uppercase font-black text-slate-400 border-b border-slate-100"><th className="px-6 py-3">Site</th><th className="px-6 py-3">Organisation</th><th className="px-6 py-3">Type</th><th className="px-6 py-3">Datto Folder</th><th className="px-6 py-3"></th></tr></thead>
+                  <thead><tr className="bg-slate-50 text-[10px] uppercase font-black text-slate-400 border-b border-slate-100"><th className="px-6 py-3">Site</th><th className="px-6 py-3">Organisation</th><th className="px-6 py-3">Advisor</th><th className="px-6 py-3">Type</th><th className="px-6 py-3">Datto Folder</th><th className="px-6 py-3"></th></tr></thead>
                   <tbody className="divide-y divide-slate-100">
                     {filteredSites.map(site => (
                       <React.Fragment key={site.id}>
                         <tr className="hover:bg-slate-50">
                           <td className="px-6 py-4 font-bold text-slate-800">{site.name}</td>
                           <td className="px-6 py-4 text-sm text-slate-500">{site.organisations?.name || '—'}</td>
+                          <td className="px-6 py-4 text-sm text-slate-600">{site.advisor_id ? (advisors.find(a => a.id === site.advisor_id)?.email || '—') : <span className="text-slate-300">Unassigned</span>}</td>
                           <td className="px-6 py-4"><span className="text-[10px] font-black uppercase tracking-wider text-slate-500 bg-slate-50 border border-slate-100 px-2 py-1 rounded-lg">{getSiteLabel(site.type)}</span></td>
                           <td className="px-6 py-4 text-xs font-mono">
                             {site.datto_folder_id
@@ -769,10 +783,10 @@ const SuperadminPanel = () => {
                           </td>
                         </tr>
                         {editingSiteId === site.id && (
-                          <tr><td colSpan={5} className="px-6 py-4 bg-indigo-50/50 border-b border-indigo-100">
+                          <tr><td colSpan={6} className="px-6 py-4 bg-indigo-50/50 border-b border-indigo-100">
                             <div className="space-y-3">
                               <h5 className="text-[10px] font-black uppercase tracking-widest text-indigo-600">Edit Site</h5>
-                              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                                 <div><label className={labelClass}>Name</label><input value={editSiteName} onChange={e => setEditSiteName(e.target.value)} className={inputClass} /></div>
                                 <div>
                                   <label className={labelClass}>Type</label>
@@ -782,6 +796,12 @@ const SuperadminPanel = () => {
                                   {editSiteType === 'OTHER' && (
                                     <input value={editSiteTypeOther} onChange={e => setEditSiteTypeOther(e.target.value)} placeholder="Describe the site type…" className={`${inputClass} mt-2`} />
                                   )}
+                                </div>
+                                <div><label className={labelClass}>Advisor</label>
+                                  <select value={editSiteAdvisorId} onChange={e => setEditSiteAdvisorId(e.target.value)} className={inputClass}>
+                                    <option value="">Unassigned</option>
+                                    {advisors.map(a => <option key={a.id} value={a.id}>{a.email}</option>)}
+                                  </select>
                                 </div>
                               </div>
                               <div>
@@ -1003,6 +1023,7 @@ export default function App() {
           compliance: s.compliance_score ?? 0, trend: s.trend ?? 0,
           red: 0, amber: 0, green: 0, lastReview: '—',
           datto_folder_id: s.datto_folder_id || orgFolderMap.get(s.organisation_id) || null,
+          advisor_id: s.advisor_id ?? null,
         }));
         setSites(mapped);
         if (mapped.length > 0 && !selectedSite) setSelectedSite(mapped[0]);
