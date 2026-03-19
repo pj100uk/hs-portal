@@ -3,20 +3,32 @@ import { GoogleGenerativeAI } from '@google/generative-ai'
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!)
 const model = genAI.getGenerativeModel({
-  model: 'gemini-1.5-flash',
+  model: 'gemini-2.5-flash',
   generationConfig: { responseMimeType: 'application/json' } as any,
 })
 
 const PROMPT_SUFFIX = `You are an expert H&S (Health & Safety) compliance assistant.
 
-Extract all action items from the following document. Return ONLY a JSON array.
-Each item must have:
-- "description": string (the action to be taken)
-- "dueDate": string | null (ISO date YYYY-MM-DD if mentioned, otherwise null)
-- "responsiblePerson": string | null (name or role if mentioned, otherwise null)
-- "priority": "HIGH" | "MEDIUM" | "LOW" | null (infer from urgency language if possible)
+Analyse the following document and extract all action items, required controls, recommended actions, outstanding items, corrective actions, or any other content indicating something needs to be done or improved. Return a single JSON object with two keys: "documentMeta" and "actions".
 
-If no actions are found, return an empty array [].`
+"documentMeta" must have:
+- "assessmentDate": string | null (ISO date YYYY-MM-DD if found, otherwise null)
+- "reviewDate": string | null (ISO date YYYY-MM-DD of last review/update if found, otherwise null)
+- "assessor": string | null (name of the person who completed the assessment, otherwise null)
+- "clientConsulted": string | null (name of client or person consulted, otherwise null)
+
+"actions" must be an array. Each item must have:
+- "description": string (the action to be taken)
+- "hazard": string | null (the hazard the action relates to, otherwise null)
+- "existingControls": string | null (controls already in place, otherwise null)
+- "regulation": string | null (relevant legislation or regulation if mentioned, otherwise null)
+- "riskRating": string | null (the raw risk rating as written in the document, e.g. "16/25", "High", "Red", otherwise null)
+- "riskLevel": "HIGH" | "MEDIUM" | "LOW" | null (your best interpretation of the risk rating — this is a suggestion only and will be reviewed by an advisor)
+- "responsiblePerson": string | null (name or role if mentioned, otherwise null)
+- "dueDate": string | null (ISO date YYYY-MM-DD only if an explicit deadline or target date is stated for this specific action — do NOT use the document date, assessment date, or review date)
+- "priority": "HIGH" | "MEDIUM" | "LOW" | null (urgency of the action itself, inferred from language if possible)
+
+If no actions are found, return { "documentMeta": { "assessmentDate": null, "reviewDate": null, "assessor": null, "clientConsulted": null }, "actions": [] }.`
 
 export async function POST(request: NextRequest) {
   const body = await request.json().catch(() => null)
@@ -42,8 +54,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Provide either text or fileBase64+mimeType' }, { status: 400 })
     }
 
-    const actions = JSON.parse(result.response.text())
-    return NextResponse.json({ actions })
+    const parsed = JSON.parse(result.response.text())
+    return NextResponse.json({ documentMeta: parsed.documentMeta ?? null, actions: parsed.actions ?? [] })
   } catch (err: any) {
     console.error('Gemini error:', err)
     return NextResponse.json({ error: err.message || 'Gemini API error' }, { status: 500 })

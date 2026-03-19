@@ -37,7 +37,7 @@ export async function GET(request: NextRequest) {
       id: String(item.id),
       name: item.name,
       type: item.folder ? 'folder' : 'file',
-      modified: item.modified || item.updatedAt || item.lastModified || item.modifiedAt || null,
+      modified: item.modified || item.updatedAt || item.lastModified || item.modifiedAt || item.time || null,
     }));
 
     return NextResponse.json(items);

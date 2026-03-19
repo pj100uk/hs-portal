@@ -32,16 +32,29 @@ interface Site {
   last_ai_sync: string | null;
 }
 
+interface DocumentMeta {
+  assessmentDate: string | null;
+  reviewDate: string | null;
+  assessor: string | null;
+  clientConsulted: string | null;
+}
+
 interface ExtractedAction {
   description: string;
-  dueDate: string | null;
+  hazard: string | null;
+  existingControls: string | null;
+  regulation: string | null;
+  riskRating: string | null;
+  riskLevel: 'HIGH' | 'MEDIUM' | 'LOW' | null;
   responsiblePerson: string | null;
+  dueDate: string | null;
   priority: 'HIGH' | 'MEDIUM' | 'LOW' | null;
 }
 
 interface ReviewAction extends ExtractedAction {
   id: string;
   docName: string;
+  documentMeta: DocumentMeta | null;
   selected: boolean;
   added: boolean;
 }
@@ -1011,6 +1024,8 @@ export default function App() {
   const [aiError, setAiError] = useState<string | null>(null);
   const [reviewActions, setReviewActions] = useState<ReviewAction[]>([]);
   const [showAiPanel, setShowAiPanel] = useState(false);
+  const [advisors, setAdvisors] = useState<{ id: string; email: string }[]>([]);
+  const aiCancelledRef = React.useRef(false);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => { setUser(session?.user ?? null); setAuthLoading(false); });
@@ -1023,6 +1038,9 @@ export default function App() {
     supabase.from('profiles').select('*').eq('id', user.id).single().then(({ data }) => {
       if (data) { setProfile(data); if (data.role === 'superadmin') setView('admin'); }
     });
+    fetch('/api/admin/users').then(r => r.json()).then(users => {
+      setAdvisors((users as any[]).filter(u => u.profile?.role === 'advisor').map(u => ({ id: u.id, email: u.email })));
+    }).catch(() => {});
   }, [user]);
 
   useEffect(() => {
@@ -1116,20 +1134,35 @@ export default function App() {
     for (const ra of toAdd) await handleAddReviewAction(ra.id);
   };
 
+  const EXCLUDED_FOLDERS = ['archive', 'evidence', 'photos', '_doc_converted_tmp'];
+
+  const fetchAllFiles = async (folderId: string): Promise<DattoItem[]> => {
+    const res = await fetch(`/api/datto?folderId=${folderId}`);
+    if (!res.ok) return [];
+    const raw = await res.json();
+    const items = normaliseItems(raw);
+    const files = items.filter((i: DattoItem) => i.type === 'file');
+    const folders = items.filter((i: DattoItem) =>
+      i.type === 'folder' && !EXCLUDED_FOLDERS.includes(i.name.toLowerCase())
+    );
+    const subFiles = await Promise.all(folders.map((f: DattoItem) => fetchAllFiles(f.id)));
+    return [...files, ...subFiles.flat()];
+  };
+
   const handleAiSync = async (site: Site, forceAll = false) => {
     if (!site.datto_folder_id) return;
+    aiCancelledRef.current = false;
     setAiSyncing(true);
     setAiError(null);
     setAiStatusMessage('');
     setReviewActions([]);
     setShowAiPanel(true);
     try {
-      const listRes = await fetch(`/api/datto?folderId=${site.datto_folder_id}`);
-      if (!listRes.ok) throw new Error('Failed to fetch Datto file list');
-      const rawItems = await listRes.json();
-      const allItems: DattoItem[] = normaliseItems(rawItems);
-      const SUPPORTED_EXTS = ['.docx', '.doc', '.pdf', '.xlsx', '.xls']; // .doc will error with a helpful message
-      let docxFiles = allItems.filter(i => i.type === 'file' && SUPPORTED_EXTS.some(ext => i.name.toLowerCase().endsWith(ext)));
+      setAiSyncProgress('Scanning folders…');
+      const allItems = await fetchAllFiles(site.datto_folder_id);
+      const SUPPORTED_EXTS = ['.docx', '.doc', '.pdf', '.xlsx', '.xls'];
+      let docxFiles = allItems.filter(i => SUPPORTED_EXTS.some(ext => i.name.toLowerCase().endsWith(ext)));
+      const THREE_YEARS_AGO = new Date(Date.now() - 3 * 365 * 24 * 60 * 60 * 1000).getTime();
       if (!forceAll && site.last_ai_sync) {
         const lastSync = new Date(site.last_ai_sync).getTime();
         docxFiles = docxFiles.filter(i => {
@@ -1138,11 +1171,19 @@ export default function App() {
           return new Date(mod).getTime() > lastSync;
         });
       }
+      if (!forceAll) {
+        docxFiles = docxFiles.filter(i => {
+          const mod = i.modified || null;
+          if (!mod) return true;
+          return new Date(mod).getTime() > THREE_YEARS_AGO;
+        });
+      }
       if (docxFiles.length === 0) {
         setAiStatusMessage(site.last_ai_sync && !forceAll ? 'No new documents since last sync. Use "Sync all" to reprocess everything.' : 'No supported documents found in this folder.');
         return;
       }
       for (let i = 0; i < docxFiles.length; i++) {
+        if (aiCancelledRef.current) break;
         const doc = docxFiles[i];
         setAiSyncProgress(`Processing ${i + 1}/${docxFiles.length}: ${doc.name}`);
         try {
@@ -1154,7 +1195,10 @@ export default function App() {
           let aiBody: Record<string, string>;
           if (ext === 'docx') {
             const extracted = await mammoth.extractRawText({ arrayBuffer: buffer });
-            aiBody = { text: extracted.value, docName: doc.name };
+            const cleanText = extracted.value
+              .replace(/â€¦/g, '…').replace(/â€™/g, '\u2019').replace(/â€œ/g, '\u201C')
+              .replace(/â€/g, '\u201D').replace(/Ã©/g, 'é').replace(/Â·/g, '·').replace(/Â /g, ' ');
+            aiBody = { text: cleanText, docName: doc.name };
           } else if (ext === 'doc') {
             throw new Error(`.doc format not supported — please open in Word and Save As .docx`);
           } else if (ext === 'xlsx' || ext === 'xls') {
@@ -1178,15 +1222,24 @@ export default function App() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(aiBody),
           });
-          if (!aiRes.ok) throw new Error(`AI extraction failed for ${doc.name}`);
-          const { actions } = await aiRes.json();
-          const newActions: ReviewAction[] = (actions as ExtractedAction[]).map((a: ExtractedAction) => ({
-            ...a,
-            id: `${doc.id}-${Math.random().toString(36).slice(2)}`,
-            docName: doc.name,
-            selected: true,
-            added: false,
-          }));
+          if (!aiRes.ok) {
+            const errBody = await aiRes.json().catch(() => ({}));
+            throw new Error(`AI extraction failed for ${doc.name}: ${errBody.error || aiRes.statusText}`);
+          }
+          const { actions, documentMeta } = await aiRes.json();
+          const newActions: ReviewAction[] = (actions as ExtractedAction[]).map((a: ExtractedAction) => {
+            const alreadyAdded = allActions.some(
+              existing => existing.site === site.name && existing.action === a.description
+            );
+            return {
+              ...a,
+              id: `${doc.id}-${Math.random().toString(36).slice(2)}`,
+              docName: doc.name,
+              documentMeta: documentMeta ?? null,
+              selected: !alreadyAdded,
+              added: alreadyAdded,
+            };
+          });
           setReviewActions(prev => [...prev, ...newActions]);
         } catch (docErr: any) {
           setReviewActions(prev => [...prev, { id: `err-${doc.id}-${Math.random().toString(36).slice(2)}`, description: `⚠ Error processing ${doc.name}: ${docErr.message}`, dueDate: null, responsiblePerson: null, priority: null, docName: doc.name, selected: false, added: false }]);
@@ -1424,6 +1477,7 @@ export default function App() {
                       {!aiSyncing && reviewActions.some(a => a.selected && !a.added) && (
                         <button onClick={handleAddSelectedReviewActions} className="px-4 py-2 bg-white text-violet-700 rounded-xl text-[11px] font-black uppercase tracking-wider hover:bg-violet-50">Add Selected</button>
                       )}
+                      {aiSyncing && <button onClick={() => { aiCancelledRef.current = true; }} className="px-3 py-1.5 bg-rose-500 text-white rounded-lg text-[11px] font-black uppercase tracking-wider hover:bg-rose-600">Cancel</button>}
                       <button onClick={() => setShowAiPanel(false)} className="text-violet-200 hover:text-white"><X size={18} /></button>
                     </div>
                   </div>
@@ -1441,17 +1495,36 @@ export default function App() {
                   )}
                   {reviewActions.length > 0 && (
                     <div className="divide-y divide-slate-100 max-h-[600px] overflow-y-auto">
-                      {reviewActions.map(ra => (
-                        <div key={ra.id} className={`p-5 flex gap-4 items-start transition-colors ${ra.added ? 'bg-emerald-50/60' : 'hover:bg-slate-50'}`}>
+                      {[...reviewActions].sort((a, b) => (a.added ? 1 : 0) - (b.added ? 1 : 0)).map(ra => (
+                        <div key={ra.id} className={`p-5 flex gap-4 items-start transition-colors ${ra.added ? 'bg-slate-50 opacity-50' : 'hover:bg-slate-50'}`}>
                           <input type="checkbox" checked={ra.selected} onChange={e => setReviewActions(prev => prev.map(a => a.id === ra.id ? { ...a, selected: e.target.checked } : a))} disabled={ra.added} className="mt-1 w-4 h-4 accent-violet-600 flex-shrink-0" />
                           <div className="flex-1 min-w-0 space-y-2">
+                            {/* Document meta */}
+                            <div className="space-y-1">
+                              <p className="text-[12px] font-black text-slate-700 flex items-center gap-1.5"><FileText size={11} className="text-violet-500" />{ra.docName}</p>
+                              {ra.documentMeta && (
+                                <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-[10px] font-bold text-slate-400">
+                                  {ra.documentMeta.assessmentDate && <span>Assessment date: {ra.documentMeta.assessmentDate}</span>}
+                                  {ra.documentMeta.reviewDate && <span>· Reviewed: {ra.documentMeta.reviewDate}</span>}
+                                </div>
+                              )}
+                            </div>
+                            {/* Action description */}
                             <textarea
                               value={ra.description}
                               onChange={e => setReviewActions(prev => prev.map(a => a.id === ra.id ? { ...a, description: e.target.value } : a))}
                               disabled={ra.added}
                               rows={2}
-                              className="w-full text-sm font-bold text-slate-800 border border-slate-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-violet-300 resize-none bg-white disabled:bg-slate-50 disabled:text-slate-500"
+                              className="w-full text-xs font-bold text-slate-800 border border-slate-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-violet-300 resize-none bg-white disabled:bg-slate-50 disabled:text-slate-500"
                             />
+                            {/* Hazard & existing controls */}
+                            {(ra.hazard || ra.existingControls) && (
+                              <div className="space-y-1">
+                                {ra.hazard && <p className="text-[11px] text-slate-500"><span className="font-black">Hazard:</span> {ra.hazard}</p>}
+                                {ra.existingControls && <p className="text-[11px] text-slate-500"><span className="font-black">Existing controls:</span> {ra.existingControls}</p>}
+                              </div>
+                            )}
+                            {/* Controls row */}
                             <div className="flex flex-wrap gap-2 items-center">
                               <input
                                 type="date"
@@ -1479,7 +1552,30 @@ export default function App() {
                                 <option value="MEDIUM">Medium</option>
                                 <option value="LOW">Low</option>
                               </select>
-                              <span className="text-[10px] text-slate-400 font-bold flex items-center gap-1"><FileText size={10} />{ra.docName}</span>
+                              {ra.regulation && <span className="text-[10px] text-slate-400 font-bold">{ra.regulation}</span>}
+                              {/* Risk rating badge */}
+                              {ra.riskRating && (
+                                <span className={`px-2 py-1 rounded-lg text-[10px] font-black border ${
+                                  ra.riskLevel === 'HIGH' ? 'bg-rose-100 text-rose-700 border-rose-200' :
+                                  ra.riskLevel === 'MEDIUM' ? 'bg-amber-100 text-amber-700 border-amber-200' :
+                                  ra.riskLevel === 'LOW' ? 'bg-emerald-100 text-emerald-700 border-emerald-200' :
+                                  'bg-slate-100 text-slate-600 border-slate-200'
+                                }`}>AI Suggested Risk: {ra.riskRating}</span>
+                              )}
+                              {ra.documentMeta?.assessor !== undefined && (
+                                <select
+                                  value={advisors.some(a => a.email === ra.documentMeta?.assessor) ? ra.documentMeta?.assessor : '__other__'}
+                                  onChange={e => setReviewActions(prev => prev.map(a => a.id === ra.id ? { ...a, documentMeta: a.documentMeta ? { ...a.documentMeta, assessor: e.target.value } : null } : a))}
+                                  disabled={ra.added}
+                                  className="px-3 py-1.5 border border-slate-200 rounded-lg text-xs text-slate-600 focus:outline-none focus:ring-2 focus:ring-violet-300 bg-white disabled:bg-slate-50"
+                                >
+                                  <option value="">No assessor</option>
+                                  {advisors.map(a => <option key={a.id} value={a.email}>{a.email}</option>)}
+                                  {ra.documentMeta?.assessor && !advisors.some(a => a.email === ra.documentMeta?.assessor) && (
+                                    <option value="__other__">{ra.documentMeta.assessor}</option>
+                                  )}
+                                </select>
+                              )}
                             </div>
                           </div>
                           <div className="flex-shrink-0">
