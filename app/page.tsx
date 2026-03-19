@@ -1242,7 +1242,7 @@ export default function App() {
           });
           setReviewActions(prev => [...prev, ...newActions]);
         } catch (docErr: any) {
-          setReviewActions(prev => [...prev, { id: `err-${doc.id}-${Math.random().toString(36).slice(2)}`, description: `⚠ Error processing ${doc.name}: ${docErr.message}`, dueDate: null, responsiblePerson: null, priority: null, docName: doc.name, selected: false, added: false }]);
+          setReviewActions(prev => [...prev, { id: `err-${doc.id}-${Math.random().toString(36).slice(2)}`, description: `⚠ Error processing ${doc.name}: ${docErr.message}`, dueDate: null, responsiblePerson: null, priority: null, docName: doc.name, selected: false, added: false, hazard: null, existingControls: null, regulation: null, riskRating: null, riskLevel: null, documentMeta: null }]);
         }
       }
       const now = new Date().toISOString();
