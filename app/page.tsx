@@ -203,8 +203,8 @@ const ActionCard = ({ action, isResolved, onToggleResolve, onAddNote, role }: {
                   }`}>Risk: {action.riskRating}</span>
                 )}
               </div>
-              {action.hazard && <p className="text-[11px] text-slate-600"><span className="font-black">Hazard:</span> {action.hazard}</p>}
-              {action.existingControls && <p className="text-[11px] text-slate-600"><span className="font-black">Existing controls:</span> {action.existingControls}</p>}
+              {action.hazard && <p className="text-[11px] text-slate-600"><span className="font-black">Hazard:</span> {formatExtractedText(action.hazard)}</p>}
+              {action.existingControls && <p className="text-[11px] text-slate-600"><span className="font-black">Existing controls:</span> {formatExtractedText(action.existingControls)}</p>}
             </div>
           )}
           <div><p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1.5">Requirement Detail</p><p className="text-sm text-slate-700 leading-relaxed">{action.description}</p></div>
