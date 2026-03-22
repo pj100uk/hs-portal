@@ -24,12 +24,15 @@ interface Action {
   id: string; action: string; description: string; date: string; site: string;
   who: string; contractor?: string; source: string; source_document_id?: string;
   priority: Priority; regulation: string; notes: string; evidenceLabel?: string; status: ActionStatus;
+  hazardRef?: string | null; hazard?: string | null; existingControls?: string | null;
+  riskRating?: string | null; riskLevel?: string | null;
 }
 interface Site {
   id: string; name: string; type: string; organisation_id: string | null;
   red: number; amber: number; green: number; compliance: number; lastReview: string;
   trend: number; datto_folder_id: string | null; advisor_id: string | null;
   last_ai_sync: string | null;
+  excluded_datto_folder_ids: string[];
 }
 
 interface DocumentMeta {
@@ -41,6 +44,7 @@ interface DocumentMeta {
 
 interface ExtractedAction {
   description: string;
+  hazardRef: string | null;
   hazard: string | null;
   existingControls: string | null;
   regulation: string | null;
@@ -48,6 +52,7 @@ interface ExtractedAction {
   riskLevel: 'HIGH' | 'MEDIUM' | 'LOW' | null;
   responsiblePerson: string | null;
   dueDate: string | null;
+  dueDateRelative: string | null;
   priority: 'HIGH' | 'MEDIUM' | 'LOW' | null;
 }
 
@@ -57,6 +62,7 @@ interface ReviewAction extends ExtractedAction {
   documentMeta: DocumentMeta | null;
   selected: boolean;
   added: boolean;
+  advisorPriority: string | null;
 }
 interface Organisation { id: string; name: string; datto_folder_id: string | null; }
 interface Profile { role: 'superadmin' | 'advisor' | 'client'; site_id: string | null; organisation_id: string | null; }
@@ -72,6 +78,34 @@ const SITE_TYPE_LABELS: Record<string, string> = {
 const getSiteLabel = (type: string) => SITE_TYPE_LABELS[type] ?? type;
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
+const formatExtractedText = (text: string) => {
+  const normalised = text.replace(/\s*•\s*/g, '\n• ');
+  const lines = normalised.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+  if (lines.length <= 1) return <span>{text}</span>;
+  const segments: { type: 'bullets' | 'prose'; lines: string[] }[] = [];
+  for (const line of lines) {
+    const isBullet = line.startsWith('•');
+    const last = segments[segments.length - 1];
+    if (last && last.type === (isBullet ? 'bullets' : 'prose')) last.lines.push(line);
+    else segments.push({ type: isBullet ? 'bullets' : 'prose', lines: [line] });
+  }
+  return (
+    <span className="flex flex-col gap-1">
+      {segments.map((seg, si) =>
+        seg.type === 'bullets' && seg.lines.length > 6 ? (
+          <span key={si} className="columns-2 gap-x-4">
+            {seg.lines.map((line, i) => <span key={i} className="block text-[11px] text-slate-600">{line}</span>)}
+          </span>
+        ) : (
+          <span key={si} className="flex flex-col gap-0.5">
+            {seg.lines.map((line, i) => <span key={i} className="block text-[11px] text-slate-600">{line}</span>)}
+          </span>
+        )
+      )}
+    </span>
+  );
+};
+
 const getSiteIcon = (type: string, size = 20) => {
   switch (type) {
     case 'OFFICE': return <Building2 size={size} />;
@@ -146,6 +180,33 @@ const ActionCard = ({ action, isResolved, onToggleResolve, onAddNote, role }: {
       </div>
       {expanded && (
         <div className="border-t border-white/60 bg-white/60 backdrop-blur-sm px-6 py-5 space-y-5">
+          {/* Labelled fields row */}
+          <div className="flex flex-wrap gap-6">
+            {action.date && <div><p className="text-[10px] font-black uppercase tracking-wider text-slate-400 mb-0.5">Due Date</p><p className="text-sm font-bold text-slate-700">{action.date}</p></div>}
+            {action.who && <div><p className="text-[10px] font-black uppercase tracking-wider text-slate-400 mb-0.5">Responsible Person</p><p className="text-sm font-bold text-slate-700">{action.who}</p></div>}
+            {action.contractor && <div><p className="text-[10px] font-black uppercase tracking-wider text-slate-400 mb-0.5">Contractor</p><p className="text-sm font-bold text-slate-700">{action.contractor}</p></div>}
+            {action.regulation && <div><p className="text-[10px] font-black uppercase tracking-wider text-slate-400 mb-0.5">Regulation</p><p className="text-sm font-bold text-slate-700">{action.regulation}</p></div>}
+          </div>
+          {/* AI Suggestion mini-card */}
+          {(action.hazard || action.existingControls || action.riskRating) && (
+            <div className="rounded-xl border border-violet-100 bg-violet-50/60 px-4 py-3 space-y-1.5">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-[10px] font-black uppercase tracking-wider text-violet-500 flex items-center gap-1.5">
+                  <Sparkles size={10} />AI Suggestion{action.hazardRef && <span className="font-normal normal-case tracking-normal text-violet-400">· Hazard No: {action.hazardRef}</span>}
+                </span>
+                {action.riskRating && (
+                  <span className={`px-2 py-0.5 rounded-md text-[10px] font-black border ${
+                    action.riskLevel === 'HIGH' ? 'bg-rose-100 text-rose-700 border-rose-200' :
+                    action.riskLevel === 'MEDIUM' ? 'bg-amber-100 text-amber-700 border-amber-200' :
+                    action.riskLevel === 'LOW' ? 'bg-emerald-100 text-emerald-700 border-emerald-200' :
+                    'bg-slate-100 text-slate-600 border-slate-200'
+                  }`}>Risk: {action.riskRating}</span>
+                )}
+              </div>
+              {action.hazard && <p className="text-[11px] text-slate-600"><span className="font-black">Hazard:</span> {action.hazard}</p>}
+              {action.existingControls && <p className="text-[11px] text-slate-600"><span className="font-black">Existing controls:</span> {action.existingControls}</p>}
+            </div>
+          )}
           <div><p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1.5">Requirement Detail</p><p className="text-sm text-slate-700 leading-relaxed">{action.description}</p></div>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div className="md:col-span-2">
@@ -963,6 +1024,111 @@ const SuperadminPanel = () => {
   );
 };
 
+// ─── Sync Config Modal ────────────────────────────────────────────────────────
+const FolderCheckboxTree = ({ folderId, folderName, depth, excludedIds, onToggle, parentExcluded = false }: {
+  folderId: string; folderName: string; depth: number;
+  excludedIds: Set<string>; onToggle: (id: string) => void;
+  parentExcluded?: boolean;
+}) => {
+  const [expanded, setExpanded] = useState(depth === 0);
+  const [children, setChildren] = useState<DattoItem[] | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [fileCount, setFileCount] = useState<number | null>(null);
+  const isExcluded = excludedIds.has(folderId);
+  const effectivelyExcluded = parentExcluded || isExcluded;
+
+  const loadChildren = async () => {
+    if (children !== null) return;
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/datto?folderId=${folderId}`);
+      const raw = await res.json();
+      const items = normaliseItems(raw);
+      setChildren(items.filter((i: DattoItem) => i.type === 'folder'));
+      setFileCount(items.filter((i: DattoItem) => i.type === 'file').length);
+    } catch { /* silent */ }
+    setLoading(false);
+  };
+
+  const handleExpand = () => {
+    if (!expanded) loadChildren();
+    setExpanded(v => !v);
+  };
+
+  useEffect(() => { if (depth === 0) loadChildren(); }, []);
+
+  return (
+    <div style={{ paddingLeft: depth * 16 }}>
+      <div className="flex items-center gap-2 py-1.5">
+        <button onClick={handleExpand} className="w-4 h-4 flex items-center justify-center text-slate-300 hover:text-slate-500 flex-shrink-0">
+          {loading ? <span className="text-[9px] animate-pulse">…</span> : expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+        </button>
+        <input type="checkbox" checked={!effectivelyExcluded} onChange={() => !parentExcluded && onToggle(folderId)} disabled={parentExcluded} className={`w-3.5 h-3.5 flex-shrink-0 ${parentExcluded ? 'opacity-30 cursor-not-allowed' : 'accent-violet-600'}`} />
+        <Folder size={13} className={effectivelyExcluded ? 'text-slate-300 flex-shrink-0' : 'text-amber-400 flex-shrink-0'} />
+        <span className={`text-xs font-bold flex-1 truncate ${effectivelyExcluded ? 'text-slate-400 line-through' : 'text-slate-700'}`}>{folderName}</span>
+        {fileCount !== null && (
+          <span className="text-[10px] text-slate-400 font-bold bg-slate-50 border border-slate-100 px-1.5 py-0.5 rounded flex-shrink-0">{fileCount} file{fileCount !== 1 ? 's' : ''}</span>
+        )}
+      </div>
+      {expanded && children !== null && children.map(child => (
+        <FolderCheckboxTree key={child.id} folderId={child.id} folderName={child.name} depth={depth + 1} excludedIds={excludedIds} onToggle={onToggle} parentExcluded={effectivelyExcluded} />
+      ))}
+    </div>
+  );
+};
+
+const SyncConfigModal = ({ site, onClose, onSave }: {
+  site: Site; onClose: () => void; onSave: (siteId: string, excludedIds: string[]) => void;
+}) => {
+  const [excludedIds, setExcludedIds] = useState<Set<string>>(new Set(site.excluded_datto_folder_ids ?? []));
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState('');
+
+  const handleToggle = (id: string) => {
+    setExcludedIds(prev => { const next = new Set(prev); next.has(id) ? next.delete(id) : next.add(id); return next; });
+  };
+
+  const handleSave = async () => {
+    setSaving(true); setSaveError('');
+    const excludedArr = Array.from(excludedIds);
+    const { error } = await supabase.from('sites').update({ excluded_datto_folder_ids: excludedArr }).eq('id', site.id);
+    if (error) { setSaveError('Failed to save. Please try again.'); setSaving(false); return; }
+    onSave(site.id, excludedArr);
+    onClose();
+  };
+
+  if (!site.datto_folder_id) return null;
+  return (
+    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-3xl shadow-2xl w-full max-w-lg overflow-hidden">
+        <div className="bg-violet-600 px-6 py-4 flex items-center justify-between">
+          <div>
+            <h2 className="font-black text-white text-sm uppercase tracking-widest flex items-center gap-2"><Settings size={14} />Configure AI Sync</h2>
+            <p className="text-violet-200 text-[11px] mt-0.5">{site.name}</p>
+          </div>
+          <button onClick={onClose} className="text-violet-200 hover:text-white"><X size={18} /></button>
+        </div>
+        <div className="bg-violet-50 border-b border-violet-100 px-6 py-3">
+          <p className="text-[11px] text-violet-700 font-bold">Uncheck folders to skip them during AI Sync. This saves tokens by excluding irrelevant documents.</p>
+        </div>
+        <div className="px-4 py-3 max-h-[400px] overflow-y-auto">
+          <FolderCheckboxTree folderId={site.datto_folder_id} folderName={site.name} depth={0} excludedIds={excludedIds} onToggle={handleToggle} />
+        </div>
+        <div className="bg-slate-50 border-t border-slate-100 px-6 py-4 flex items-center justify-between">
+          <div>
+            {excludedIds.size > 0 && <span className="text-[11px] font-bold text-slate-500">{excludedIds.size} folder{excludedIds.size !== 1 ? 's' : ''} excluded</span>}
+            {saveError && <span className="text-[11px] font-bold text-rose-600">{saveError}</span>}
+          </div>
+          <div className="flex gap-3">
+            <button onClick={onClose} className="px-5 py-2 bg-white border border-slate-200 text-slate-500 rounded-xl text-[11px] font-black uppercase tracking-wider hover:bg-slate-50">Cancel</button>
+            <button onClick={handleSave} disabled={saving} className="px-5 py-2 bg-violet-600 text-white rounded-xl text-[11px] font-black uppercase tracking-wider hover:bg-violet-700 disabled:opacity-50">{saving ? 'Saving…' : 'Save Config'}</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 // ─── Login Screen ─────────────────────────────────────────────────────────────
 const LoginScreen = ({ onLogin }: { onLogin: () => void }) => {
   const [email, setEmail] = useState(''); const [password, setPassword] = useState('');
@@ -1024,6 +1190,7 @@ export default function App() {
   const [aiError, setAiError] = useState<string | null>(null);
   const [reviewActions, setReviewActions] = useState<ReviewAction[]>([]);
   const [showAiPanel, setShowAiPanel] = useState(false);
+  const [showSyncConfig, setShowSyncConfig] = useState(false);
   const [advisors, setAdvisors] = useState<{ id: string; email: string }[]>([]);
   const aiCancelledRef = React.useRef(false);
 
@@ -1084,6 +1251,7 @@ export default function App() {
           datto_folder_id: s.datto_folder_id || orgFolderMap.get(s.organisation_id) || null,
           advisor_id: s.advisor_id ?? null,
           last_ai_sync: s.last_ai_sync ?? null,
+          excluded_datto_folder_ids: s.excluded_datto_folder_ids ?? [],
         }));
         setSites(mapped);
         if (mapped.length > 0 && !selectedSite) setSelectedSite(mapped[0]);
@@ -1097,7 +1265,7 @@ export default function App() {
     const priorityMap: Record<string, Priority> = { critical: 'red', upcoming: 'amber', scheduled: 'green' };
     const siteIds = sites.map(s => s.id);
     supabase.from('actions').select('*').in('site_id', siteIds).then(({ data }) => {
-      if (data) setAllActions(data.map((a: any) => ({ id: a.id, action: a.title, description: a.description || '', date: a.due_date || '', site: sites.find(s => s.id === a.site_id)?.name || '', who: '', contractor: a.contractor || '', source: a.source_document_name || '', source_document_id: a.source_document_id || '', priority: (priorityMap[a.priority] || 'green') as Priority, regulation: a.regulation || '', notes: '', status: a.status as ActionStatus })));
+      if (data) setAllActions(data.map((a: any) => ({ id: a.id, action: a.title, description: a.description || '', date: a.due_date || '', site: sites.find(s => s.id === a.site_id)?.name || '', who: '', contractor: a.contractor || '', source: a.source_document_name || '', source_document_id: a.source_document_id || '', priority: (priorityMap[a.priority] || 'green') as Priority, regulation: a.regulation || '', notes: '', status: a.status as ActionStatus, hazardRef: a.hazard_ref || null, hazard: a.hazard || null, existingControls: a.existing_controls || null, riskRating: a.risk_rating || null, riskLevel: a.risk_level || null })));
     });
   }, [user, sites]);
 
@@ -1106,13 +1274,17 @@ export default function App() {
   const toggleResolve = (id: string) => setResolvedIds(prev => prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]);
   const handleAddNote = (id: string, note: string) => { if (note.trim()) setActionNotes(prev => ({ ...prev, [id]: note.trim() })); };
   const handleSiteClick = (site: Site) => { setSelectedSite(site); setView('site'); };
+  const handleSaveSyncConfig = (siteId: string, excludedIds: string[]) => {
+    setSites(prev => prev.map(s => s.id === siteId ? { ...s, excluded_datto_folder_ids: excludedIds } : s));
+    setSelectedSite(prev => prev?.id === siteId ? { ...prev, excluded_datto_folder_ids: excludedIds } : prev);
+  };
   const handleActionSaved = (action: Action) => { setAllActions(prev => [...prev, action]); setShowAddAction(false); };
 
   const handleAddReviewAction = async (actionId: string) => {
     const ra = reviewActions.find(a => a.id === actionId);
     if (!ra || !selectedSite) return;
     const priorityMap: Record<string, string> = { HIGH: 'critical', MEDIUM: 'upcoming', LOW: 'scheduled' };
-    const dbPriority = ra.priority ? priorityMap[ra.priority] || 'upcoming' : 'upcoming';
+    const dbPriority = ra.advisorPriority ? priorityMap[ra.advisorPriority] || 'upcoming' : 'upcoming';
     const { data } = await supabase.from('actions').insert({
       site_id: selectedSite.id,
       title: ra.description,
@@ -1121,11 +1293,16 @@ export default function App() {
       status: 'open',
       due_date: ra.dueDate || null,
       source_document_name: ra.docName,
+      hazard_ref: ra.hazardRef || null,
+      hazard: ra.hazard || null,
+      existing_controls: ra.existingControls || null,
+      risk_rating: ra.riskRating || null,
+      risk_level: ra.riskLevel || null,
     }).select().single();
     setReviewActions(prev => prev.map(a => a.id === actionId ? { ...a, added: true } : a));
     if (data) {
       const priorityColour: Record<string, Priority> = { critical: 'red', upcoming: 'amber', scheduled: 'green' };
-      setAllActions(prev => [...prev, { id: data.id, action: ra.description, description: '', date: ra.dueDate || '', site: selectedSite.name, who: ra.responsiblePerson || '', contractor: '', source: ra.docName, source_document_id: '', priority: (priorityColour[dbPriority] || 'green') as Priority, regulation: '', notes: '', status: 'open' }]);
+      setAllActions(prev => [...prev, { id: data.id, action: ra.description, description: '', date: ra.dueDate || '', site: selectedSite.name, who: ra.responsiblePerson || '', contractor: '', source: ra.docName, source_document_id: '', priority: (priorityColour[dbPriority] || 'green') as Priority, regulation: '', notes: '', status: 'open', hazardRef: ra.hazardRef || null, hazard: ra.hazard || null, existingControls: ra.existingControls || null, riskRating: ra.riskRating || null, riskLevel: ra.riskLevel || null }]);
     }
   };
 
@@ -1136,18 +1313,34 @@ export default function App() {
 
   const EXCLUDED_FOLDERS = ['archive', 'evidence', 'photos', '_doc_converted_tmp'];
 
-  const fetchAllFiles = async (folderId: string): Promise<DattoItem[]> => {
+  const fetchAllFiles = async (folderId: string, userExcludedIds: Set<string> = new Set()): Promise<DattoItem[]> => {
     const res = await fetch(`/api/datto?folderId=${folderId}`);
     if (!res.ok) return [];
     const raw = await res.json();
     const items = normaliseItems(raw);
     const files = items.filter((i: DattoItem) => i.type === 'file');
     const folders = items.filter((i: DattoItem) =>
-      i.type === 'folder' && !EXCLUDED_FOLDERS.includes(i.name.toLowerCase())
+      i.type === 'folder' && !EXCLUDED_FOLDERS.includes(i.name.toLowerCase()) && !userExcludedIds.has(i.id)
     );
-    const subFiles = await Promise.all(folders.map((f: DattoItem) => fetchAllFiles(f.id)));
+    const subFiles = await Promise.all(folders.map((f: DattoItem) => fetchAllFiles(f.id, userExcludedIds)));
     return [...files, ...subFiles.flat()];
   };
+
+  const resolveDueDate = (dueDate: string | null, dueDateRelative: string | null, assessmentDate: string | null): string | null => {
+    if (dueDate) return dueDate;
+    if (!dueDateRelative) return null;
+    const base = assessmentDate ? new Date(assessmentDate) : new Date();
+    const lower = dueDateRelative.toLowerCase();
+    const n = (pattern: RegExp) => { const m = lower.match(pattern); return m ? parseInt(m[1]) : 0; };
+    const months = n(/(\d+)\s*month/); const weeks = n(/(\d+)\s*week/); const days = n(/(\d+)\s*day/); const years = n(/(\d+)\s*year/);
+    if (months) base.setMonth(base.getMonth() + months);
+    else if (weeks) base.setDate(base.getDate() + weeks * 7);
+    else if (days) base.setDate(base.getDate() + days);
+    else if (years) base.setFullYear(base.getFullYear() + years);
+    else return dueDateRelative; // pass through text like "Ongoing", "Continuous" etc.
+    return base.toISOString().split('T')[0];
+  };
+  const isIsoDate = (v: string) => /^\d{4}-\d{2}-\d{2}$/.test(v);
 
   const handleAiSync = async (site: Site, forceAll = false) => {
     if (!site.datto_folder_id) return;
@@ -1159,7 +1352,8 @@ export default function App() {
     setShowAiPanel(true);
     try {
       setAiSyncProgress('Scanning folders…');
-      const allItems = await fetchAllFiles(site.datto_folder_id);
+      const userExcludedIds = new Set(site.excluded_datto_folder_ids ?? []);
+      const allItems = await fetchAllFiles(site.datto_folder_id, userExcludedIds);
       const SUPPORTED_EXTS = ['.docx', '.doc', '.pdf', '.xlsx', '.xls'];
       let docxFiles = allItems.filter(i => SUPPORTED_EXTS.some(ext => i.name.toLowerCase().endsWith(ext)));
       const THREE_YEARS_AGO = new Date(Date.now() - 3 * 365 * 24 * 60 * 60 * 1000).getTime();
@@ -1194,11 +1388,27 @@ export default function App() {
 
           let aiBody: Record<string, string>;
           if (ext === 'docx') {
+            // Validate DOCX is a real ZIP (magic bytes PK\x03\x04)
+            const magic = new Uint8Array(buffer.slice(0, 4));
+            if (magic[0] !== 0x50 || magic[1] !== 0x4B || magic[2] !== 0x03 || magic[3] !== 0x04) {
+              throw new Error(`${doc.name} appears corrupted (not a valid DOCX file) — re-upload a repaired version`);
+            }
             const extracted = await mammoth.extractRawText({ arrayBuffer: buffer });
             const cleanText = extracted.value
               .replace(/â€¦/g, '…').replace(/â€™/g, '\u2019').replace(/â€œ/g, '\u201C')
               .replace(/â€/g, '\u201D').replace(/Ã©/g, 'é').replace(/Â·/g, '·').replace(/Â /g, ' ');
-            aiBody = { text: cleanText, docName: doc.name };
+            if (cleanText.trim()) {
+              aiBody = { text: cleanText, docName: doc.name };
+            } else {
+              // Fallback: convert to PDF via CloudConvert, send as base64
+              const convertRes = await fetch(`/api/convert?fileId=${doc.id}&fileName=${encodeURIComponent(doc.name)}`);
+              if (!convertRes.ok) throw new Error(`Could not extract text from ${doc.name}`);
+              const pdfBuffer = await convertRes.arrayBuffer();
+              const bytes = new Uint8Array(pdfBuffer);
+              let binary = '';
+              for (let b = 0; b < bytes.byteLength; b++) binary += String.fromCharCode(bytes[b]);
+              aiBody = { fileBase64: btoa(binary), mimeType: 'application/pdf', docName: doc.name };
+            }
           } else if (ext === 'doc') {
             throw new Error(`.doc format not supported — please open in Word and Save As .docx`);
           } else if (ext === 'xlsx' || ext === 'xls') {
@@ -1233,16 +1443,18 @@ export default function App() {
             );
             return {
               ...a,
+              dueDate: resolveDueDate(a.dueDate, a.dueDateRelative, documentMeta?.assessmentDate ?? null),
               id: `${doc.id}-${Math.random().toString(36).slice(2)}`,
               docName: doc.name,
               documentMeta: documentMeta ?? null,
               selected: !alreadyAdded,
               added: alreadyAdded,
+              advisorPriority: null,
             };
           });
           setReviewActions(prev => [...prev, ...newActions]);
         } catch (docErr: any) {
-          setReviewActions(prev => [...prev, { id: `err-${doc.id}-${Math.random().toString(36).slice(2)}`, description: `⚠ Error processing ${doc.name}: ${docErr.message}`, dueDate: null, responsiblePerson: null, priority: null, docName: doc.name, selected: false, added: false, hazard: null, existingControls: null, regulation: null, riskRating: null, riskLevel: null, documentMeta: null }]);
+          setReviewActions(prev => [...prev, { id: `err-${doc.id}-${Math.random().toString(36).slice(2)}`, description: `⚠ Error processing ${doc.name}: ${docErr.message}`, dueDate: null, dueDateRelative: null, responsiblePerson: null, priority: null, advisorPriority: null, docName: doc.name, selected: false, added: false, hazardRef: null, hazard: null, existingControls: null, regulation: null, riskRating: null, riskLevel: null, documentMeta: null }]);
         }
       }
       const now = new Date().toISOString();
@@ -1412,8 +1624,20 @@ export default function App() {
                     <div className="w-16 h-16 bg-slate-900 rounded-2xl flex items-center justify-center text-white shadow-xl">{getSiteIcon(selectedSite.type, 28)}</div>
                     <div><h2 className="text-2xl font-black text-slate-900 tracking-tight">{selectedSite.name}</h2><p className="text-slate-500 text-sm mt-1">Last audit: {selectedSite.lastReview} · {selectedSite.type}</p></div>
                   </div>
-                  <div className="flex gap-3">
+                  <div className="flex gap-3 flex-wrap">
                     <button className="bg-slate-100 text-slate-600 px-6 py-2.5 rounded-xl text-[11px] font-black uppercase tracking-widest hover:bg-slate-200">Audit Archive</button>
+                    {profile?.role === 'advisor' && selectedSite.datto_folder_id && (
+                      <button
+                        onClick={() => setShowSyncConfig(true)}
+                        className="flex items-center gap-2 bg-white border border-violet-200 text-violet-700 px-4 py-2.5 rounded-xl text-[11px] font-black uppercase tracking-widest hover:bg-violet-50"
+                        title="Choose which folders to include in AI Sync"
+                      >
+                        <Settings size={13} />Configure Sync
+                        {(selectedSite.excluded_datto_folder_ids?.length ?? 0) > 0 && (
+                          <span className="bg-violet-100 text-violet-700 text-[10px] font-black px-1.5 py-0.5 rounded-full">{selectedSite.excluded_datto_folder_ids.length}</span>
+                        )}
+                      </button>
+                    )}
                     {profile?.role === 'advisor' && (
                       <button
                         onClick={() => handleAiSync(selectedSite)}
@@ -1501,7 +1725,7 @@ export default function App() {
                           <div className="flex-1 min-w-0 space-y-2">
                             {/* Document meta */}
                             <div className="space-y-1">
-                              <p className="text-[12px] font-black text-slate-700 flex items-center gap-1.5"><FileText size={11} className="text-violet-500" />{ra.docName}</p>
+                              <p className="text-[12px] font-black text-slate-700 flex items-center gap-1.5"><FileText size={11} className="text-violet-500" />{ra.docName}{ra.hazardRef && <span className="font-normal text-violet-500 text-[11px]">· Hazard No: {ra.hazardRef}</span>}</p>
                               {ra.documentMeta && (
                                 <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-[10px] font-bold text-slate-400">
                                   {ra.documentMeta.assessmentDate && <span>Assessment date: {ra.documentMeta.assessmentDate}</span>}
@@ -1509,6 +1733,21 @@ export default function App() {
                                 </div>
                               )}
                             </div>
+                            {/* Hazard & existing measures */}
+                            {(ra.hazard || ra.existingControls) && (
+                              <div className="space-y-1 pl-1">
+                                {ra.hazard && (
+                                  <p className="text-[11px] text-slate-600">
+                                    <span className="font-black text-slate-500">
+                                      {ra.hazardRef ? `Hazard No. ${ra.hazardRef}:` : 'Hazard:'}
+                                    </span>{' '}{formatExtractedText(ra.hazard)}
+                                  </p>
+                                )}
+                                {ra.existingControls && (
+                                  <p className="text-[11px] text-slate-600"><span className="font-black text-slate-500">Existing Measures:</span>{' '}{formatExtractedText(ra.existingControls)}</p>
+                                )}
+                              </div>
+                            )}
                             {/* Action description */}
                             <textarea
                               value={ra.description}
@@ -1517,66 +1756,99 @@ export default function App() {
                               rows={2}
                               className="w-full text-xs font-bold text-slate-800 border border-slate-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-violet-300 resize-none bg-white disabled:bg-slate-50 disabled:text-slate-500"
                             />
-                            {/* Hazard & existing controls */}
-                            {(ra.hazard || ra.existingControls) && (
-                              <div className="space-y-1">
-                                {ra.hazard && <p className="text-[11px] text-slate-500"><span className="font-black">Hazard:</span> {ra.hazard}</p>}
-                                {ra.existingControls && <p className="text-[11px] text-slate-500"><span className="font-black">Existing controls:</span> {ra.existingControls}</p>}
+                            {/* Controls row — labelled */}
+                            <div className="flex flex-wrap gap-3 items-end">
+                              <div className="flex flex-col gap-1">
+                                <span className="text-[10px] font-black uppercase tracking-wider text-slate-400 pl-3">Due Date</span>
+                                <input
+                                  type={ra.dueDate && !isIsoDate(ra.dueDate) ? 'text' : 'date'}
+                                  value={ra.dueDate || ''}
+                                  onChange={e => setReviewActions(prev => prev.map(a => a.id === ra.id ? { ...a, dueDate: e.target.value || null } : a))}
+                                  disabled={ra.added}
+                                  className="px-3 py-1.5 border border-slate-200 rounded-lg text-xs text-slate-600 focus:outline-none focus:ring-2 focus:ring-violet-300 bg-white disabled:bg-slate-50"
+                                />
                               </div>
-                            )}
-                            {/* Controls row */}
-                            <div className="flex flex-wrap gap-2 items-center">
-                              <input
-                                type="date"
-                                value={ra.dueDate || ''}
-                                onChange={e => setReviewActions(prev => prev.map(a => a.id === ra.id ? { ...a, dueDate: e.target.value || null } : a))}
-                                disabled={ra.added}
-                                className="px-3 py-1.5 border border-slate-200 rounded-lg text-xs text-slate-600 focus:outline-none focus:ring-2 focus:ring-violet-300 bg-white disabled:bg-slate-50"
-                              />
-                              <input
-                                type="text"
-                                value={ra.responsiblePerson || ''}
-                                onChange={e => setReviewActions(prev => prev.map(a => a.id === ra.id ? { ...a, responsiblePerson: e.target.value || null } : a))}
-                                disabled={ra.added}
-                                placeholder="Responsible person"
-                                className="px-3 py-1.5 border border-slate-200 rounded-lg text-xs text-slate-600 focus:outline-none focus:ring-2 focus:ring-violet-300 bg-white disabled:bg-slate-50 w-40"
-                              />
-                              <select
-                                value={ra.priority || ''}
-                                onChange={e => setReviewActions(prev => prev.map(a => a.id === ra.id ? { ...a, priority: (e.target.value || null) as ReviewAction['priority'] } : a))}
-                                disabled={ra.added}
-                                className="px-3 py-1.5 border border-slate-200 rounded-lg text-xs text-slate-600 focus:outline-none focus:ring-2 focus:ring-violet-300 bg-white disabled:bg-slate-50"
-                              >
-                                <option value="">No priority</option>
-                                <option value="HIGH">High</option>
-                                <option value="MEDIUM">Medium</option>
-                                <option value="LOW">Low</option>
-                              </select>
-                              {ra.regulation && <span className="text-[10px] text-slate-400 font-bold">{ra.regulation}</span>}
-                              {/* Risk rating badge */}
+                              <div className="flex flex-col gap-1">
+                                <span className="text-[10px] font-black uppercase tracking-wider text-slate-400 pl-3">Responsible Person</span>
+                                <input
+                                  type="text"
+                                  value={ra.responsiblePerson || ''}
+                                  onChange={e => setReviewActions(prev => prev.map(a => a.id === ra.id ? { ...a, responsiblePerson: e.target.value || null } : a))}
+                                  disabled={ra.added}
+                                  placeholder="e.g. Site Manager"
+                                  className="px-3 py-1.5 border border-slate-200 rounded-lg text-xs text-slate-600 focus:outline-none focus:ring-2 focus:ring-violet-300 bg-white disabled:bg-slate-50 w-44"
+                                />
+                              </div>
                               {ra.riskRating && (
-                                <span className={`px-2 py-1 rounded-lg text-[10px] font-black border ${
-                                  ra.riskLevel === 'HIGH' ? 'bg-rose-100 text-rose-700 border-rose-200' :
-                                  ra.riskLevel === 'MEDIUM' ? 'bg-amber-100 text-amber-700 border-amber-200' :
-                                  ra.riskLevel === 'LOW' ? 'bg-emerald-100 text-emerald-700 border-emerald-200' :
-                                  'bg-slate-100 text-slate-600 border-slate-200'
-                                }`}>AI Suggested Risk: {ra.riskRating}</span>
+                                <div className="flex flex-col gap-1">
+                                  <span className="text-[10px] font-black uppercase tracking-wider text-slate-400 pl-3">Risk Rating</span>
+                                  <span className={`px-3 py-1.5 rounded-lg text-xs font-black border ${
+                                    ra.riskLevel === 'HIGH' ? 'bg-rose-100 text-rose-700 border-rose-200' :
+                                    ra.riskLevel === 'MEDIUM' ? 'bg-amber-100 text-amber-700 border-amber-200' :
+                                    ra.riskLevel === 'LOW' ? 'bg-emerald-100 text-emerald-700 border-emerald-200' :
+                                    'bg-slate-100 text-slate-600 border-slate-200'
+                                  }`}>{ra.riskRating}</span>
+                                </div>
                               )}
-                              {ra.documentMeta?.assessor !== undefined && (
+                              <div className="flex flex-col gap-1">
+                                <span className="text-[10px] font-black uppercase tracking-wider text-slate-400 pl-3">Priority</span>
                                 <select
-                                  value={advisors.some(a => a.email === ra.documentMeta?.assessor) ? ra.documentMeta?.assessor : '__other__'}
-                                  onChange={e => setReviewActions(prev => prev.map(a => a.id === ra.id ? { ...a, documentMeta: a.documentMeta ? { ...a.documentMeta, assessor: e.target.value } : null } : a))}
+                                  value={ra.advisorPriority || ''}
+                                  onChange={e => setReviewActions(prev => prev.map(a => a.id === ra.id ? { ...a, advisorPriority: e.target.value || null } : a))}
                                   disabled={ra.added}
                                   className="px-3 py-1.5 border border-slate-200 rounded-lg text-xs text-slate-600 focus:outline-none focus:ring-2 focus:ring-violet-300 bg-white disabled:bg-slate-50"
                                 >
-                                  <option value="">No assessor</option>
-                                  {advisors.map(a => <option key={a.id} value={a.email}>{a.email}</option>)}
-                                  {ra.documentMeta?.assessor && !advisors.some(a => a.email === ra.documentMeta?.assessor) && (
-                                    <option value="__other__">{ra.documentMeta.assessor}</option>
-                                  )}
+                                  <option value="">No priority</option>
+                                  <option value="HIGH">High</option>
+                                  <option value="MEDIUM">Medium</option>
+                                  <option value="LOW">Low</option>
                                 </select>
+                              </div>
+                              {ra.documentMeta?.assessor !== undefined && (
+                                <div className="flex flex-col gap-1">
+                                  <span className="text-[10px] font-black uppercase tracking-wider text-slate-400 pl-3">Advisor</span>
+                                  <select
+                                    value={advisors.some(a => a.email === ra.documentMeta?.assessor) ? ra.documentMeta?.assessor : '__other__'}
+                                    onChange={e => setReviewActions(prev => prev.map(a => a.id === ra.id ? { ...a, documentMeta: a.documentMeta ? { ...a.documentMeta, assessor: e.target.value } : null } : a))}
+                                    disabled={ra.added}
+                                    className="px-3 py-1.5 border border-slate-200 rounded-lg text-xs text-slate-600 focus:outline-none focus:ring-2 focus:ring-violet-300 bg-white disabled:bg-slate-50"
+                                  >
+                                    <option value="">No advisor</option>
+                                    {advisors.map(a => <option key={a.id} value={a.email}>{a.email}</option>)}
+                                    {ra.documentMeta?.assessor && !advisors.some(a => a.email === ra.documentMeta?.assessor) && (
+                                      <option value="__other__">{ra.documentMeta.assessor}</option>
+                                    )}
+                                  </select>
+                                </div>
                               )}
                             </div>
+                            {/* AI Suggestion mini-card */}
+                            {(ra.riskRating || ra.riskLevel || ra.priority || ra.regulation) && (
+                              <div className="rounded-xl border border-violet-100 bg-violet-50/60 px-4 py-3 space-y-1.5">
+                                <div className="flex items-center justify-between gap-2 flex-wrap gap-y-1">
+                                  <span className="text-[10px] font-black uppercase tracking-wider text-violet-500 flex items-center gap-1.5"><Sparkles size={10} />AI Suggestion</span>
+                                  <div className="flex items-center gap-1.5 flex-wrap">
+                                    {ra.riskRating && (
+                                      <span className={`px-2 py-0.5 rounded-md text-[10px] font-black border ${
+                                        ra.riskLevel === 'HIGH' ? 'bg-rose-100 text-rose-700 border-rose-200' :
+                                        ra.riskLevel === 'MEDIUM' ? 'bg-amber-100 text-amber-700 border-amber-200' :
+                                        ra.riskLevel === 'LOW' ? 'bg-emerald-100 text-emerald-700 border-emerald-200' :
+                                        'bg-slate-100 text-slate-600 border-slate-200'
+                                      }`}>Risk: {ra.riskRating}</span>
+                                    )}
+                                    {ra.priority && (
+                                      <span className={`px-2 py-0.5 rounded-md text-[10px] font-black border ${
+                                        ra.priority === 'HIGH' ? 'bg-rose-100 text-rose-700 border-rose-200' :
+                                        ra.priority === 'MEDIUM' ? 'bg-amber-100 text-amber-700 border-amber-200' :
+                                        'bg-emerald-100 text-emerald-700 border-emerald-200'
+                                      }`}>Priority: {ra.priority}</span>
+                                    )}
+                                  </div>
+                                </div>
+                                {ra.riskLevel && <p className="text-[11px] text-slate-600"><span className="font-black">Risk Level:</span> {ra.riskLevel}</p>}
+                                {ra.regulation && <p className="text-[11px] text-slate-600"><span className="font-black">Regulation:</span> {ra.regulation}</p>}
+                              </div>
+                            )}
                           </div>
                           <div className="flex-shrink-0">
                             {ra.added ? (
@@ -1601,6 +1873,9 @@ export default function App() {
           )}
         </div>
       </main>
+      {showSyncConfig && selectedSite && (
+        <SyncConfigModal site={selectedSite} onClose={() => setShowSyncConfig(false)} onSave={handleSaveSyncConfig} />
+      )}
     </div>
   );
 }

@@ -17,15 +17,19 @@ Analyse the following document and extract all action items, required controls, 
 - "assessor": string | null (name of the person who completed the assessment, otherwise null)
 - "clientConsulted": string | null (name of client or person consulted, otherwise null)
 
+Many H&S documents use a numbered hazard register (e.g. a table where each row starts with a number and describes a hazard, its existing controls, and risk rating). A separate action plan table then references those same numbers to indicate which hazard each action relates to. When you see this pattern, cross-reference the hazard number in the action plan back to the hazard register to populate the hazard description, existing controls, and risk rating for that action — do not just return the number itself.
+
 "actions" must be an array. Each item must have:
 - "description": string (the action to be taken)
-- "hazard": string | null (the hazard the action relates to, otherwise null)
-- "existingControls": string | null (controls already in place, otherwise null)
+- "hazardRef": string | null (the raw hazard reference number or code as written in the action plan, e.g. "1", "3", "H-04" — null if no numbered reference exists)
+- "hazard": string | null (full hazard description looked up from the hazard register if referenced by number, otherwise the hazard as written, otherwise null)
+- "existingControls": string | null (controls already in place for this hazard, looked up from the hazard register if applicable, otherwise null)
 - "regulation": string | null (relevant legislation or regulation if mentioned, otherwise null)
 - "riskRating": string | null (the raw risk rating as written in the document, e.g. "16/25", "High", "Red", otherwise null)
 - "riskLevel": "HIGH" | "MEDIUM" | "LOW" | null (your best interpretation of the risk rating — this is a suggestion only and will be reviewed by an advisor)
 - "responsiblePerson": string | null (name or role if mentioned, otherwise null)
-- "dueDate": string | null (ISO date YYYY-MM-DD only if an explicit deadline or target date is stated for this specific action — do NOT use the document date, assessment date, or review date)
+- "dueDate": string | null (ISO date YYYY-MM-DD only if an explicit calendar date is stated for this specific action — do NOT use the document date, assessment date, or review date)
+- "dueDateRelative": string | null (if the action states a relative timeframe such as "1 month", "6 weeks", "3 months", "immediately" etc., return it exactly as written; also use this for open-ended terms such as "Ongoing", "Continuous", "Permanent", "Regular" — only populate this if dueDate is null)
 - "priority": "HIGH" | "MEDIUM" | "LOW" | null (urgency of the action itself, inferred from language if possible)
 
 If no actions are found, return { "documentMeta": { "assessmentDate": null, "reviewDate": null, "assessor": null, "clientConsulted": null }, "actions": [] }.`
