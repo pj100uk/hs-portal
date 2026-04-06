@@ -20,6 +20,7 @@ export async function GET(request: NextRequest) {
         Authorization: AUTH_HEADER,
         Accept: 'application/json',
       },
+      cache: 'no-store',
     });
 
     if (!res.ok) {

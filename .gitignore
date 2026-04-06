@@ -5,3 +5,5 @@ test-download/
 test.docx
 test2.docx
 datto-test.js
+deploy.sh
+.env.yaml

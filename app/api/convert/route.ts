@@ -18,6 +18,7 @@ export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const fileId = searchParams.get('fileId');
   const fileName = searchParams.get('fileName') || 'document';
+  const noCache = searchParams.get('noCache') === 'true';
 
   if (!fileId) {
     return NextResponse.json({ error: 'Missing fileId' }, { status: 400 });
@@ -31,7 +32,7 @@ export async function GET(req: NextRequest) {
       .from(CACHE_BUCKET)
       .list('', { search: cacheKey });
 
-    if (existing && existing.length > 0) {
+    if (!noCache && existing && existing.length > 0) {
       const file = existing[0];
       const updatedAt = new Date(file.updated_at || file.created_at);
       const ageHours = (Date.now() - updatedAt.getTime()) / (1000 * 60 * 60);

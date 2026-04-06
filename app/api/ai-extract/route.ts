@@ -4,7 +4,7 @@ import { GoogleGenerativeAI } from '@google/generative-ai'
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!)
 const model = genAI.getGenerativeModel({
   model: 'gemini-2.5-flash',
-  generationConfig: { responseMimeType: 'application/json' } as any,
+  generationConfig: { responseMimeType: 'application/json', temperature: 0 } as any,
 })
 
 const PROMPT_SUFFIX = `You are an expert H&S (Health & Safety) compliance assistant.
@@ -17,7 +17,7 @@ Analyse the following document and extract all action items, required controls, 
 - "assessor": string | null (name of the person who completed the assessment, otherwise null)
 - "clientConsulted": string | null (name of client or person consulted, otherwise null)
 
-Many H&S documents use a numbered hazard register (e.g. a table where each row starts with a number and describes a hazard, its existing controls, and risk rating). A separate action plan table then references those same numbers to indicate which hazard each action relates to. When you see this pattern, cross-reference the hazard number in the action plan back to the hazard register to populate the hazard description, existing controls, and risk rating for that action — do not just return the number itself.
+Many H&S documents contain two tables: a hazard register (rows numbered 1, 2, 3… each with a hazard description, existing controls, and risk rating) and a separate action plan table (rows referencing those same numbers). You MUST cross-reference every action back to the hazard register using the hazard number to populate "hazard", "existingControls", and "riskRating" — do not leave these null if the information exists in the document. If an action references "All" hazards rather than a specific number, summarise the overall hazard context from the document. Never return the hazard number itself as the hazard description.
 
 "actions" must be an array. Each item must have:
 - "description": string (the action to be taken)
@@ -39,6 +39,7 @@ export async function POST(request: NextRequest) {
   if (!body) return NextResponse.json({ error: 'Invalid request body' }, { status: 400 })
 
   const { text, fileBase64, mimeType, docName } = body
+  const syncId = Date.now()
 
   try {
     let result
@@ -47,12 +48,12 @@ export async function POST(request: NextRequest) {
       // PDF or other binary — send as inline data to Gemini
       result = await model.generateContent([
         { inlineData: { data: fileBase64, mimeType } },
-        `${PROMPT_SUFFIX}\n\nDocument name: ${docName}`,
+        `${PROMPT_SUFFIX}\n\nDocument name: ${docName}\nSync-ID: ${syncId}`,
       ])
     } else if (text?.trim()) {
       // Plain text (from .doc/.docx/.xlsx)
       result = await model.generateContent(
-        `${PROMPT_SUFFIX}\n\nDocument name: ${docName}\nDocument text:\n${text}`
+        `${PROMPT_SUFFIX}\n\nDocument name: ${docName}\nSync-ID: ${syncId}\nDocument text:\n${text}`
       )
     } else {
       return NextResponse.json({ error: 'Provide either text or fileBase64+mimeType' }, { status: 400 })

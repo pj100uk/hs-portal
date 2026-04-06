@@ -1,0 +1,24 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git push:*)",
+      "Bash(npm run:*)",
+      "Bash(npx tsc:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(grep -E \"\\\\.\\(tsx?|jsx?\\)$\")",
+      "Bash(xargs grep:*)",
+      "Bash(find E:/hs-portal -name *.env* -o -name .env*)",
+      "Bash(find E:/hs-portal/node_modules -name word -o -name *docx*)",
+      "Bash(npm install:*)",
+      "WebSearch",
+      "WebFetch(domain:help.workplace.datto.com)",
+      "WebFetch(domain:www2.rapidfiretools.com)",
+      "WebFetch(domain:us.fileprotection.datto.com)",
+      "WebFetch(domain:eu.workplace.datto.com)",
+      "WebFetch(domain:eu.fileprotection.datto.com)",
+      "Bash(npx supabase:*)",
+      "Bash(pg_dump --version)"
+    ]
+  }
+}

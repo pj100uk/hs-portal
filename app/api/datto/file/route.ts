@@ -18,6 +18,7 @@ export async function GET(request: NextRequest) {
   try {
     const res = await fetch(`${BASE_URL}/file/${fileId}/data`, {
       headers: { Authorization: AUTH_HEADER },
+      cache: 'no-store',
     });
 
     if (!res.ok) {
