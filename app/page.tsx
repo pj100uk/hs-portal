@@ -3060,7 +3060,7 @@ export default function App() {
           }
         }
         setSites(finalMapped);
-        if (finalMapped.length > 0 && !selectedSite) { setSelectedSite(finalMapped[0]); recalcActionProgress(finalMapped[0].id); if (profile.role === 'client') setView('site'); }
+        if (finalMapped.length > 0 && !selectedSite) { setSelectedSite(finalMapped[0]); recalcActionProgress(finalMapped[0].id); refreshComplianceScore(finalMapped[0].id); if (profile.role === 'client') setView('site'); }
       }
     };
     load();
@@ -3083,6 +3083,16 @@ export default function App() {
     const res = await fetch(`/api/sites/${siteId}/services`);
     if (res.ok) setIagServices(await res.json());
     setIagServicesLoading(false);
+  };
+
+  const refreshComplianceScore = async (siteId: string) => {
+    try {
+      const { data } = await supabase.from('sites').select('compliance_score').eq('id', siteId).single();
+      if (data?.compliance_score != null) {
+        setSites(prev => prev.map(s => s.id === siteId ? { ...s, compliance: data.compliance_score } : s));
+        setSelectedSite(prev => prev?.id === siteId ? { ...prev, compliance: data.compliance_score } : prev);
+      }
+    } catch { /* silent */ }
   };
 
   const recalcActionProgress = async (siteId: string) => {
@@ -3150,7 +3160,7 @@ export default function App() {
     await supabase.from('actions').update({ issue_date: date }).eq('id', id);
     setAllActions(prev => prev.map(a => a.id === id ? { ...a, issueDate: date } : a));
   };
-  const handleSiteClick = (site: Site) => { setSelectedSite(site); setView('site'); recalcActionProgress(site.id); };
+  const handleSiteClick = (site: Site) => { setSelectedSite(site); setView('site'); recalcActionProgress(site.id); refreshComplianceScore(site.id); };
   const handleSaveSyncConfig = (siteId: string, includedIds: string[]) => {
     setSites(prev => prev.map(s => s.id === siteId ? { ...s, included_datto_folder_ids: includedIds } : s));
     setSelectedSite(prev => prev?.id === siteId ? { ...prev, included_datto_folder_ids: includedIds } : prev);
@@ -3684,11 +3694,7 @@ export default function App() {
       return a.displayName.localeCompare(b.displayName);
     });
   const toggleDocGroup = (source: string) => {
-    setExpandedDocGroups(prev => {
-      const next = new Set(prev);
-      if (next.has(source)) next.delete(source); else next.add(source);
-      return next;
-    });
+    setExpandedDocGroups(prev => prev.has(source) ? new Set() : new Set([source]));
   };
 
   const openActions = siteActions.filter(a => !isActionResolved(a));
