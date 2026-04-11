@@ -35,6 +35,7 @@ interface Site {
   trend: number; datto_folder_id: string | null; datto_folder_path?: string | null; advisor_id: string | null;
   last_ai_sync: string | null;
   excluded_datto_folder_ids: string[];
+  included_datto_folder_ids?: string[] | null;
   actionProgress: number;
   iagScore: number | null;
   employeeCount: number | null;
@@ -525,13 +526,13 @@ const ActionCard = ({ action, isResolved, onToggleResolve, onAddNote, onDelete, 
               ) : (
                 <>
                   {(() => {
-                    const dueLightCls = derivedPriority === 'red' ? 'bg-rose-50 text-rose-500 border-rose-100'
+                    const dueLightCls = derivedPriority === 'red' ? 'bg-rose-200 text-rose-700 border-rose-300'
                       : derivedPriority === 'amber' ? 'bg-amber-50 text-amber-500 border-amber-100'
                       : 'bg-emerald-50 text-emerald-500 border-emerald-100';
                     return <span className={`text-[10px] font-black uppercase px-2.5 py-1 rounded-lg border ${dueLightCls}`}>{derivedLabel}</span>;
                   })()}
                   {action.riskLevel && (() => {
-                    const riskDarkCls = action.riskLevel === 'HIGH' ? 'bg-rose-200 text-rose-800 border-rose-300'
+                    const riskDarkCls = action.riskLevel === 'HIGH' ? 'bg-rose-600 text-white border-rose-700'
                       : action.riskLevel === 'MEDIUM' ? 'bg-orange-200 text-orange-800 border-orange-300'
                       : 'bg-emerald-200 text-emerald-800 border-emerald-300';
                     return <span className={`text-[10px] font-black uppercase py-1 rounded-lg border w-24 text-center inline-block ${riskDarkCls}`}>{action.riskLevel} Risk</span>;
@@ -851,27 +852,21 @@ const DattoFolderPicker = ({ startFolderId = DATTO_ROOT_ID, startFolderName = 'C
           </React.Fragment>
         ))}
       </div>
-      {/* Select current folder button */}
-      <div className="px-4 py-2.5 bg-indigo-50 border-b border-indigo-100">
-        <button onClick={() => {
-          // Build path relative to Customer Documents
-          // If picker started from Customer Docs root, skip that first crumb (already in dattoBasePath)
-          const path = startFolderId === DATTO_ROOT_ID
-            ? breadcrumbs.slice(1).map(b => b.name).join('/')
-            : breadcrumbs.map(b => b.name).join('/');
-          onSelect(current.name, current.id, path);
-        }} className="text-[11px] font-black text-indigo-600 hover:text-indigo-800 flex items-center gap-1.5 uppercase tracking-wider">
-          <CheckCircle size={12} />Select &ldquo;{current.name}&rdquo;
-        </button>
-      </div>
       <div className="max-h-48 overflow-y-auto">
         {loading && <div className="p-4 text-center text-[11px] font-black text-slate-400 animate-pulse">Loading…</div>}
         {!loading && apiError && <div className="p-4 text-xs font-bold text-rose-600">{apiError}</div>}
         {!loading && !apiError && folders.length === 0 && <div className="p-4 text-center text-xs font-bold text-slate-400">No subfolders here</div>}
         {!loading && !apiError && folders.map(item => (
-          <button key={item.id} onClick={() => navigateTo(item.name, item.id)} className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-amber-50 group border-b border-slate-50 text-left">
-            <Folder size={14} className="text-amber-400 flex-shrink-0" /><span className="text-xs font-bold text-slate-700 group-hover:text-amber-700 flex-1 truncate">{item.name}</span><ChevronRight size={12} className="text-slate-300" />
-          </button>
+          <div key={item.id} className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-amber-50 group border-b border-slate-50">
+            <Folder size={14} className="text-amber-400 flex-shrink-0" />
+            <button onClick={() => {
+              const path = startFolderId === DATTO_ROOT_ID
+                ? breadcrumbs.slice(1).map(b => b.name).join('/') + (breadcrumbs.length > 1 ? '/' : '') + item.name
+                : breadcrumbs.map(b => b.name).join('/') + '/' + item.name;
+              onSelect(item.name, item.id, path);
+            }} className="text-xs font-bold text-slate-700 group-hover:text-amber-700 flex-1 truncate text-left">{item.name}</button>
+            <button onClick={() => navigateTo(item.name, item.id)} className="text-slate-300 hover:text-indigo-500 flex-shrink-0 p-1" title="Open subfolder"><ChevronRight size={12} /></button>
+          </div>
         ))}
       </div>
       <div className="bg-slate-50 border-t border-slate-100 px-4 py-2 flex justify-end">
@@ -2126,7 +2121,9 @@ const SuperadminPanel = () => {
     const knownType = SITE_TYPES.includes(site.type);
     setEditSiteType(knownType ? site.type : 'OTHER');
     setEditSiteTypeOther(knownType ? '' : site.type);
-    setEditSiteFolderId(site.datto_folder_id || ''); setEditSiteFolderName(site.datto_folder_id ? `ID: ${site.datto_folder_id}` : ''); setEditSiteFolderPath(site.datto_folder_path || '');
+    setEditSiteFolderId(site.datto_folder_id || ''); setEditSiteFolderPath(site.datto_folder_path || '');
+    const siteFolderDisplayName = site.datto_folder_path ? site.datto_folder_path.split('/').filter(Boolean).pop() || site.datto_folder_path : (site.datto_folder_id ? `ID: ${site.datto_folder_id}` : '');
+    setEditSiteFolderName(siteFolderDisplayName);
     const orgAdvisorId = assignments.find((a: any) => a.organisation_id === site.organisation_id)?.advisor_id || '';
     setEditSiteAdvisorId(site.advisor_id || orgAdvisorId);
     setEditSiteEmployeeCount(site.employee_count != null ? String(site.employee_count) : '');
@@ -2758,17 +2755,15 @@ const SuperadminPanel = () => {
 };
 
 // ─── Sync Config Modal ────────────────────────────────────────────────────────
-const FolderCheckboxTree = ({ folderId, folderName, depth, excludedIds, onToggle, parentExcluded = false }: {
+const FolderCheckboxTree = ({ folderId, folderName, depth, includedIds, onToggle }: {
   folderId: string; folderName: string; depth: number;
-  excludedIds: Set<string>; onToggle: (id: string) => void;
-  parentExcluded?: boolean;
+  includedIds: Set<string>; onToggle: (id: string) => void;
 }) => {
   const [expanded, setExpanded] = useState(true);
   const [children, setChildren] = useState<DattoItem[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [fileCount, setFileCount] = useState<number | null>(null);
-  const isExcluded = excludedIds.has(folderId);
-  const effectivelyExcluded = parentExcluded || isExcluded;
+  const isIncluded = includedIds.has(folderId);
 
   const loadChildren = async () => {
     if (children !== null) return;
@@ -2796,37 +2791,45 @@ const FolderCheckboxTree = ({ folderId, folderName, depth, excludedIds, onToggle
         <button onClick={handleExpand} className="w-4 h-4 flex items-center justify-center text-slate-300 hover:text-slate-500 flex-shrink-0">
           {loading ? <span className="text-[9px] animate-pulse">…</span> : expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
         </button>
-        <input type="checkbox" checked={!effectivelyExcluded} onChange={() => !parentExcluded && onToggle(folderId)} disabled={parentExcluded} className={`w-3.5 h-3.5 flex-shrink-0 ${parentExcluded ? 'opacity-30 cursor-not-allowed' : 'accent-violet-600'}`} />
-        <Folder size={13} className={effectivelyExcluded ? 'text-slate-300 flex-shrink-0' : 'text-amber-400 flex-shrink-0'} />
-        <span className={`text-xs font-bold flex-1 truncate ${effectivelyExcluded ? 'text-slate-400 line-through' : 'text-slate-700'}`}>{folderName}</span>
+        <input type="checkbox" checked={isIncluded} onChange={() => onToggle(folderId)} className="w-3.5 h-3.5 flex-shrink-0 accent-violet-600" />
+        <Folder size={13} className={isIncluded ? 'text-amber-400 flex-shrink-0' : 'text-slate-300 flex-shrink-0'} />
+        <span className={`text-xs font-bold flex-1 truncate ${isIncluded ? 'text-slate-700' : 'text-slate-400'}`}>{folderName}</span>
         {fileCount !== null && (
           <span className="text-[10px] text-slate-400 font-bold bg-slate-50 border border-slate-100 px-1.5 py-0.5 rounded flex-shrink-0">{fileCount} file{fileCount !== 1 ? 's' : ''}</span>
         )}
       </div>
       {expanded && children !== null && children.map(child => (
-        <FolderCheckboxTree key={child.id} folderId={child.id} folderName={child.name} depth={depth + 1} excludedIds={excludedIds} onToggle={onToggle} parentExcluded={effectivelyExcluded} />
+        <FolderCheckboxTree key={child.id} folderId={child.id} folderName={child.name} depth={depth + 1} includedIds={includedIds} onToggle={onToggle} />
       ))}
     </div>
   );
 };
 
 const SyncConfigModal = ({ site, onClose, onSave }: {
-  site: Site; onClose: () => void; onSave: (siteId: string, excludedIds: string[]) => void;
+  site: Site; onClose: () => void; onSave: (siteId: string, includedIds: string[]) => void;
 }) => {
-  const [excludedIds, setExcludedIds] = useState<Set<string>>(new Set(site.excluded_datto_folder_ids ?? []));
+  const [includedFolders, setIncludedFolders] = useState<Map<string, string>>(
+    new Map((site.included_datto_folder_ids ?? []).map(id => [id, id]))
+  );
+  const [showPicker, setShowPicker] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState('');
 
-  const handleToggle = (id: string) => {
-    setExcludedIds(prev => { const next = new Set(prev); next.has(id) ? next.delete(id) : next.add(id); return next; });
+  const handleSelect = (name: string, id: string) => {
+    setIncludedFolders(prev => { const next = new Map(prev); next.set(id, name); return next; });
+    setShowPicker(false);
+  };
+
+  const handleRemove = (id: string) => {
+    setIncludedFolders(prev => { const next = new Map(prev); next.delete(id); return next; });
   };
 
   const handleSave = async () => {
     setSaving(true); setSaveError('');
-    const excludedArr = Array.from(excludedIds);
-    const { error } = await supabase.from('sites').update({ excluded_datto_folder_ids: excludedArr }).eq('id', site.id);
+    const includedArr = Array.from(includedFolders.keys());
+    const { error } = await supabase.from('sites').update({ included_datto_folder_ids: includedArr }).eq('id', site.id);
     if (error) { setSaveError('Failed to save. Please try again.'); setSaving(false); return; }
-    onSave(site.id, excludedArr);
+    onSave(site.id, includedArr);
     onClose();
   };
 
@@ -2842,14 +2845,38 @@ const SyncConfigModal = ({ site, onClose, onSave }: {
           <button onClick={onClose} className="text-violet-200 hover:text-white"><X size={18} /></button>
         </div>
         <div className="bg-violet-50 border-b border-violet-100 px-6 py-3">
-          <p className="text-[11px] text-violet-700 font-bold">Uncheck folders to skip them during AI Sync. This saves tokens by excluding irrelevant documents.</p>
+          <p className="text-[11px] text-violet-700 font-bold">Select folders to include in AI Sync. Leave empty to scan all folders.</p>
         </div>
-        <div className="px-4 py-3 max-h-[400px] overflow-y-auto">
-          <FolderCheckboxTree folderId={site.datto_folder_id} folderName={site.name} depth={0} excludedIds={excludedIds} onToggle={handleToggle} />
+        <div className="px-4 py-4 space-y-3">
+          {/* Selected folders */}
+          {includedFolders.size > 0 && (
+            <div className="flex flex-wrap gap-2">
+              {Array.from(includedFolders.entries()).map(([id, name]) => (
+                <span key={id} className="flex items-center gap-1.5 px-3 py-1 bg-violet-100 text-violet-700 border border-violet-200 rounded-lg text-[11px] font-black">
+                  <Folder size={11} className="text-amber-400" />{name}
+                  <button onClick={() => handleRemove(id)} className="text-violet-400 hover:text-rose-500 ml-0.5"><X size={11} /></button>
+                </span>
+              ))}
+            </div>
+          )}
+          {/* Folder picker */}
+          {showPicker ? (
+            <DattoFolderPicker
+              startFolderId={site.datto_folder_id}
+              startFolderName={site.name}
+              onSelect={handleSelect}
+              onClose={() => setShowPicker(false)}
+            />
+          ) : (
+            <button onClick={() => setShowPicker(true)} className="w-full flex items-center justify-between gap-2 px-4 py-2.5 border border-slate-200 rounded-xl hover:border-violet-300 text-left">
+              <span className="text-slate-400 text-sm">Click to browse and add a folder…</span>
+              <FolderOpen size={16} className="text-slate-300" />
+            </button>
+          )}
         </div>
         <div className="bg-slate-50 border-t border-slate-100 px-6 py-4 flex items-center justify-between">
           <div>
-            {excludedIds.size > 0 && <span className="text-[11px] font-bold text-slate-500">{excludedIds.size} folder{excludedIds.size !== 1 ? 's' : ''} excluded</span>}
+            {includedFolders.size > 0 ? <span className="text-[11px] font-bold text-violet-600">{includedFolders.size} folder{includedFolders.size !== 1 ? 's' : ''} selected</span> : <span className="text-[11px] font-bold text-slate-400">No folders selected — will scan all</span>}
             {saveError && <span className="text-[11px] font-bold text-rose-600">{saveError}</span>}
           </div>
           <div className="flex gap-3">
@@ -2921,6 +2948,7 @@ export default function App() {
   const [allActions, setAllActions] = useState<Action[]>([]);
   const [showAddAction, setShowAddAction] = useState(false);
   const [expandedActionId, setExpandedActionId] = useState<string | null>(null);
+  const [expandedDocGroups, setExpandedDocGroups] = useState<Set<string>>(new Set());
   const [aiSyncing, setAiSyncing] = useState(false);
   const [aiSyncProgress, setAiSyncProgress] = useState('');
   // File browser state
@@ -3008,6 +3036,7 @@ export default function App() {
           advisor_id: s.advisor_id ?? null,
           last_ai_sync: s.last_ai_sync ?? null,
           excluded_datto_folder_ids: s.excluded_datto_folder_ids ?? [],
+          included_datto_folder_ids: s.included_datto_folder_ids ?? null,
         }));
         // Also include any sites assigned directly to this advisor
         let finalMapped = mapped;
@@ -3025,6 +3054,7 @@ export default function App() {
                 datto_folder_id: s.datto_folder_id || orgFolderMap.get(s.organisation_id) || null,
                 advisor_id: s.advisor_id ?? null, last_ai_sync: s.last_ai_sync ?? null,
                 excluded_datto_folder_ids: s.excluded_datto_folder_ids ?? [],
+                included_datto_folder_ids: s.included_datto_folder_ids ?? null,
               }))];
             }
           }
@@ -3074,12 +3104,13 @@ export default function App() {
     setSearchFileCache(null);
     setBrowserRootPath('');
     setExpandedActionId(null);
+    setExpandedDocGroups(new Set());
     setFilterPriority('red');
     setSiteTab('actions');
   }, [selectedSite?.id]);
 
   // Collapse open actions when switching tabs or filters
-  React.useEffect(() => { setExpandedActionId(null); }, [siteTab, filterPriority]);
+  React.useEffect(() => { setExpandedActionId(null); setExpandedDocGroups(new Set()); }, [siteTab, filterPriority]);
 
   // Init file browser when Files tab is opened (preserves state on tab toggle, only re-inits for new site)
   React.useEffect(() => {
@@ -3120,9 +3151,9 @@ export default function App() {
     setAllActions(prev => prev.map(a => a.id === id ? { ...a, issueDate: date } : a));
   };
   const handleSiteClick = (site: Site) => { setSelectedSite(site); setView('site'); recalcActionProgress(site.id); };
-  const handleSaveSyncConfig = (siteId: string, excludedIds: string[]) => {
-    setSites(prev => prev.map(s => s.id === siteId ? { ...s, excluded_datto_folder_ids: excludedIds } : s));
-    setSelectedSite(prev => prev?.id === siteId ? { ...prev, excluded_datto_folder_ids: excludedIds } : prev);
+  const handleSaveSyncConfig = (siteId: string, includedIds: string[]) => {
+    setSites(prev => prev.map(s => s.id === siteId ? { ...s, included_datto_folder_ids: includedIds } : s));
+    setSelectedSite(prev => prev?.id === siteId ? { ...prev, included_datto_folder_ids: includedIds } : prev);
   };
   const handleActionSaved = (action: Action) => {
     setAllActions(prev => [...prev, action]);
@@ -3282,9 +3313,27 @@ export default function App() {
       const currentActions: Action[] = freshActionsData ? freshActionsData.map((a: any) => ({ id: a.id, action: a.title, description: a.description || '', date: a.due_date || '', site: sites.find(s => s.id === a.site_id)?.name || '', who: a.responsible_person || '', contractor: a.contractor || '', source: a.source_document_name || '', source_document_id: a.source_document_id || '', priority: (priorityMap[a.priority] || 'green') as Priority, regulation: a.regulation || '', notes: '', status: a.status as ActionStatus, hazardRef: a.hazard_ref || null, hazard: a.hazard || null, existingControls: a.existing_controls || null, riskRating: a.risk_rating || null, riskLevel: a.risk_level || null, resolvedDate: a.resolved_date || null, sourceFolderId: a.source_folder_id || null, isSuggested: a.is_suggested ?? false })) : allActions;
       setAllActions(currentActions);
       setAiSyncProgress('Scanning folders…');
-      const userExcludedIds = new Set(site.excluded_datto_folder_ids ?? []);
       const rootPath = await resolvePathFromRoot(site);
-      const allItems = await fetchAllFiles(site.datto_folder_id, userExcludedIds, rootPath);
+      const includedFolderIds = site.included_datto_folder_ids;
+      let allItems;
+      if (includedFolderIds && includedFolderIds.length > 0) {
+        // Opt-in mode: fetch files only from explicitly selected folders
+        const perFolder = await Promise.all(includedFolderIds.map(async (fId) => {
+          try {
+            const res = await fetch(`/api/datto?folderId=${fId}`);
+            if (!res.ok) return [];
+            const raw = await res.json();
+            return normaliseItems(raw)
+              .filter((i: DattoItem) => i.type === 'file')
+              .map((i: DattoItem) => ({ ...i, parentFolderId: fId, folderPath: rootPath }));
+          } catch { return []; }
+        }));
+        allItems = perFolder.flat();
+      } else {
+        // Fallback: old exclusion model
+        const userExcludedIds = new Set(site.excluded_datto_folder_ids ?? []);
+        allItems = await fetchAllFiles(site.datto_folder_id, userExcludedIds, rootPath);
+      }
       const SUPPORTED_EXTS = ['.docx', '.doc', '.pdf', '.xlsx', '.xls'];
       let docxFiles = allItems.filter(i => SUPPORTED_EXTS.some(ext => i.name.toLowerCase().endsWith(ext)));
 
@@ -3611,6 +3660,37 @@ export default function App() {
       if (bHasDate) return 1;
       return (a.updatedAt || '') < (b.updatedAt || '') ? -1 : 1;
     });
+  // Group filteredActions by source document
+  const docGroupMap = new Map<string, typeof filteredActions>();
+  for (const a of filteredActions) {
+    const key = a.source || 'Unknown Document';
+    if (!docGroupMap.has(key)) docGroupMap.set(key, []);
+    docGroupMap.get(key)!.push(a);
+  }
+  const docGroups = Array.from(docGroupMap.entries())
+    .map(([source, actions]) => ({
+      source,
+      displayName: source.replace(/\.[^.]+$/, ''),
+      actions,
+      hasRed: actions.some(a => derivePriority(a).priority === 'red'),
+      hasAmber: actions.some(a => derivePriority(a).priority === 'amber'),
+      redCount: actions.filter(a => derivePriority(a).priority === 'red').length,
+      amberCount: actions.filter(a => derivePriority(a).priority === 'amber').length,
+      highRiskCount: actions.filter(a => a.riskLevel === 'HIGH').length,
+    }))
+    .sort((a, b) => {
+      if (a.hasRed !== b.hasRed) return a.hasRed ? -1 : 1;
+      if (a.hasAmber !== b.hasAmber) return a.hasAmber ? -1 : 1;
+      return a.displayName.localeCompare(b.displayName);
+    });
+  const toggleDocGroup = (source: string) => {
+    setExpandedDocGroups(prev => {
+      const next = new Set(prev);
+      if (next.has(source)) next.delete(source); else next.add(source);
+      return next;
+    });
+  };
+
   const openActions = siteActions.filter(a => !isActionResolved(a));
   const openCount = openActions.length;
   const resolvedCount = siteActions.filter(a => isActionResolved(a)).length;
@@ -4126,10 +4206,34 @@ export default function App() {
                 </div>
               )}
 
-              <div className="space-y-3">
+              <div className="space-y-4">
                 {filteredActions.length === 0 ? (
                   <div className="bg-white rounded-2xl border border-slate-200 p-12 text-center"><CheckCircle2 size={32} className="text-emerald-400 mx-auto mb-3" /><p className="font-black text-slate-700">No actions for this site</p><p className="text-sm text-slate-400 mt-1">All items resolved or filtered out.</p></div>
-                ) : filteredActions.map(action => <ActionCard key={action.id} action={{ ...action, notes: actionNotes[action.id] || action.notes }} isResolved={resolvedIds.includes(action.id) || action.status === 'resolved'} onToggleResolve={toggleResolve} onAddNote={handleAddNote} onDelete={handleDeleteAction} onUpdateIssueDate={handleUpdateIssueDate}  role={profile?.role || 'client'} expanded={expandedActionId === action.id} onExpand={() => setExpandedActionId(prev => prev === action.id ? null : action.id)} />)}
+                ) : docGroups.map(({ source, displayName, actions, redCount, amberCount, highRiskCount, hasRed, hasAmber }) => {
+                  const isOpen = expandedDocGroups.has(source);
+                  return (
+                    <div key={source}>
+                      <button
+                        onClick={() => toggleDocGroup(source)}
+                        className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-xl border border-indigo-200 transition-colors text-left ${isOpen ? 'bg-indigo-200' : 'bg-indigo-100 hover:bg-indigo-200'}`}
+                      >
+                        <ChevronDown size={14} className={`text-slate-400 flex-shrink-0 transition-transform ${isOpen ? '' : '-rotate-90'}`} />
+                        <span className="font-black text-[12px] text-slate-700 truncate flex-1">{displayName}</span>
+                        <div className="flex items-center gap-1.5 flex-shrink-0">
+                          {redCount > 0 && <span className="text-[11px] font-black uppercase px-2 py-0.5 rounded-lg bg-rose-100 text-rose-700 border border-rose-200">{redCount} Overdue action{redCount !== 1 ? 's' : ''}</span>}
+                          {highRiskCount > 0 && <span className="text-[11px] font-black uppercase px-2 py-0.5 rounded-lg bg-rose-600 text-white border border-rose-700">{highRiskCount} High Risk</span>}
+                          {amberCount > 0 && !hasRed && <span className="text-[11px] font-black uppercase px-2 py-0.5 rounded-lg bg-amber-100 text-amber-700 border border-amber-200">{amberCount} upcoming</span>}
+                          {!hasRed && !hasAmber && <span className="text-[11px] font-black uppercase px-2 py-0.5 rounded-lg bg-emerald-100 text-emerald-700 border border-emerald-200">{actions.length} scheduled</span>}
+                        </div>
+                      </button>
+                      {isOpen && (
+                        <div className="space-y-3 mt-2 pl-2">
+                          {actions.map(action => <ActionCard key={action.id} action={{ ...action, notes: actionNotes[action.id] || action.notes }} isResolved={resolvedIds.includes(action.id) || action.status === 'resolved'} onToggleResolve={toggleResolve} onAddNote={handleAddNote} onDelete={handleDeleteAction} onUpdateIssueDate={handleUpdateIssueDate} role={profile?.role || 'client'} expanded={expandedActionId === action.id} onExpand={() => setExpandedActionId(prev => prev === action.id ? null : action.id)} />)}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
               </>)}
 
