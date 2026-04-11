@@ -1686,8 +1686,7 @@ const DocHealthTab = ({ siteId, onComplianceUpdate }: { siteId: string; onCompli
           return { site_id: siteId, document_name: r.docName, review_due: reviewDue };
         });
         supabase.from('document_health').upsert(upserts, { onConflict: 'site_id,document_name' })
-          .then(() => fetch('/api/actions/recalc', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ site_id: siteId }) }))
-          .catch(() => {});
+          .then(() => fetch('/api/actions/recalc', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ site_id: siteId }) }).catch(() => {}));
       } else {
         fetch('/api/actions/recalc', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ site_id: siteId }) }).catch(() => {});
       }
