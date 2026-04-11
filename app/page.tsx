@@ -3087,11 +3087,39 @@ export default function App() {
 
   const refreshComplianceScore = async (siteId: string) => {
     try {
-      const { data } = await supabase.from('sites').select('compliance_score').eq('id', siteId).single();
-      if (data?.compliance_score != null) {
-        setSites(prev => prev.map(s => s.id === siteId ? { ...s, compliance: data.compliance_score } : s));
-        setSelectedSite(prev => prev?.id === siteId ? { ...prev, compliance: data.compliance_score } : prev);
+      const [actRes, healthRes] = await Promise.all([
+        supabase.from('actions').select('source_document_name, issue_date').eq('site_id', siteId).not('source_document_name', 'is', null),
+        supabase.from('document_health').select('document_name, review_due').eq('site_id', siteId),
+      ]);
+      const actions = actRes.data ?? [];
+      const health = healthRes.data ?? [];
+      const docNames = Array.from(new Set(actions.map((a: any) => a.source_document_name as string)));
+      if (docNames.length === 0) return;
+      const reviewMap = new Map(health.map((h: any) => [h.document_name, h.review_due as string | null]));
+      const issueDateMap = new Map<string, string | null>();
+      for (const a of actions) {
+        const d = a.issue_date as string | null;
+        const prev = issueDateMap.get(a.source_document_name);
+        if (!prev || (d && d > prev)) issueDateMap.set(a.source_document_name, d);
       }
+      const today = new Date().toISOString().slice(0, 10);
+      const pts = docNames.reduce((sum, name) => {
+        const issueDate = issueDateMap.get(name) ?? null;
+        const reviewDue = reviewMap.get(name) ?? null;
+        let s: string;
+        if (reviewDue) {
+          s = reviewDue < today ? 'red' : Math.ceil((new Date(reviewDue + 'T00:00:00').getTime() - Date.now()) / 86400000) <= 30 ? 'amber' : 'green';
+        } else if (!issueDate) {
+          s = 'grey';
+        } else {
+          const months = Math.floor((Date.now() - new Date(issueDate + 'T00:00:00').getTime()) / (1000 * 60 * 60 * 24 * 30.5));
+          s = months > 24 ? 'red' : months > 12 ? 'amber' : 'green';
+        }
+        return sum + (s === 'green' ? 100 : s === 'amber' ? 95 : s === 'red' ? 0 : 50);
+      }, 0);
+      const score = Math.round(pts / (docNames.length * 100) * 100);
+      setSites(prev => prev.map(s => s.id === siteId ? { ...s, compliance: score } : s));
+      setSelectedSite(prev => prev?.id === siteId ? { ...prev, compliance: score } : prev);
     } catch { /* silent */ }
   };
 
