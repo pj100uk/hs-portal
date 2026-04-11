@@ -8,6 +8,10 @@
   --background-end-rgb: 255, 255, 255;
 }
 
+html {
+  overflow-y: scroll; /* always-on scrollbar prevents gutter shift when content height changes */
+}
+
 body {
   color: rgb(var(--foreground-rgb));
   background: linear-gradient(

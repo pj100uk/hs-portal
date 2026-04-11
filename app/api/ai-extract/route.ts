@@ -17,20 +17,19 @@ Analyse the following document and extract all action items, required controls, 
 - "assessor": string | null (name of the person who completed the assessment, otherwise null)
 - "clientConsulted": string | null (name of client or person consulted, otherwise null)
 
-Many H&S documents contain two tables: a hazard register (rows numbered 1, 2, 3… each with a hazard description, existing controls, and risk rating) and a separate action plan table (rows referencing those same numbers). You MUST cross-reference every action back to the hazard register using the hazard number to populate "hazard", "existingControls", and "riskRating" — do not leave these null if the information exists in the document. If an action references "All" hazards rather than a specific number, summarise the overall hazard context from the document. Never return the hazard number itself as the hazard description.
+When the document is provided as HTML, use the <table> structure to read rows and columns precisely — do not guess at table content from surrounding text. Many H&S documents contain two tables: a hazard register (rows numbered 1, 2, 3… each with a hazard description, existing controls, and risk rating) and a separate action plan table (rows referencing those same numbers). The hazard register column headers may vary (e.g. "Existing Control Measures", "Current Controls", "Measures in Place", "Controls") — identify them by content and position, not exact header names. You MUST cross-reference every action back to the hazard register using the hazard number to populate "hazard", "existingControls", and "riskRating" — do not leave these null if the information exists in the document. If an action references "All" hazards rather than a specific number, summarise the overall hazard context from the document. Never return the hazard number itself as the hazard description.
 
 "actions" must be an array. Each item must have:
 - "description": string (the action to be taken)
 - "hazardRef": string | null (the raw hazard reference number or code as written in the action plan, e.g. "1", "3", "H-04" — null if no numbered reference exists)
 - "hazard": string | null (full hazard description looked up from the hazard register if referenced by number, otherwise the hazard as written, otherwise null)
-- "existingControls": string | null (controls already in place for this hazard, looked up from the hazard register if applicable, otherwise null)
+- "existingControls": string | null (controls already in place for this hazard, looked up from the hazard register if applicable, otherwise null — return as newline-separated items if there are multiple controls, not as a single prose sentence)
 - "regulation": string | null (relevant legislation or regulation if mentioned, otherwise null)
 - "riskRating": string | null (the raw risk rating as written in the document, e.g. "16/25", "High", "Red", otherwise null)
 - "riskLevel": "HIGH" | "MEDIUM" | "LOW" | null (your best interpretation of the risk rating — this is a suggestion only and will be reviewed by an advisor)
 - "responsiblePerson": string | null (name or role if mentioned, otherwise null)
 - "dueDate": string | null (ISO date YYYY-MM-DD only if an explicit calendar date is stated for this specific action — do NOT use the document date, assessment date, or review date)
 - "dueDateRelative": string | null (if the action states a relative timeframe such as "1 month", "6 weeks", "3 months", "immediately" etc., return it exactly as written; also use this for open-ended terms such as "Ongoing", "Continuous", "Permanent", "Regular" — only populate this if dueDate is null)
-- "priority": "HIGH" | "MEDIUM" | "LOW" | null (urgency of the action itself, inferred from language if possible)
 
 If no actions are found, return { "documentMeta": { "assessmentDate": null, "reviewDate": null, "assessor": null, "clientConsulted": null }, "actions": [] }.`
 
@@ -38,7 +37,7 @@ export async function POST(request: NextRequest) {
   const body = await request.json().catch(() => null)
   if (!body) return NextResponse.json({ error: 'Invalid request body' }, { status: 400 })
 
-  const { text, fileBase64, mimeType, docName } = body
+  const { text, html, fileBase64, mimeType, docName } = body
   const syncId = Date.now()
 
   try {
@@ -50,8 +49,13 @@ export async function POST(request: NextRequest) {
         { inlineData: { data: fileBase64, mimeType } },
         `${PROMPT_SUFFIX}\n\nDocument name: ${docName}\nSync-ID: ${syncId}`,
       ])
+    } else if (html?.trim()) {
+      // HTML from DOCX via mammoth — preserves table structure for accurate extraction
+      result = await model.generateContent(
+        `${PROMPT_SUFFIX}\n\nDocument name: ${docName}\nSync-ID: ${syncId}\nDocument content (HTML format — use table structure to identify rows and columns accurately):\n${html}`
+      )
     } else if (text?.trim()) {
-      // Plain text (from .doc/.docx/.xlsx)
+      // Plain text fallback (xlsx, csv, etc.)
       result = await model.generateContent(
         `${PROMPT_SUFFIX}\n\nDocument name: ${docName}\nSync-ID: ${syncId}\nDocument text:\n${text}`
       )

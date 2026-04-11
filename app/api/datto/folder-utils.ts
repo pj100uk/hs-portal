@@ -4,6 +4,53 @@ export const BASE_URL = 'https://eu.workplace.datto.com/2/api/v1';
 export const AUTH_HEADER = 'Basic ' + Buffer.from(`${CLIENT_ID}:${CLIENT_SECRET}`).toString('base64');
 
 const CLIENT_DOCS_FOLDER_NAME = 'Client Provided Documents';
+const ARCHIVE_FOLDER_NAME = 'Archive';
+
+/**
+ * Returns the ID of the "Archive" subfolder under the given parent folder,
+ * creating it if it doesn't exist.
+ */
+export async function resolveArchiveFolderId(parentFolderId: string): Promise<string | null> {
+  try {
+    const listRes = await fetch(`${BASE_URL}/file/${parentFolderId}/files`, {
+      headers: { Authorization: AUTH_HEADER },
+      cache: 'no-store',
+    });
+    if (listRes.ok) {
+      const items = await listRes.json();
+      const arr: any[] = Array.isArray(items) ? items : (items.result ?? items.files ?? items.items ?? []);
+      const existing = arr.find(
+        (i: any) => i.folder === true && (i.name ?? '').toLowerCase() === ARCHIVE_FOLDER_NAME.toLowerCase()
+      );
+      if (existing) return String(existing.id ?? existing.fileId ?? existing.folderId);
+    }
+
+    const createRes = await fetch(`${BASE_URL}/file/${parentFolderId}?name=${encodeURIComponent(ARCHIVE_FOLDER_NAME)}`, {
+      method: 'POST',
+      headers: { Authorization: AUTH_HEADER },
+    });
+    if (createRes.ok) {
+      const created = await createRes.json();
+      const newId = created.id ?? created.fileId ?? created.folderId;
+      if (newId) return String(newId);
+    } else if (createRes.status === 409) {
+      // Already exists — re-list
+      const retryRes = await fetch(`${BASE_URL}/file/${parentFolderId}/files`, {
+        headers: { Authorization: AUTH_HEADER },
+        cache: 'no-store',
+      });
+      if (retryRes.ok) {
+        const items = await retryRes.json();
+        const arr: any[] = Array.isArray(items) ? items : (items.result ?? items.files ?? items.items ?? []);
+        const found = arr.find((i: any) => i.folder === true && (i.name ?? '').toLowerCase() === ARCHIVE_FOLDER_NAME.toLowerCase());
+        if (found) return String(found.id ?? found.fileId ?? found.folderId);
+      }
+    }
+  } catch (err) {
+    console.error('[folder-utils] resolveArchiveFolderId exception:', err);
+  }
+  return null;
+}
 
 /**
  * Returns the ID of the "Client Provided Documents" subfolder under the given

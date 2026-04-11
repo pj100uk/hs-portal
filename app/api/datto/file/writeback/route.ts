@@ -15,14 +15,24 @@ function cellText(cellXml: string): string {
 
 // Replace all text content in a cell, preserving the first run's formatting
 function setCellText(cellXml: string, newText: string): string {
-  // Remove all existing <w:r> runs
-  const withoutRuns = cellXml.replace(/<w:r\b[\s\S]*?<\/w:r>/g, '');
-  // Grab the run properties from the first original run (for font/size preservation)
-  const rPrMatch = cellXml.match(/<w:rPr>([\s\S]*?)<\/w:rPr>/);
-  const rPr = rPrMatch ? `<w:rPr>${rPrMatch[1]}</w:rPr>` : '';
-  const newRun = `<w:r>${rPr}<w:t xml:space="preserve">${escapeXml(newText)}</w:t></w:r>`;
-  // Insert the new run before </w:p> of the first paragraph in the cell
-  return withoutRuns.replace(/(<\/w:p>)/, `${newRun}$1`);
+  const runs = Array.from(cellXml.matchAll(/<w:r\b[\s\S]*?<\/w:r>/g));
+  if (runs.length === 0) {
+    // Empty cell — use the paragraph mark's rPr (inside <w:pPr>) which defines the cell's expected formatting
+    const pPrMatch = cellXml.match(/<w:pPr\b[\s\S]*?<\/w:pPr>/);
+    const pPrRprMatch = pPrMatch ? pPrMatch[0].match(/<w:rPr>[\s\S]*?<\/w:rPr>/) : null;
+    const rPr = pPrRprMatch ? pPrRprMatch[0] : '';
+    const newRun = `<w:r>${rPr}<w:t xml:space="preserve">${escapeXml(newText)}</w:t></w:r>`;
+    return cellXml.replace(/(<\/w:p>)/, `${newRun}$1`);
+  }
+  // Extract rPr from inside the first <w:r> specifically (not paragraph-mark rPr inside <w:pPr>)
+  const firstRun = runs[0][0];
+  const rPrMatch = firstRun.match(/<w:rPr>[\s\S]*?<\/w:rPr>/);
+  const rPr = rPrMatch ? rPrMatch[0] : '';
+  const updatedFirstRun = `<w:r>${rPr}<w:t xml:space="preserve">${escapeXml(newText)}</w:t></w:r>`;
+  // Replace first run with updated content, remove any remaining runs
+  let result = cellXml.replace(firstRun, updatedFirstRun);
+  runs.slice(1).forEach(r => { result = result.replace(r[0], ''); });
+  return result;
 }
 
 function escapeXml(str: string): string {

@@ -25,7 +25,7 @@ export async function GET() {
 
 // POST — create a new user
 export async function POST(request: NextRequest) {
-  const { email, password, role, organisation_id } = await request.json();
+  const { email, password, role, organisation_id, site_ids } = await request.json();
 
   if (!email || !password || !role) {
     return NextResponse.json({ error: 'Email, password and role are required' }, { status: 400 });
@@ -41,13 +41,16 @@ export async function POST(request: NextRequest) {
 
   const { error: profileError } = await supabaseAdmin
     .from('profiles')
-    .update({
-      role,
-      organisation_id: organisation_id || null,
-    })
+    .update({ role, organisation_id: organisation_id || null })
     .eq('id', userData.user.id);
 
   if (profileError) return NextResponse.json({ error: profileError.message }, { status: 400 });
+
+  if (role === 'client' && site_ids && site_ids.length > 0) {
+    await supabaseAdmin.from('client_site_assignments').insert(
+      site_ids.map((siteId: string) => ({ client_user_id: userData.user.id, site_id: siteId }))
+    );
+  }
 
   return NextResponse.json({ user: userData.user });
 }

@@ -1,16 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { recalcSiteCompliance } from '../../documents/recalc-compliance';
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
-
-const PRIORITY_WEIGHT: Record<string, number> = {
-  critical: 3, red: 3,
-  upcoming: 2, amber: 2,
-  scheduled: 1, green: 1,
-};
 
 export async function POST(request: NextRequest) {
   const body = await request.json().catch(() => null);
@@ -18,7 +13,7 @@ export async function POST(request: NextRequest) {
 
   const { data: actions, error } = await supabase
     .from('actions')
-    .select('priority, status, due_date, site_document_id')
+    .select('status, due_date, updated_at, site_document_id')
     .eq('site_id', body.site_id)
     .is('site_document_id', null); // exclude client-managed doc actions
 
@@ -29,22 +24,33 @@ export async function POST(request: NextRequest) {
   }
 
   const today = new Date().toISOString().slice(0, 10);
+  const sixMonthsAgo = new Date(Date.now() - 180 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const ONGOING_RE = /on.?going|continuous|continual|continued|continuing|rolling|recurring|recurrent|regular|permanent|indefinite|open.?ended|as.?required|as.?needed|periodic|routine|always/i;
   let resolvedPoints = 0;
   let totalPoints = 0;
 
   for (const a of actions) {
-    const w = PRIORITY_WEIGHT[a.priority] ?? 1;
     const isResolved = a.status === 'resolved';
-    const isOverdue = !isResolved && a.due_date && a.due_date < today;
-    const isCriticalNoDueDate = !isResolved && (a.priority === 'critical' || a.priority === 'red') && !a.due_date;
+    const date = a.due_date as string | null;
+    const isOngoing = !!date && ONGOING_RE.test(date);
+    const hasSpecificDate = !!date && !isOngoing && /^\d{4}-\d{2}-\d{2}$/.test(date);
+
+    let w = 1;
+    if (hasSpecificDate) {
+      if (date! < today) {
+        w = 10; // overdue
+      } else {
+        const daysAway = Math.ceil((new Date(date!).getTime() - Date.now()) / 86400000);
+        w = daysAway <= 30 ? 5 : 1;
+      }
+    } else {
+      const lastUpdated = (a.updated_at as string | null)?.slice(0, 10) ?? null;
+      w = (lastUpdated && lastUpdated < sixMonthsAgo) ? 5 : 1;
+    }
 
     if (isResolved) {
       resolvedPoints += w;
       totalPoints += w;
-    } else if (isOverdue) {
-      totalPoints += w * 2; // overdue = double weight penalty
-    } else if (isCriticalNoDueDate) {
-      totalPoints += w * 1.5; // mild penalty for unscheduled critical
     } else {
       totalPoints += w;
     }
@@ -52,5 +58,6 @@ export async function POST(request: NextRequest) {
 
   const action_progress = totalPoints === 0 ? 100 : Math.round((resolvedPoints / totalPoints) * 100);
   await supabase.from('sites').update({ action_progress }).eq('id', body.site_id);
+  await recalcSiteCompliance(body.site_id, supabase);
   return NextResponse.json({ action_progress });
 }
