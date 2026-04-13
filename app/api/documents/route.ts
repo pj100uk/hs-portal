@@ -150,8 +150,16 @@ export async function DELETE(request: NextRequest) {
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  // Remove actions linked to this document
+  // Remove actions linked to this document via site_document_id (upload-linked)
   await supabase.from('actions').delete().eq('site_document_id', body.documentId);
+
+  // Also remove AI-sync actions linked by Datto file ID (source_document_id), which have no site_document_id
+  if (data.datto_file_id) {
+    await supabase.from('actions').delete()
+      .eq('site_id', data.site_id)
+      .eq('source_document_id', String(data.datto_file_id))
+      .is('site_document_id', null);
+  }
 
   // Archive in Datto — move to Archive subfolder with OV- date suffix (non-fatal if it fails)
   // skipDattoRename is set when datto-link already handled the rename (replace duplicate flow)

@@ -55,6 +55,20 @@ export async function POST(request: NextRequest) {
   return NextResponse.json({ user: userData.user });
 }
 
+// PATCH — update a user's profile (organisation_id)
+export async function PATCH(request: NextRequest) {
+  const { userId, organisation_id } = await request.json();
+  if (!userId) return NextResponse.json({ error: 'userId is required' }, { status: 400 });
+
+  const { error } = await supabaseAdmin
+    .from('profiles')
+    .update({ organisation_id: organisation_id ?? null })
+    .eq('id', userId);
+
+  if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+  return NextResponse.json({ success: true });
+}
+
 // DELETE — delete a user
 export async function DELETE(request: NextRequest) {
   const { userId } = await request.json();

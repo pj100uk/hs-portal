@@ -17,14 +17,15 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const fileId = searchParams.get('fileId');
+  const storageDocId = searchParams.get('storageDocId');
   const fileName = searchParams.get('fileName') || 'document';
   const noCache = searchParams.get('noCache') === 'true';
 
-  if (!fileId) {
-    return NextResponse.json({ error: 'Missing fileId' }, { status: 400 });
+  if (!fileId && !storageDocId) {
+    return NextResponse.json({ error: 'Missing fileId or storageDocId' }, { status: 400 });
   }
 
-  const cacheKey = `${fileId}.pdf`;
+  const cacheKey = `${fileId ?? storageDocId}.pdf`;
 
   // ── 1. Check Supabase cache ──
   try {
@@ -38,7 +39,7 @@ export async function GET(req: NextRequest) {
       const ageHours = (Date.now() - updatedAt.getTime()) / (1000 * 60 * 60);
 
       if (ageHours < CACHE_TTL_HOURS) {
-        console.log(`Cache hit for ${fileId}`);
+        console.log(`Cache hit for ${cacheKey}`);
         const { data: pdfData } = await supabase.storage
           .from(CACHE_BUCKET)
           .download(cacheKey);
@@ -61,17 +62,26 @@ export async function GET(req: NextRequest) {
     // Continue to conversion
   }
 
-  // ── 2. Fetch file from Datto ──
-  console.log(`Converting ${fileName} via CloudConvert...`);
-  const dattoRes = await fetch(`${DATTO_BASE}/file/${fileId}/data`, {
-    headers: { Authorization: DATTO_AUTH },
-  });
+  // ── 2. Fetch file (from Datto or Supabase Storage) ──
+  let fileBuffer: ArrayBuffer;
 
-  if (!dattoRes.ok) {
-    return NextResponse.json({ error: `Datto fetch failed: ${dattoRes.status}` }, { status: 500 });
+  if (storageDocId) {
+    // Fetch via unified doc resolver (handles Datto + Supabase Storage)
+    const origin = req.nextUrl.origin;
+    const fileRes = await fetch(`${origin}/api/storage/file?docId=${encodeURIComponent(storageDocId)}`);
+    if (!fileRes.ok) return NextResponse.json({ error: 'File not found' }, { status: 404 });
+    fileBuffer = await fileRes.arrayBuffer();
+  } else {
+    // Fetch from Datto
+    console.log(`Converting ${fileName} via CloudConvert...`);
+    const dattoRes = await fetch(`${DATTO_BASE}/file/${fileId}/data`, {
+      headers: { Authorization: DATTO_AUTH },
+    });
+    if (!dattoRes.ok) {
+      return NextResponse.json({ error: `Datto fetch failed: ${dattoRes.status}` }, { status: 500 });
+    }
+    fileBuffer = await dattoRes.arrayBuffer();
   }
-
-  const fileBuffer = await dattoRes.arrayBuffer();
   const ext = fileName.split('.').pop()?.toLowerCase() || 'docx';
 
   // ── 3. Upload to CloudConvert and convert ──

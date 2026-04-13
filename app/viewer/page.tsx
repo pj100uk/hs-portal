@@ -10,16 +10,28 @@ export default function ViewerPage() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const fileId = params.get('fileId') || '';
+    const docId = params.get('docId') || '';
     const name = params.get('fileName') || 'document';
     setFileName(name);
+
+    const ext = name.split('.').pop()?.toLowerCase() || '';
+
+    // Document ID based access — resolves Datto or Storage automatically
+    if (docId) {
+      if (['docx','doc','xlsx','xls','pptx','ppt'].includes(ext)) {
+        setPdfUrl(`/api/convert?storageDocId=${encodeURIComponent(docId)}&fileName=${encodeURIComponent(name)}`);
+      } else {
+        setPdfUrl(`/api/storage/file?docId=${encodeURIComponent(docId)}`);
+      }
+      setLoading(false);
+      return;
+    }
 
     if (!fileId) {
       setError('No file ID provided.');
       setLoading(false);
       return;
     }
-
-    const ext = name.split('.').pop()?.toLowerCase() || '';
 
     // PDFs and images — serve directly from Datto
     if (ext === 'pdf' || ext === 'jpg' || ext === 'jpeg' || ext === 'png') {

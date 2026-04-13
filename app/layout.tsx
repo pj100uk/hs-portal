@@ -2,8 +2,8 @@ import './globals.css'
 import type { Metadata } from 'next'
 
 export const metadata: Metadata = {
-  title: 'H&S Compliance Portal',
-  description: 'Precision Engineering Ltd - Compliance Dashboard',
+  title: 'McCormack Benson Health & Safety',
+  description: 'McCormack Benson Health & Safety — Compliance Portal',
 }
 
 export default function RootLayout({

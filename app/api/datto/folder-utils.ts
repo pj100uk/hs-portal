@@ -6,124 +6,107 @@ export const AUTH_HEADER = 'Basic ' + Buffer.from(`${CLIENT_ID}:${CLIENT_SECRET}
 const CLIENT_DOCS_FOLDER_NAME = 'Client Provided Documents';
 const ARCHIVE_FOLDER_NAME = 'Archive';
 
+/** Extract ID from a Datto item response — matches all known field variants */
+function extractId(item: any): string | null {
+  const raw = item.id ?? item.fileId ?? item.folderId ?? item.fileID ?? item.folderID;
+  return raw != null ? String(raw) : null;
+}
+
+/** Detect whether a Datto list item is a folder — matches all known response shapes */
+function isFolder(item: any): boolean {
+  return (
+    item.type === 'folder' ||
+    item.type === 'FOLDER' ||
+    item.isDirectory === true ||
+    item.folderType !== undefined ||
+    item.childCount !== undefined ||
+    item.folder === true
+  );
+}
+
+/** Normalise a Datto list response to a flat array */
+function toArr(raw: any): any[] {
+  return Array.isArray(raw) ? raw : (raw.result ?? raw.files ?? raw.items ?? raw.data ?? []);
+}
+
+/** List children of a Datto folder */
+async function listChildren(folderId: string): Promise<any[]> {
+  const res = await fetch(`${BASE_URL}/file/${folderId}/files`, {
+    headers: { Authorization: AUTH_HEADER },
+    cache: 'no-store',
+  });
+  if (!res.ok) { console.error('[folder-utils] list failed:', res.status, await res.text()); return []; }
+  return toArr(await res.json());
+}
+
+/** Find a subfolder by name (case-insensitive) in a list of Datto items */
+function findFolder(arr: any[], name: string): string | null {
+  const match = arr.find(i => isFolder(i) && (i.name ?? i.folderName ?? '').toLowerCase() === name.toLowerCase());
+  return match ? extractId(match) : null;
+}
+
+/** Resolve or create a named subfolder. Returns { id } on success or { id: null, error } on failure. */
+async function resolveSubfolder(parentFolderId: string, folderName: string): Promise<{ id: string | null; error?: string }> {
+  // Check if it already exists
+  const children = await listChildren(parentFolderId);
+  const existingId = findFolder(children, folderName);
+  if (existingId) return { id: existingId };
+
+  // Create it
+  const createRes = await fetch(`${BASE_URL}/file/${parentFolderId}?name=${encodeURIComponent(folderName)}`, {
+    method: 'POST',
+    headers: { Authorization: AUTH_HEADER },
+  });
+  const createBody = await createRes.text();
+  console.log('[folder-utils] create', folderName, '— status:', createRes.status, 'body:', createBody);
+
+  if (createRes.ok) {
+    let parsed: any = {};
+    try { parsed = JSON.parse(createBody); } catch { /* not JSON */ }
+    const newId = extractId(parsed);
+    if (newId) { console.log('[folder-utils] created:', newId); return { id: newId }; }
+    // Response OK but no ID in body — re-list to find it
+    const retry = await listChildren(parentFolderId);
+    const retryId = findFolder(retry, folderName);
+    return retryId ? { id: retryId } : { id: null, error: `Folder created but ID not found. Response: ${createBody}` };
+  }
+
+  if (createRes.status === 409) {
+    const retry = await listChildren(parentFolderId);
+    const retryId = findFolder(retry, folderName);
+    return retryId ? { id: retryId } : { id: null, error: `409 conflict but folder not found on re-list` };
+  }
+
+  return { id: null, error: `Datto folder create failed (${createRes.status}): ${createBody}` };
+}
+
 /**
  * Returns the ID of the "Archive" subfolder under the given parent folder,
  * creating it if it doesn't exist.
  */
 export async function resolveArchiveFolderId(parentFolderId: string): Promise<string | null> {
   try {
-    const listRes = await fetch(`${BASE_URL}/file/${parentFolderId}/files`, {
-      headers: { Authorization: AUTH_HEADER },
-      cache: 'no-store',
-    });
-    if (listRes.ok) {
-      const items = await listRes.json();
-      const arr: any[] = Array.isArray(items) ? items : (items.result ?? items.files ?? items.items ?? []);
-      const existing = arr.find(
-        (i: any) => i.folder === true && (i.name ?? '').toLowerCase() === ARCHIVE_FOLDER_NAME.toLowerCase()
-      );
-      if (existing) return String(existing.id ?? existing.fileId ?? existing.folderId);
-    }
-
-    const createRes = await fetch(`${BASE_URL}/file/${parentFolderId}?name=${encodeURIComponent(ARCHIVE_FOLDER_NAME)}`, {
-      method: 'POST',
-      headers: { Authorization: AUTH_HEADER },
-    });
-    if (createRes.ok) {
-      const created = await createRes.json();
-      const newId = created.id ?? created.fileId ?? created.folderId;
-      if (newId) return String(newId);
-    } else if (createRes.status === 409) {
-      // Already exists — re-list
-      const retryRes = await fetch(`${BASE_URL}/file/${parentFolderId}/files`, {
-        headers: { Authorization: AUTH_HEADER },
-        cache: 'no-store',
-      });
-      if (retryRes.ok) {
-        const items = await retryRes.json();
-        const arr: any[] = Array.isArray(items) ? items : (items.result ?? items.files ?? items.items ?? []);
-        const found = arr.find((i: any) => i.folder === true && (i.name ?? '').toLowerCase() === ARCHIVE_FOLDER_NAME.toLowerCase());
-        if (found) return String(found.id ?? found.fileId ?? found.folderId);
-      }
-    }
+    const { id } = await resolveSubfolder(parentFolderId, ARCHIVE_FOLDER_NAME);
+    return id;
   } catch (err) {
     console.error('[folder-utils] resolveArchiveFolderId exception:', err);
+    return null;
   }
-  return null;
 }
 
 /**
  * Returns the ID of the "Client Provided Documents" subfolder under the given
- * site folder, creating it if it doesn't exist. Falls back to siteFolderId if
- * the create call fails (e.g. permission error).
+ * site folder, creating it if it doesn't exist.
+ * Falls back to siteFolderId if creation fails (e.g. permission error).
  */
 export async function resolveClientDocsFolderId(siteFolderId: string): Promise<string> {
   try {
-    // List children of the site folder
-    const listRes = await fetch(`${BASE_URL}/file/${siteFolderId}/files`, {
-      headers: { Authorization: AUTH_HEADER },
-      cache: 'no-store',
-    });
-    console.log('[folder-utils] list children status:', listRes.status, 'for folder:', siteFolderId);
-    if (listRes.ok) {
-      const items = await listRes.json();
-      const arr: any[] = Array.isArray(items) ? items : (items.result ?? items.files ?? items.items ?? []);
-      console.log('[folder-utils] children count:', arr.length, 'names:', arr.map((i: any) => i.name ?? i.fileName).join(', '));
-      const existing = arr.find(
-        (i: any) =>
-          i.folder === true &&
-          (i.name ?? '').toLowerCase() === CLIENT_DOCS_FOLDER_NAME.toLowerCase()
-      );
-      if (existing) {
-        const id = String(existing.id ?? existing.fileId ?? existing.folderId);
-        console.log('[folder-utils] found existing folder:', id);
-        return id;
-      }
-    } else {
-      const errText = await listRes.text();
-      console.error('[folder-utils] list children failed:', errText);
-    }
-
-    // Attempt to create the subfolder — name is a query param per Datto API spec
-    const createUrl = `${BASE_URL}/file/${siteFolderId}?name=${encodeURIComponent(CLIENT_DOCS_FOLDER_NAME)}`;
-    const createRes = await fetch(createUrl, {
-      method: 'POST',
-      headers: { Authorization: AUTH_HEADER },
-    });
-    console.log('[folder-utils] create folder status:', createRes.status);
-    if (createRes.ok) {
-      const created = await createRes.json();
-      const newId = created.id ?? created.fileId ?? created.folderId;
-      if (newId) {
-        console.log('[folder-utils] created new folder:', newId);
-        return String(newId);
-      }
-    } else if (createRes.status === 409) {
-      // Folder already exists — re-list to get its ID
-      console.log('[folder-utils] folder already exists (409), re-listing...');
-      const retryRes = await fetch(`${BASE_URL}/file/${siteFolderId}/files`, {
-        headers: { Authorization: AUTH_HEADER },
-        cache: 'no-store',
-      });
-      if (retryRes.ok) {
-        const items = await retryRes.json();
-        const arr: any[] = Array.isArray(items) ? items : (items.result ?? items.files ?? items.items ?? []);
-        const found = arr.find((i: any) => i.folder === true && (i.name ?? '').toLowerCase() === CLIENT_DOCS_FOLDER_NAME.toLowerCase());
-        if (found) {
-          const id = String(found.id);
-          console.log('[folder-utils] found folder after 409:', id);
-          return id;
-        }
-      }
-    } else {
-      const errText = await createRes.text();
-      console.error('[folder-utils] create folder failed:', errText);
-    }
+    const { id } = await resolveSubfolder(siteFolderId, CLIENT_DOCS_FOLDER_NAME);
+    if (id) return id;
   } catch (err) {
-    console.error('[folder-utils] exception:', err);
+    console.error('[folder-utils] resolveClientDocsFolderId exception:', err);
   }
-
-  // Fallback: upload to the site root folder
+  // Fallback: upload directly to the site root folder
   console.warn('[folder-utils] falling back to site root folder:', siteFolderId);
   return siteFolderId;
 }

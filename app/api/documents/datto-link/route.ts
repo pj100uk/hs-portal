@@ -46,7 +46,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ dattoFileId: null, noFolder: true });
     }
 
-    // Resolve or create "Client Provided Documents" subfolder
+    // Resolve or create "Client Provided Documents" subfolder (falls back to root if creation fails)
     const targetFolderId = await resolveClientDocsFolderId(site.datto_folder_id);
 
     // If a previous version exists, rename it to v(n) dd-mm-yy before uploading new
@@ -117,9 +117,10 @@ export async function POST(request: NextRequest) {
       const uploaded = await uploadRes.json();
       const raw = uploaded.value ?? uploaded.result ?? uploaded;
       dattoFileId = String(raw.fileID ?? raw.id ?? raw.fileId ?? '') || null;
+      console.log('[datto-link] uploaded, dattoFileId:', dattoFileId);
     } else {
       const detail = await uploadRes.text();
-      console.error('[datto-link] Datto upload failed:', detail);
+      console.error('[datto-link] Datto upload failed (non-fatal):', uploadRes.status, detail);
     }
 
     // Update Supabase record with Datto file info

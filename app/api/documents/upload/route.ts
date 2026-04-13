@@ -35,13 +35,19 @@ export async function POST(request: NextRequest) {
     const duplicateName = existing?.document_name ?? existing?.file_name ?? null;
     const duplicateDattoFileId = existing?.datto_file_id ?? null;
 
-    // Check if site has a Datto folder configured
+    // Check if site has a Datto folder configured — required for all uploads
     const { data: site } = await supabase
       .from('sites')
       .select('datto_folder_id')
       .eq('id', siteId)
       .single();
-    const noFolder = !site?.datto_folder_id;
+
+    if (!site?.datto_folder_id) {
+      return NextResponse.json(
+        { error: 'This site has no H&S document folder configured. Please contact your administrator to set up the Datto folder for this site before uploading documents.' },
+        { status: 422 }
+      );
+    }
 
     // Insert Supabase record (Datto upload handled separately after user review)
     const { data: doc, error: insertErr } = await supabase
@@ -64,7 +70,7 @@ export async function POST(request: NextRequest) {
 
     await recalcSiteCompliance(siteId, supabase);
 
-    return NextResponse.json({ documentId: doc.id, noFolder, duplicateId, duplicateName, duplicateDattoFileId });
+    return NextResponse.json({ documentId: doc.id, duplicateId, duplicateName, duplicateDattoFileId });
   } catch (err: any) {
     console.error('[upload] error:', err);
     return NextResponse.json({ error: err.message ?? 'Upload failed' }, { status: 500 });

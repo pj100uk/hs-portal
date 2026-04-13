@@ -27,7 +27,7 @@ interface Action {
   priority: Priority; regulation: string; notes: string; evidenceLabel?: string; status: ActionStatus;
   hazardRef?: string | null; hazard?: string | null; existingControls?: string | null;
   riskRating?: string | null; riskLevel?: string | null; resolvedDate?: string | null; sourceFolderId?: string | null;
-  isSuggested?: boolean; updatedAt?: string | null; sourceFolderPath?: string | null; issueDate?: string | null;
+  isSuggested?: boolean; updatedAt?: string | null; sourceFolderPath?: string | null; issueDate?: string | null; dattoFileId?: string | null;
 }
 interface Site {
   id: string; name: string; type: string; organisation_id: string | null;
@@ -75,7 +75,7 @@ interface ReviewAction extends ExtractedAction {
   errorMessage?: string;
   advisorPriority: string | null;
 }
-interface Organisation { id: string; name: string; datto_folder_id: string | null; }
+interface Organisation { id: string; name: string; datto_folder_id: string | null; datto_folder_name: string | null; }
 interface Profile { role: 'superadmin' | 'advisor' | 'client'; site_id: string | null; organisation_id: string | null; }
 interface SiteDocument {
   id: string; site_id: string; uploaded_by: string | null; uploaded_at: string;
@@ -321,14 +321,46 @@ const scoreColor = (score: number) => {
   return               { text: 'text-rose-600',       bar: 'bg-rose-500',    ring: '#f43f5e' };
 };
 
-const ComplianceRing = ({ score, size = 56 }: { score: number; size?: number }) => {
+const RiskRing = ({ tiers, score, size = 96 }: { tiers: { tier: string; total: number; resolved: number }[]; score: number; size?: number }) => {
+  const r = 20; const circ = 2 * Math.PI * r;
+  const total = tiers.reduce((sum, t) => sum + t.total, 0);
+  const color = scoreColor(score).ring;
+  const tierColors: Record<string, string> = { HIGH: '#f43f5e', MEDIUM: '#fb923c', LOW: '#10b981' };
+  let acc = 0;
+  const segments: { color: string; fraction: number; start: number }[] = [];
+  for (const t of tiers) {
+    const unresolved = t.total - t.resolved;
+    if (unresolved > 0 && total > 0) {
+      segments.push({ color: tierColors[t.tier] ?? '#94a3b8', fraction: unresolved / total, start: acc });
+      acc += unresolved / total;
+    }
+  }
+  return (
+    <svg width={size} height={size} viewBox="0 0 48 48">
+      <circle cx="24" cy="24" r={r} stroke="#f1f5f9" strokeWidth="5" fill="none" />
+      {segments.map((seg, i) => (
+        <circle key={i} cx="24" cy="24" r={r} stroke={seg.color} strokeWidth="5" fill="none"
+          strokeDasharray={`${seg.fraction * circ} ${circ}`}
+          transform={`rotate(${seg.start * 360 - 90} 24 24)`}
+          strokeLinecap="butt"
+          style={{ transition: 'all 0.7s ease' }} />
+      ))}
+      <text x="24" y="29" textAnchor="middle" fontWeight="900" fill={color}><tspan fontSize="12">{score}</tspan><tspan fontSize="8" dy="-1">%</tspan></text>
+    </svg>
+  );
+};
+
+const ComplianceRing = ({ score, size = 56, percent = false }: { score: number; size?: number; percent?: boolean }) => {
   const r = 20; const circ = 2 * Math.PI * r; const offset = circ - (score / 100) * circ;
   const color = scoreColor(score).ring;
   return (
     <svg width={size} height={size} viewBox="0 0 48 48">
       <circle cx="24" cy="24" r={r} stroke="#f1f5f9" strokeWidth="5" fill="none" />
       <circle cx="24" cy="24" r={r} stroke={color} strokeWidth="5" fill="none" strokeDasharray={circ} strokeDashoffset={offset} strokeLinecap="round" transform="rotate(-90 24 24)" style={{ transition: 'stroke-dashoffset 1s ease' }} />
-      <text x="24" y="28" textAnchor="middle" fontSize="10" fontWeight="900" fill={color}>{score}</text>
+      {percent
+        ? <text x="24" y="29" textAnchor="middle" fontWeight="900" fill={color}><tspan fontSize="12">{score}</tspan><tspan fontSize="8" dy="-1">%</tspan></text>
+        : <text x="24" y="28" textAnchor="middle" fontSize="10" fontWeight="900" fill={color}>{score}</text>
+      }
     </svg>
   );
 };
@@ -425,6 +457,10 @@ function getFileHref(file: DattoItem, folderPath: string, role: string): string 
     const uri = buildOfficeUri(basePath, folderPath, file.name);
     if (uri) return uri;
   }
+  // Clients always get PDF via viewer — never raw Office files
+  if (role === 'client') {
+    return `/viewer?fileId=${file.id}&fileName=${encodeURIComponent(file.name)}&role=${role}`;
+  }
   return `/api/datto/file?fileId=${file.id}&fileName=${encodeURIComponent(file.name)}&forceDownload=true`;
 }
 
@@ -448,7 +484,6 @@ const ActionCard = ({ action, isResolved, onToggleResolve, onAddNote, onDelete, 
   const [syncing, setSyncing] = useState(false);
   const [syncResult, setSyncResult] = useState<{ ok: boolean; msg: string } | null>(null);
   const today = new Date().toLocaleDateString('en-CA');
-  const ONGOING_RE = /on.?going|continuous|continual|continued|continuing|rolling|recurring|recurrent|regular|permanent|indefinite|open.?ended|as.?required|as.?needed|periodic|routine|always|review/i;
   const isOngoing = !!action.date && ONGOING_RE.test(action.date);
   const isOverdue = !isResolved && !isOngoing && !!action.date && action.date < today;
   const { priority: derivedPriority, label: derivedLabel } = derivePriority(action);
@@ -581,18 +616,28 @@ const ActionCard = ({ action, isResolved, onToggleResolve, onAddNote, onDelete, 
             </div>
             {action.source && (
               <div className="flex items-center gap-2 flex-shrink-0">
-                {action.sourceFolderPath ? (() => {
+                {(role === 'advisor' || role === 'superadmin') && action.sourceFolderPath ? (() => {
                   const basePath = typeof window !== 'undefined' ? (localStorage.getItem('dattoBasePath') || 'W:/Customer Documents') : 'W:/Customer Documents';
                   const uri = buildOfficeUri(basePath, action.sourceFolderPath, action.source);
                   return uri ? (
                     <a href={uri} className="flex items-center gap-1.5 text-[11px] font-bold text-indigo-600 hover:text-indigo-800 hover:underline flex-shrink-0" title="Open original file">
-                      <ExternalLink size={12} className="text-indigo-500 flex-shrink-0" /><span className="font-normal text-slate-400">Open Doc:</span>{action.source.replace(/\.[^.]+$/, '')}
+                      <ExternalLink size={12} className="text-indigo-500 flex-shrink-0" /><span className="font-normal text-slate-400">Open Document:</span>{action.source.replace(/\.[^.]+$/, '')}
                     </a>
                   ) : (
-                    <span className="flex items-center gap-1.5 text-[11px] font-bold text-slate-600 flex-shrink-0"><File size={12} className="text-slate-400 flex-shrink-0" /><span className="font-normal text-slate-400">Doc:</span>{action.source.replace(/\.[^.]+$/, '')}</span>
+                    <span className="flex items-center gap-1.5 text-[11px] font-bold text-slate-600 flex-shrink-0"><File size={12} className="text-slate-400 flex-shrink-0" /><span className="font-normal text-slate-400">Document:</span>{action.source.replace(/\.[^.]+$/, '')}</span>
+                  );
+                })() : role === 'client' && action.source_document_id ? (() => {
+                  const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(action.source_document_id!);
+                  const viewerHref = isUUID
+                    ? `/viewer?docId=${action.source_document_id}&fileName=${encodeURIComponent(action.source)}&role=${role}`
+                    : `/viewer?fileId=${action.source_document_id}&fileName=${encodeURIComponent(action.source)}&role=${role}`;
+                  return (
+                    <a href={viewerHref} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 text-[11px] font-bold text-indigo-600 hover:text-indigo-800 hover:underline flex-shrink-0" title="View document as PDF">
+                      <ExternalLink size={12} className="text-indigo-500 flex-shrink-0" /><span className="font-normal text-slate-400">Open Document:</span>{action.source.replace(/\.[^.]+$/, '')}
+                    </a>
                   );
                 })() : (
-                  <span className="flex items-center gap-1.5 text-[11px] font-bold text-slate-600 flex-shrink-0"><File size={12} className="text-slate-400 flex-shrink-0" /><span className="font-normal text-slate-400">Doc:</span>{action.source.replace(/\.[^.]+$/, '')}</span>
+                  <span className="flex items-center gap-1.5 text-[11px] font-bold text-slate-600 flex-shrink-0"><File size={12} className="text-slate-400 flex-shrink-0" /><span className="font-normal text-slate-400">Document:</span>{action.source.replace(/\.[^.]+$/, '')}</span>
                 )}
                 {role === 'advisor' && onDelete && (
                   <button onClick={e => { e.stopPropagation(); if (confirm('Delete this action? This cannot be undone.')) onDelete(action.id); }} className="p-1.5 rounded-lg border border-rose-200 text-rose-400 hover:text-rose-600 hover:border-rose-400 hover:bg-rose-50 transition-colors" title="Delete action">
@@ -1099,89 +1144,129 @@ const DocumentCard = ({ doc, role, userId, actions, onDelete, onRename, onToggle
   const expStatus = doc.expiry_date ? (doc.expiry_date < today ? 'expired' : doc.expiry_date <= soon ? 'expiring' : 'valid') : 'none';
   const openActions = actions.filter(a => a.status !== 'resolved');
   const resolvedActions = actions.filter(a => a.status === 'resolved');
+  const viewHref = doc.datto_file_id
+    ? `/viewer?fileId=${doc.datto_file_id}&fileName=${encodeURIComponent(doc.file_name ?? '')}&role=${role}`
+    : doc.client_provided
+    ? `/viewer?docId=${doc.id}&fileName=${encodeURIComponent(doc.file_name ?? '')}&role=${role}`
+    : null;
+
   return (
-    <div className="bg-white rounded-2xl border border-amber-100 shadow-sm overflow-hidden">
-      <div className="p-5 space-y-3">
-        <div className="flex items-start justify-between gap-3">
-          <div className="space-y-1.5">
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className="text-[10px] font-black uppercase tracking-wider text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-lg">Client Managed</span>
-              {doc.document_type && <span className="text-[10px] font-black uppercase tracking-wider text-slate-400 bg-slate-50 border border-slate-200 px-2 py-0.5 rounded-lg">{doc.document_type}</span>}
+    <div>
+      {/* ── Single summary row ── */}
+      <div
+        className={`flex items-center gap-3 px-5 py-3.5 cursor-pointer hover:bg-slate-50 transition-colors select-none ${expanded ? 'bg-slate-50' : ''}`}
+        onClick={() => { if (!editingName) setExpanded(e => !e); }}
+      >
+        <ChevronDown size={13} className={`text-slate-300 flex-shrink-0 transition-transform duration-150 ${expanded ? 'rotate-180' : ''}`} />
+
+        {/* Name */}
+        <div className="flex-1 min-w-0" onClick={e => e.stopPropagation()}>
+          {editingName ? (
+            <div className="flex items-center gap-2">
+              <input
+                className="text-sm font-black text-slate-900 border border-indigo-300 rounded-lg px-2 py-1 focus:outline-none focus:ring-2 focus:ring-indigo-300"
+                value={nameInput}
+                onChange={e => setNameInput(e.target.value)}
+                autoFocus
+                onClick={e => e.stopPropagation()}
+              />
+              <button onClick={() => { onRename(doc.id, nameInput); setEditingName(false); }} className="text-[10px] font-black text-emerald-600 bg-emerald-50 border border-emerald-200 px-2 py-1 rounded-lg hover:bg-emerald-100 whitespace-nowrap">Save</button>
+              <button onClick={() => setEditingName(false)} className="text-[10px] font-black text-slate-400 hover:text-slate-600 whitespace-nowrap">Cancel</button>
             </div>
-            {editingName ? (
-              <div className="flex items-center gap-2 mt-1">
-                <input className="text-sm font-black text-slate-900 border border-indigo-300 rounded-lg px-2 py-1 focus:outline-none focus:ring-2 focus:ring-indigo-300 w-full" value={nameInput} onChange={e => setNameInput(e.target.value)} autoFocus />
-                <button onClick={() => { onRename(doc.id, nameInput); setEditingName(false); }} className="text-[10px] font-black text-emerald-600 bg-emerald-50 border border-emerald-200 px-2 py-1 rounded-lg hover:bg-emerald-100 whitespace-nowrap">Save</button>
-                <button onClick={() => setEditingName(false)} className="text-[10px] font-black text-slate-400 hover:text-slate-600 whitespace-nowrap">Cancel</button>
-              </div>
-            ) : (
-              <div className="flex items-center gap-1.5">
-                <h4 className="font-black text-slate-900 leading-snug">{doc.document_name || doc.file_name}</h4>
-                {role === 'client' && <button onClick={() => setEditingName(true)} className="p-1 text-slate-300 hover:text-indigo-500 rounded flex-shrink-0" title="Rename"><Pencil size={11} /></button>}
-              </div>
-            )}
-          </div>
-          <div className="flex items-center gap-1 flex-shrink-0">
-            {doc.datto_file_id && (
-              <a href={`/viewer?fileId=${doc.datto_file_id}&fileName=${encodeURIComponent(doc.file_name ?? '')}&role=${role}`} target="_blank" rel="noopener noreferrer" className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg" title="View document"><ExternalLink size={14} /></a>
-            )}
-            {(role === 'advisor' || role === 'superadmin') && !doc.client_provided && (
-              <button onClick={() => onDelete(doc.id)} className="p-2 text-slate-300 hover:text-rose-500 hover:bg-rose-50 rounded-lg" title="Delete"><Trash2 size={14} /></button>
-            )}
-            {role === 'client' && (
-              <button onClick={() => { if (window.confirm('Delete this document? This cannot be undone.')) onDelete(doc.id); }} className="p-2 text-slate-300 hover:text-rose-500 hover:bg-rose-50 rounded-lg" title="Delete document"><Trash2 size={14} /></button>
-            )}
-          </div>
+          ) : (
+            <div className="flex items-center gap-1.5 min-w-0">
+              <span className="text-[13px] font-bold text-slate-800 truncate">{doc.document_name || doc.file_name}</span>
+              {role === 'client' && (
+                <button onClick={e => { e.stopPropagation(); setEditingName(true); }} className="p-0.5 text-slate-300 hover:text-indigo-500 rounded flex-shrink-0" title="Rename">
+                  <Pencil size={10} />
+                </button>
+              )}
+            </div>
+          )}
         </div>
-        <div className="flex items-center gap-4 flex-wrap">
-          {doc.issue_date && <div><p className="text-[10px] font-black uppercase tracking-wider text-slate-400">Issued</p><p className="text-sm font-bold text-slate-700">{fmt(doc.issue_date)}</p></div>}
-          {doc.expiry_date && <div><p className="text-[10px] font-black uppercase tracking-wider text-slate-400">Expires</p><p className="text-sm font-bold text-slate-700">{fmt(doc.expiry_date)}</p></div>}
-          {expStatus === 'expired' && <span className="text-[10px] font-black uppercase px-2 py-1 rounded-lg text-rose-700 bg-rose-50 border border-rose-200">Expired</span>}
-          {expStatus === 'expiring' && <span className="text-[10px] font-black uppercase px-2 py-1 rounded-lg text-amber-700 bg-amber-50 border border-amber-200">Expiring soon</span>}
-          {expStatus === 'valid' && <span className="text-[10px] font-black uppercase px-2 py-1 rounded-lg text-emerald-700 bg-emerald-50 border border-emerald-200">Valid</span>}
+
+        {/* Badges + dates */}
+        <div className="flex items-center gap-1.5 flex-shrink-0">
+          {doc.document_type && (
+            <span className="text-[9px] font-black uppercase tracking-wider text-slate-400 bg-slate-50 border border-slate-200 px-1.5 py-0.5 rounded">{doc.document_type}</span>
+          )}
+          {expStatus === 'expired'  && <span className="text-[9px] font-black uppercase px-1.5 py-0.5 rounded text-rose-700 bg-rose-50 border border-rose-200">Expired</span>}
+          {expStatus === 'expiring' && <span className="text-[9px] font-black uppercase px-1.5 py-0.5 rounded text-amber-700 bg-amber-50 border border-amber-200">Expiring</span>}
+          {expStatus === 'valid'    && <span className="text-[9px] font-black uppercase px-1.5 py-0.5 rounded text-emerald-700 bg-emerald-50 border border-emerald-200">Valid</span>}
+          {doc.expiry_date && <span className="text-[10px] font-bold text-slate-400">{fmt(doc.expiry_date)}</span>}
+          {openActions.length > 0 && (
+            <span className="text-[9px] font-black px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-600 border border-indigo-200">
+              {openActions.length} action{openActions.length !== 1 ? 's' : ''}
+            </span>
+          )}
+          {resolvedActions.length > 0 && openActions.length === 0 && (
+            <span className="text-[9px] font-black px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-600 border border-emerald-200">
+              {resolvedActions.length} resolved
+            </span>
+          )}
         </div>
-        {doc.people_mentioned && doc.people_mentioned.length > 0 && (
-          <p className="text-[11px] text-slate-500 flex items-center gap-1.5"><Users size={11} className="text-slate-400 flex-shrink-0" />{doc.people_mentioned.join(', ')}</p>
-        )}
-        {doc.notes && <p className="text-[11px] text-slate-400 italic">{doc.notes}</p>}
-        <p className="text-[10px] text-slate-300">{doc.file_name} · Uploaded {new Date(doc.uploaded_at).toLocaleDateString('en-GB')}</p>
+
+        {/* Controls */}
+        <div className="flex items-center gap-0.5 flex-shrink-0" onClick={e => e.stopPropagation()}>
+          {viewHref && (
+            <a href={viewHref} target="_blank" rel="noopener noreferrer" className="p-1.5 text-slate-300 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors" title="View document">
+              <ExternalLink size={13} />
+            </a>
+          )}
+          {role === 'client' && (
+            <button onClick={() => { if (window.confirm('Delete this document? This cannot be undone.')) onDelete(doc.id); }} className="p-1.5 text-slate-200 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-colors" title="Delete">
+              <Trash2 size={13} />
+            </button>
+          )}
+        </div>
       </div>
 
-      {actions.length > 0 && (
-        <div className="border-t border-amber-100">
-          <button onClick={() => setExpanded(e => !e)} className="w-full flex items-center justify-between px-5 py-3 hover:bg-slate-50 transition-colors">
-            <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">
-              Actions {openActions.length > 0 && <span className="ml-1 text-indigo-500">{openActions.length} open</span>}{resolvedActions.length > 0 && <span className="ml-1 text-slate-300">· {resolvedActions.length} resolved</span>}
-            </p>
-            <ChevronDown size={14} className={`text-slate-400 transition-transform ${expanded ? 'rotate-180' : ''}`} />
-          </button>
-          {expanded && <div className="divide-y divide-slate-100">
-            {actions.map(a => {
-              const cfg = priorityConfig[a.priority as Priority] ?? priorityConfig.green;
-              const isResolved = a.status === 'resolved';
-              return (
-                <div key={a.id} className={`flex items-start gap-3 px-5 py-3 ${isResolved ? 'opacity-50' : ''}`}>
-                  <div className={`w-1 rounded-full self-stretch flex-shrink-0 mt-0.5 ${isResolved ? 'bg-slate-300' : cfg.bar}`} style={{ minHeight: 32 }} />
-                  <div className="flex-1 min-w-0 space-y-1">
-                    {a.hazard && <p className={`text-[10px] font-black uppercase tracking-wide ${isResolved ? 'text-slate-400' : 'text-slate-500'}`}>{a.hazard}</p>}
-                    <p className={`text-[11px] font-bold leading-snug ${isResolved ? 'line-through text-slate-400' : 'text-slate-800'}`}>{a.action}</p>
-                    <div className="flex flex-wrap gap-1.5">
-                      {!isResolved && <span className={`text-[9px] font-black uppercase px-1.5 py-0.5 rounded border ${cfg.badge}`}>{cfg.label}</span>}
-                      {(a as any).isSuggested && <span className="text-[9px] font-black uppercase px-1.5 py-0.5 rounded border border-violet-200 text-violet-600 bg-violet-50">AI Suggested</span>}
-                      {a.date && <span className="text-[9px] font-bold text-slate-500 flex items-center gap-1"><Clock size={9} />{a.date}</span>}
-                      {a.who && <span className="text-[9px] font-bold text-slate-500 flex items-center gap-1"><User size={9} />{a.who}</span>}
+      {/* ── Expanded detail panel ── */}
+      {expanded && (
+        <div className="border-t border-slate-100">
+          {/* Meta row */}
+          <div className="flex items-center flex-wrap gap-x-6 gap-y-1 px-10 py-2.5 bg-slate-50 border-b border-slate-100">
+            {doc.issue_date  && <div><span className="text-[9px] font-black uppercase tracking-wider text-slate-400 mr-1">Issued</span><span className="text-[11px] font-bold text-slate-600">{fmt(doc.issue_date)}</span></div>}
+            {doc.expiry_date && <div><span className="text-[9px] font-black uppercase tracking-wider text-slate-400 mr-1">Expires</span><span className="text-[11px] font-bold text-slate-600">{fmt(doc.expiry_date)}</span></div>}
+            {doc.people_mentioned && doc.people_mentioned.length > 0 && (
+              <div className="flex items-center gap-1 text-[11px] text-slate-500"><Users size={10} className="text-slate-400 flex-shrink-0" />{doc.people_mentioned.join(', ')}</div>
+            )}
+            {doc.notes && <p className="text-[11px] text-slate-400 italic">{doc.notes}</p>}
+            <span className="ml-auto text-[10px] text-slate-300 whitespace-nowrap">{doc.file_name} · Uploaded {new Date(doc.uploaded_at).toLocaleDateString('en-GB')}</span>
+          </div>
+
+          {/* Actions list */}
+          {actions.length === 0 ? (
+            <p className="px-10 py-4 text-[11px] text-slate-400 font-bold">No actions identified from this document.</p>
+          ) : (
+            <div className="divide-y divide-slate-100">
+              {actions.map(a => {
+                const cfg = priorityConfig[a.priority as Priority] ?? priorityConfig.green;
+                const isResolved = a.status === 'resolved';
+                return (
+                  <div key={a.id} className={`flex items-start gap-3 px-10 py-3 ${isResolved ? 'opacity-50' : ''}`}>
+                    <div className={`w-1 rounded-full self-stretch flex-shrink-0 mt-0.5 ${isResolved ? 'bg-slate-300' : cfg.bar}`} style={{ minHeight: 28 }} />
+                    <div className="flex-1 min-w-0 space-y-1">
+                      {a.hazard && <p className={`text-[10px] font-black uppercase tracking-wide ${isResolved ? 'text-slate-400' : 'text-slate-500'}`}>{a.hazard}</p>}
+                      <p className={`text-[11px] font-bold leading-snug ${isResolved ? 'line-through text-slate-400' : 'text-slate-800'}`}>{a.action}</p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {!isResolved && <span className={`text-[9px] font-black uppercase px-1.5 py-0.5 rounded border ${cfg.badge}`}>{cfg.label}</span>}
+                        {(a as any).isSuggested && <span className="text-[9px] font-black uppercase px-1.5 py-0.5 rounded border border-violet-200 text-violet-600 bg-violet-50">AI Suggested</span>}
+                        {a.date && <span className="text-[9px] font-bold text-slate-500 flex items-center gap-1"><Clock size={9} />{a.date}</span>}
+                        {a.who && <span className="text-[9px] font-bold text-slate-500 flex items-center gap-1"><User size={9} />{a.who}</span>}
+                      </div>
                     </div>
+                    <button
+                      onClick={() => onToggleAction(a.id, !isResolved)}
+                      className={`flex-shrink-0 px-3 py-1.5 rounded-lg font-black text-[9px] uppercase tracking-wider ${isResolved ? 'bg-white border border-slate-200 text-slate-400 hover:text-slate-600' : 'bg-slate-900 text-white hover:bg-indigo-700'}`}
+                    >
+                      {isResolved ? 'Undo' : 'Resolve'}
+                    </button>
                   </div>
-                  <button
-                    onClick={() => onToggleAction(a.id, !isResolved)}
-                    className={`flex-shrink-0 px-3 py-1.5 rounded-lg font-black text-[9px] uppercase tracking-wider ${isResolved ? 'bg-white border border-slate-200 text-slate-400 hover:text-slate-600' : 'bg-slate-900 text-white hover:bg-indigo-700'}`}
-                  >
-                    {isResolved ? 'Undo' : 'Resolve'}
-                  </button>
-                </div>
-              );
-            })}
-          </div>}
+                );
+              })}
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -1217,6 +1302,7 @@ const UploadModal = ({ site, userId, onClose, onSaved }: {
   const [processingIdx, setProcessingIdx] = useState(0);
   const [expandedIdx, setExpandedIdx] = useState<number | null>(0);
   const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState('');
   const inputClass = 'w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-300 bg-white';
   const labelClass = 'text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1 block';
   const today = new Date().toLocaleDateString('en-CA');
@@ -1247,7 +1333,6 @@ const UploadModal = ({ site, userId, onClose, onSaved }: {
       if (!uploadRes.ok) { updateItem(idx, { status: 'error', error: uploadData.error ?? 'Upload failed' }); continue; }
       updateItem(idx, {
         documentId: uploadData.documentId,
-        noFolder: uploadData.noFolder ?? false,
         duplicateId: uploadData.duplicateId ?? undefined,
         duplicateDattoFileId: uploadData.duplicateDattoFileId ?? undefined,
       });
@@ -1315,7 +1400,12 @@ const UploadModal = ({ site, userId, onClose, onSaved }: {
         dattoForm.append('oldDattoFileId', item.duplicateDattoFileId);
       }
       const dattoRes = await fetch('/api/documents/datto-link', { method: 'POST', body: dattoForm });
-      const dattoData = dattoRes.ok ? await dattoRes.json() : {};
+      const dattoData = await dattoRes.json().catch(() => ({}));
+      if (!dattoRes.ok) {
+        setSaveError(dattoData.error ?? 'Failed to upload file to Datto. Please try again.');
+        setSaving(false);
+        return;
+      }
       const dattoFileId = dattoData.dattoFileId ?? null;
 
       // If replacing, delete old Supabase record (Datto rename already handled by datto-link)
@@ -1423,7 +1513,6 @@ const UploadModal = ({ site, userId, onClose, onSaved }: {
                       {it.docType && <p className="text-[10px] text-slate-400">{it.docType}</p>}
                     </div>
                     <div className="flex items-center gap-2 flex-shrink-0">
-                      {it.noFolder && <span className="text-[10px] font-bold text-amber-600 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-lg">Portal only</span>}
                       {it.expiryDate && it.expiryDate < today && <span className="text-[10px] font-bold text-rose-600 bg-rose-50 border border-rose-200 px-2 py-0.5 rounded-lg">Expired</span>}
                       <ChevronDown size={14} className={`text-slate-400 transition-transform ${expandedIdx === idx ? 'rotate-180' : ''}`} />
                     </div>
@@ -1489,7 +1578,9 @@ const UploadModal = ({ site, userId, onClose, onSaved }: {
 
         {step === 'review' && (
           <div className="border-t border-slate-100 px-6 py-4 flex items-center gap-3">
-            <span className="text-[11px] font-bold text-slate-400 flex-1">{doneCount} document{doneCount !== 1 ? 's' : ''} ready</span>
+            <span className="text-[11px] font-bold flex-1">
+              {saveError ? <span className="text-rose-600">{saveError}</span> : <span className="text-slate-400">{doneCount} document{doneCount !== 1 ? 's' : ''} ready</span>}
+            </span>
             <button onClick={onClose} className="px-5 py-2.5 bg-white border border-slate-200 text-slate-500 rounded-xl font-black text-[11px] uppercase tracking-wider hover:bg-slate-50">Cancel</button>
             <button onClick={handleSave} disabled={saving || doneCount === 0} className="px-6 py-2.5 bg-amber-500 text-white rounded-xl font-black text-[11px] uppercase tracking-wider hover:bg-amber-600 disabled:opacity-50">{saving ? 'Saving…' : `Save ${doneCount > 1 ? `All ${doneCount}` : 'Document'}`}</button>
           </div>
@@ -1606,7 +1697,7 @@ const SiteDocumentsTab = ({ site, profile, userId, onComplianceUpdate, onActions
       ) : documents.length === 0 ? (
         <div className="bg-white rounded-2xl border border-slate-200 p-12 text-center"><FileCheck size={32} className="text-slate-300 mx-auto mb-3" /><p className="font-black text-slate-700">No documents uploaded yet</p><p className="text-sm text-slate-400 mt-1">Upload certificates, training records, and compliance evidence.</p></div>
       ) : (
-        <div className="grid gap-3 md:grid-cols-2">{documents.map(doc => <DocumentCard key={doc.id} doc={doc} role={profile.role} userId={userId} actions={docActions.filter(a => (a as any)._siteDocumentId === doc.id)} onDelete={handleDelete} onRename={handleRename} onToggleAction={handleToggleAction} />)}</div>
+        <div className="bg-white rounded-2xl border border-amber-100 shadow-sm overflow-hidden divide-y divide-amber-50">{documents.map(doc => <DocumentCard key={doc.id} doc={doc} role={profile.role} userId={userId} actions={docActions.filter(a => (a as any)._siteDocumentId === doc.id)} onDelete={handleDelete} onRename={handleRename} onToggleAction={handleToggleAction} />)}</div>
       )}
       {showUpload && <UploadModal site={site} userId={userId} onClose={() => setShowUpload(false)} onSaved={handleSaved} />}
     </div>
@@ -1903,6 +1994,7 @@ const SuperadminPanel = () => {
 
   // Assignment search state
   const [orgAdvisorSearch, setOrgAdvisorSearch] = useState('');
+  const [orgClientSearch, setOrgClientSearch] = useState('');
   const [siteAdvisorSearch, setSiteAdvisorSearch] = useState('');
   const [siteClientSearch, setSiteClientSearch] = useState('');
 
@@ -1919,6 +2011,10 @@ const SuperadminPanel = () => {
   const [showClientSiteForm, setShowClientSiteForm] = useState(false);
   const [assignClientId, setAssignClientId] = useState('');
   const [assignClientSiteId, setAssignClientSiteId] = useState('');
+
+  // User row expansion (client site management)
+  const [expandingUserId, setExpandingUserId] = useState<string | null>(null);
+  const [userSiteSearch, setUserSiteSearch] = useState('');
 
   // Assignment data
   const [clientSiteAssignments, setClientSiteAssignments] = useState<any[]>([]);
@@ -2019,7 +2115,7 @@ const SuperadminPanel = () => {
   const handleCreateOrg = async () => {
     if (!orgName.trim()) { flash('Name is required', true); return; }
     const finalId = orgFolderId || (showOrgFolderPicker ? orgPickerCurrentId : '');
-    const { data: newOrg, error } = await supabase.from('organisations').insert({ name: orgName.trim(), datto_folder_id: finalId || null }).select().single();
+    const { data: newOrg, error } = await supabase.from('organisations').insert({ name: orgName.trim(), datto_folder_id: finalId || null, datto_folder_name: orgFolderName || null }).select().single();
     if (error) { flash(error.message, true); return; }
     if (orgAdvisorId && newOrg) {
       await supabase.from('advisor_organisations').insert({ advisor_id: orgAdvisorId, organisation_id: newOrg.id });
@@ -2033,6 +2129,7 @@ const SuperadminPanel = () => {
     if (!siteName.trim()) { flash('Name is required', true); return; }
     if (!siteOrgId) { flash('Organisation is required', true); return; }
     const finalId = siteFolderId || (showSiteFolderPicker ? sitePickerCurrentId : '');
+    if (!finalId) { flash('Datto folder is required — select the site\'s H&S document folder before saving.', true); return; }
     const typeValue = siteType === 'OTHER' ? (siteTypeOther.trim() || 'OTHER') : siteType;
     const { error } = await supabase.from('sites').insert({ name: siteName.trim(), type: typeValue, organisation_id: siteOrgId, datto_folder_id: finalId || null, advisor_id: siteAdvisorId || null, compliance_score: 0, trend: 0 });
     if (error) { flash(error.message, true); return; }
@@ -2057,6 +2154,18 @@ const SuperadminPanel = () => {
     const { error } = await supabase.from('advisor_organisations').insert({ advisor_id: assignAdvisorId, organisation_id: assignOrgId });
     if (error) { flash(error.message, true); return; }
     flash('Assignment created!'); setAssignAdvisorId(''); setAssignOrgId(''); setShowAssignForm(false); loadAssignments();
+  };
+
+  const handleAddOrgClient = async (orgId: string, userId: string) => {
+    const res = await fetch('/api/admin/users', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userId, organisation_id: orgId }) });
+    if (!res.ok) { const d = await res.json(); flash(d.error || 'Failed to assign user', true); return; }
+    flash('Client assigned to organisation'); setOrgClientSearch(''); loadUsers();
+  };
+
+  const handleRemoveOrgClient = async (userId: string) => {
+    const res = await fetch('/api/admin/users', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userId, organisation_id: null }) });
+    if (!res.ok) { const d = await res.json(); flash(d.error || 'Failed to remove user', true); return; }
+    flash('Client removed from organisation'); loadUsers();
   };
 
   const handleAddOrgAdvisor = async (orgId: string, advisorId: string) => {
@@ -2104,14 +2213,15 @@ const SuperadminPanel = () => {
   // ── Edit handlers ──
   const startEditOrg = (org: Organisation) => {
     setEditingOrgId(org.id); setEditOrgName(org.name);
-    setEditOrgFolderId(org.datto_folder_id || ''); setEditOrgFolderName(org.datto_folder_id ? `ID: ${org.datto_folder_id}` : '');
+    setEditOrgFolderId(org.datto_folder_id || '');
+    setEditOrgFolderName(org.datto_folder_name || '');
     setShowEditOrgPicker(false);
   };
 
   const handleUpdateOrg = async (id: string) => {
     if (!editOrgName.trim()) { flash('Name is required', true); return; }
     const finalId = editOrgFolderId || (showEditOrgPicker ? editOrgFolderId : '');
-    const { error } = await supabase.from('organisations').update({ name: editOrgName.trim(), datto_folder_id: finalId || null }).eq('id', id);
+    const { error } = await supabase.from('organisations').update({ name: editOrgName.trim(), datto_folder_id: finalId || null, datto_folder_name: editOrgFolderName || null }).eq('id', id);
     if (error) { flash(error.message, true); return; }
     flash('Organisation updated!'); setEditingOrgId(null); setShowEditOrgPicker(false); loadOrgs();
   };
@@ -2139,6 +2249,7 @@ const SuperadminPanel = () => {
   const handleUpdateSite = async (id: string) => {
     if (!editSiteName.trim()) { flash('Name is required', true); return; }
     const finalId = editSiteFolderId || (showEditSitePicker ? editSiteFolderId : '');
+    if (!finalId) { flash('Datto folder is required — select the site\'s H&S document folder before saving.', true); return; }
     const editTypeValue = editSiteType === 'OTHER' ? (editSiteTypeOther.trim() || 'OTHER') : editSiteType;
     const empCount = editSiteEmployeeCount !== '' ? parseInt(editSiteEmployeeCount, 10) : null;
     const { error } = await supabase.from('sites').update({ name: editSiteName.trim(), type: editTypeValue, datto_folder_id: finalId || null, datto_folder_path: editSiteFolderPath || null, advisor_id: editSiteAdvisorId || null, employee_count: empCount }).eq('id', id);
@@ -2184,7 +2295,7 @@ const SuperadminPanel = () => {
 
       <div className="flex border-b border-slate-200 gap-6">
         {tabs.map(tab => (
-          <button key={tab.key} onClick={() => setActiveTab(tab.key)}
+          <button key={tab.key} onClick={() => { setActiveTab(tab.key); setEditingOrgId(null); setEditingSiteId(null); setExpandingUserId(null); setShowEditOrgPicker(false); setShowEditSitePicker(false); setOrgAdvisorSearch(''); setOrgClientSearch(''); setSiteAdvisorSearch(''); setSiteClientSearch(''); setUserSiteSearch(''); }}
             className={`pb-4 px-1 text-[11px] font-black uppercase tracking-widest flex items-center gap-2 border-b-2 transition-all ${activeTab === tab.key ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-slate-400 hover:text-slate-600'}`}>
             {tab.icon}{tab.label}
           </button>
@@ -2239,67 +2350,105 @@ const SuperadminPanel = () => {
                   <tbody className="divide-y divide-slate-100">
                     {organisations.map(org => (
                       <React.Fragment key={org.id}>
-                        <tr className="hover:bg-slate-50">
-                          <td className="px-6 py-4 font-bold text-slate-800"><button onClick={() => { setSelectedOrgFilter(org.id); setActiveTab('sites'); }} className="hover:text-indigo-600 hover:underline text-left">{org.name}</button></td>
+                        <tr className={`cursor-pointer select-none ${editingOrgId === org.id ? 'bg-indigo-50/60' : 'hover:bg-slate-50'}`} onClick={() => editingOrgId === org.id ? (setEditingOrgId(null), setShowEditOrgPicker(false), setOrgAdvisorSearch(''), setOrgClientSearch('')) : startEditOrg(org)}>
+                          <td className="px-6 py-4 font-bold text-slate-800"><button onClick={e => { e.stopPropagation(); setSelectedOrgFilter(org.id); setActiveTab('sites'); setEditingOrgId(null); setEditingSiteId(null); setShowEditOrgPicker(false); }} className="hover:text-indigo-600 hover:underline text-left">{org.name}</button></td>
                           <td className="px-6 py-4 text-sm text-slate-600">{(() => { const a = assignments.find((a: any) => a.organisation_id === org.id); return a ? (advisors.find(adv => adv.id === a.advisor_id)?.email || '—') : <span className="text-slate-300">Unassigned</span>; })()}</td>
-                          <td className="px-6 py-4 text-sm">{org.datto_folder_id ? <span className="flex items-center gap-1.5 text-amber-600 font-mono text-xs"><Folder size={12} />{org.datto_folder_id}</span> : <span className="text-slate-300">Not set</span>}</td>
+                          <td className="px-6 py-4 text-xs">{org.datto_folder_id ? (
+                            <span className="flex flex-col gap-0.5">
+                              {org.datto_folder_name && <span className="font-bold text-slate-700 flex items-center gap-1"><Folder size={11} className="text-amber-400 shrink-0" />{org.datto_folder_name}</span>}
+                              <span className="font-mono text-amber-600">{org.datto_folder_id}</span>
+                            </span>
+                          ) : <span className="text-slate-300">Not set</span>}</td>
                           <td className="px-6 py-4 text-sm font-bold text-slate-600">{sites.filter(s => s.organisation_id === org.id).length}</td>
-                          <td className="px-6 py-4 text-right flex items-center justify-end gap-2">
-                            <button onClick={() => editingOrgId === org.id ? setEditingOrgId(null) : startEditOrg(org)} className="text-indigo-400 hover:text-indigo-600 p-1.5 rounded-lg hover:bg-indigo-50"><Pencil size={14} /></button>
-                            <button onClick={() => handleDeleteOrg(org.id)} className="text-rose-400 hover:text-rose-600 p-1.5 rounded-lg hover:bg-rose-50"><X size={14} /></button>
+                          <td className="px-6 py-4 text-right">
+                            <button onClick={e => { e.stopPropagation(); handleDeleteOrg(org.id); }} className="text-rose-400 hover:text-rose-600 p-1.5 rounded-lg hover:bg-rose-50"><X size={14} /></button>
                           </td>
                         </tr>
                         {editingOrgId === org.id && (
                           <tr><td colSpan={5} className="px-6 py-4 bg-indigo-50/50 border-b border-indigo-100">
                             <div className="space-y-3">
                               <h5 className="text-[10px] font-black uppercase tracking-widest text-indigo-600">Edit Organisation</h5>
-                              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                                <div><label className={labelClass}>Name</label><input value={editOrgName} onChange={e => setEditOrgName(e.target.value)} className={inputClass} /></div>
-                              </div>
-                              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                                <div>
-                                  <label className={labelClass}>Datto Folder</label>
-                                  {showEditOrgPicker ? (
-                                    <DattoFolderPicker startFolderId={DATTO_ROOT_ID} startFolderName="Customer Documents"
-                                      onSelect={(name, id, _path) => { setEditOrgFolderName(name); setEditOrgFolderId(id); setShowEditOrgPicker(false); }}
-                                      onNavigate={(name, id) => { setEditOrgFolderName(name); setEditOrgFolderId(id); }}
-                                      onClose={() => setShowEditOrgPicker(false)} />
-                                  ) : (
-                                    <div onClick={() => setShowEditOrgPicker(true)} className={`${inputClass} flex items-center justify-between gap-2 cursor-pointer hover:border-indigo-300`}>
-                                      {editOrgFolderName ? <span className="flex items-center gap-2 text-indigo-700 font-bold text-sm"><Folder size={14} className="text-amber-400" />{editOrgFolderName}</span> : <span className="text-slate-400 text-sm">Click to browse…</span>}
-                                      <FolderOpen size={16} className="text-slate-300" />
-                                    </div>
-                                  )}
+                              <div className="grid grid-cols-2 gap-6">
+                                {/* Left: fields + save */}
+                                <div className="space-y-3">
+                                  <div><label className={labelClass}>Name</label><input value={editOrgName} onChange={e => setEditOrgName(e.target.value)} className={inputClass} /></div>
+                                  <div>
+                                    <label className={labelClass}>Datto Folder</label>
+                                    {showEditOrgPicker ? (
+                                      <DattoFolderPicker startFolderId={DATTO_ROOT_ID} startFolderName="Customer Documents"
+                                        onSelect={(name, id, _path) => { setEditOrgFolderName(name); setEditOrgFolderId(id); setShowEditOrgPicker(false); }}
+                                        onNavigate={(name, id) => { setEditOrgFolderName(name); setEditOrgFolderId(id); }}
+                                        onClose={() => setShowEditOrgPicker(false)} />
+                                    ) : (
+                                      <div onClick={() => setShowEditOrgPicker(true)} className={`${inputClass} flex items-center justify-between gap-2 cursor-pointer hover:border-indigo-300 min-h-[42px]`}>
+                                        {editOrgFolderName && editOrgFolderName !== `ID: ${editOrgFolderId}` ? (
+                                          <span className="flex flex-col gap-0.5 min-w-0">
+                                            <span className="flex items-center gap-1.5 text-indigo-700 font-bold text-sm truncate"><Folder size={13} className="text-amber-400 shrink-0" />{editOrgFolderName}</span>
+                                            {editOrgFolderId && <span className="text-[10px] font-mono text-slate-400 pl-5 truncate">{editOrgFolderId}</span>}
+                                          </span>
+                                        ) : editOrgFolderId ? (
+                                          <span className="flex items-center gap-1.5 text-amber-600 font-mono text-xs"><Folder size={13} className="text-amber-400 shrink-0" />{editOrgFolderId}</span>
+                                        ) : (
+                                          <span className="text-slate-400 text-sm">Click to browse…</span>
+                                        )}
+                                        <FolderOpen size={16} className="text-slate-300 shrink-0" />
+                                      </div>
+                                    )}
+                                  </div>
+                                  <div className="flex gap-2 pt-1">
+                                    <button onClick={() => handleUpdateOrg(org.id)} className="px-4 py-2 bg-indigo-600 text-white rounded-xl text-[11px] font-black uppercase tracking-wider hover:bg-indigo-700">Save Changes</button>
+                                    <button onClick={() => { setEditingOrgId(null); setShowEditOrgPicker(false); setOrgAdvisorSearch(''); setOrgClientSearch(''); }} className="px-4 py-2 bg-white border border-slate-200 text-slate-500 rounded-xl text-[11px] font-black uppercase tracking-wider">Cancel</button>
+                                  </div>
                                 </div>
-                              </div>
-                              {/* Advisors */}
-                              <div>
-                                <label className={labelClass}>Advisors</label>
-                                <div className="space-y-1 mb-2">
-                                  {assignments.filter((a: any) => a.organisation_id === org.id).map((a: any) => (
-                                    <div key={a.id} className="flex items-center justify-between px-3 py-2 bg-white border border-slate-200 rounded-xl text-sm">
-                                      <span className="font-bold text-slate-700">{users.find(u => u.id === a.advisor_id)?.email || a.advisor_id}</span>
-                                      <button onClick={() => handleDeleteAssignment(a.id)} className="text-rose-400 hover:text-rose-600 p-0.5 rounded"><X size={13} /></button>
-                                    </div>
-                                  ))}
-                                  {assignments.filter((a: any) => a.organisation_id === org.id).length === 0 && <p className="text-xs text-slate-400">No advisors assigned</p>}
-                                </div>
-                                <div className="relative">
-                                  <input value={orgAdvisorSearch} onChange={e => setOrgAdvisorSearch(e.target.value)} placeholder="Search by email to add…" className={`${inputClass} pr-8`} />
-                                  {orgAdvisorSearch && (
-                                    <div className="absolute z-10 left-0 right-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-lg overflow-hidden">
-                                      {advisors.filter(a => a.email.toLowerCase().includes(orgAdvisorSearch.toLowerCase()) && !assignments.some((as: any) => as.organisation_id === org.id && as.advisor_id === a.id)).slice(0, 5).map(a => (
-                                        <button key={a.id} onClick={() => handleAddOrgAdvisor(org.id, a.id)} className="w-full text-left px-4 py-2.5 text-sm font-bold text-slate-700 hover:bg-indigo-50 hover:text-indigo-700">{a.email}</button>
+                                {/* Right: user assignment */}
+                                <div className="space-y-4">
+                                  <div>
+                                    <label className={labelClass}>Advisors</label>
+                                    <div className="space-y-1 mb-2">
+                                      {assignments.filter((a: any) => a.organisation_id === org.id).map((a: any) => (
+                                        <div key={a.id} className="flex items-center justify-between px-3 py-1.5 bg-white border border-slate-200 rounded-xl text-sm">
+                                          <span className="font-bold text-slate-700">{users.find(u => u.id === a.advisor_id)?.email || a.advisor_id}</span>
+                                          <button onClick={() => handleDeleteAssignment(a.id)} className="text-rose-400 hover:text-rose-600 p-0.5 rounded"><X size={13} /></button>
+                                        </div>
                                       ))}
-                                      {advisors.filter(a => a.email.toLowerCase().includes(orgAdvisorSearch.toLowerCase()) && !assignments.some((as: any) => as.organisation_id === org.id && as.advisor_id === a.id)).length === 0 && <p className="px-4 py-2.5 text-sm text-slate-400">No matches</p>}
+                                      {assignments.filter((a: any) => a.organisation_id === org.id).length === 0 && <p className="text-xs text-slate-400">No advisors assigned</p>}
                                     </div>
-                                  )}
+                                    <div className="relative">
+                                      <input value={orgAdvisorSearch} onChange={e => setOrgAdvisorSearch(e.target.value)} placeholder="Search by email to add…" className={`${inputClass} text-xs`} />
+                                      {orgAdvisorSearch && (
+                                        <div className="absolute z-10 left-0 right-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-lg overflow-hidden">
+                                          {advisors.filter(a => a.email.toLowerCase().includes(orgAdvisorSearch.toLowerCase()) && !assignments.some((as: any) => as.organisation_id === org.id && as.advisor_id === a.id)).slice(0, 5).map(a => (
+                                            <button key={a.id} onClick={() => handleAddOrgAdvisor(org.id, a.id)} className="w-full text-left px-4 py-2.5 text-sm font-bold text-slate-700 hover:bg-indigo-50 hover:text-indigo-700">{a.email}</button>
+                                          ))}
+                                          {advisors.filter(a => a.email.toLowerCase().includes(orgAdvisorSearch.toLowerCase()) && !assignments.some((as: any) => as.organisation_id === org.id && as.advisor_id === a.id)).length === 0 && <p className="px-4 py-2.5 text-sm text-slate-400">No matches</p>}
+                                        </div>
+                                      )}
+                                    </div>
+                                  </div>
+                                  <div>
+                                    <label className={labelClass}>Client Users <span className="text-slate-400 font-normal normal-case tracking-normal">(all org sites by default)</span></label>
+                                    <div className="space-y-1 mb-2">
+                                      {users.filter(u => u.profile?.role === 'client' && u.profile?.organisation_id === org.id).map(u => (
+                                        <div key={u.id} className="flex items-center justify-between px-3 py-1.5 bg-white border border-slate-200 rounded-xl text-sm">
+                                          <span className="font-bold text-slate-700">{u.email}</span>
+                                          <button onClick={() => handleRemoveOrgClient(u.id)} className="text-rose-400 hover:text-rose-600 p-0.5 rounded"><X size={13} /></button>
+                                        </div>
+                                      ))}
+                                      {users.filter(u => u.profile?.role === 'client' && u.profile?.organisation_id === org.id).length === 0 && <p className="text-xs text-slate-400">No client users assigned</p>}
+                                    </div>
+                                    <div className="relative">
+                                      <input value={orgClientSearch} onChange={e => setOrgClientSearch(e.target.value)} placeholder="Search by email to add…" className={`${inputClass} text-xs`} />
+                                      {orgClientSearch && (
+                                        <div className="absolute z-10 left-0 right-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-lg overflow-hidden">
+                                          {users.filter(u => u.profile?.role === 'client' && u.email.toLowerCase().includes(orgClientSearch.toLowerCase()) && u.profile?.organisation_id !== org.id).slice(0, 5).map(u => (
+                                            <button key={u.id} onClick={() => handleAddOrgClient(org.id, u.id)} className="w-full text-left px-4 py-2 text-sm font-bold text-slate-700 hover:bg-indigo-50 hover:text-indigo-700">{u.email}</button>
+                                          ))}
+                                          {users.filter(u => u.profile?.role === 'client' && u.email.toLowerCase().includes(orgClientSearch.toLowerCase()) && u.profile?.organisation_id !== org.id).length === 0 && <p className="px-4 py-2 text-sm text-slate-400">No matches</p>}
+                                        </div>
+                                      )}
+                                    </div>
+                                  </div>
                                 </div>
-                              </div>
-
-                              <div className="flex gap-2">
-                                <button onClick={() => handleUpdateOrg(org.id)} className="px-4 py-2 bg-indigo-600 text-white rounded-xl text-[11px] font-black uppercase tracking-wider hover:bg-indigo-700">Save Changes</button>
-                                <button onClick={() => { setEditingOrgId(null); setShowEditOrgPicker(false); setOrgAdvisorSearch(''); }} className="px-4 py-2 bg-white border border-slate-200 text-slate-500 rounded-xl text-[11px] font-black uppercase tracking-wider">Cancel</button>
                               </div>
                             </div>
                           </td></tr>
@@ -2383,27 +2532,29 @@ const SuperadminPanel = () => {
                   <tbody className="divide-y divide-slate-100">
                     {filteredSites.map(site => (
                       <React.Fragment key={site.id}>
-                        <tr className="hover:bg-slate-50">
+                        <tr className={`cursor-pointer select-none ${editingSiteId === site.id ? 'bg-indigo-50/60' : 'hover:bg-slate-50'}`} onClick={() => editingSiteId === site.id ? (setEditingSiteId(null), setShowEditSitePicker(false), setSiteServices([]), setSiteAdvisorSearch(''), setSiteClientSearch('')) : startEditSite(site)}>
                           <td className="px-6 py-4 font-bold text-slate-800">{site.name}</td>
                           <td className="px-6 py-4 text-sm text-slate-500">{site.organisations?.name || '—'}</td>
                           <td className="px-6 py-4 text-sm text-slate-600">{(() => { const orgAdvisorId = assignments.find((a: any) => a.organisation_id === site.organisation_id)?.advisor_id; const effectiveId = site.advisor_id || orgAdvisorId; const advisor = effectiveId ? advisors.find(a => a.id === effectiveId) : null; return advisor ? <span className={site.advisor_id ? '' : 'text-slate-400 italic'}>{advisor.email}{!site.advisor_id && ' (org)'}</span> : <span className="text-slate-300">Unassigned</span>; })()}</td>
                           <td className="px-6 py-4"><span className="text-[10px] font-black uppercase tracking-wider text-slate-500 bg-slate-50 border border-slate-100 px-2 py-1 rounded-lg">{getSiteLabel(site.type)}</span></td>
-                          <td className="px-6 py-4 text-xs font-mono">
-                            {site.datto_folder_id
-                              ? <span className="text-amber-600 flex items-center gap-1.5"><Folder size={12} />{site.datto_folder_id}</span>
-                              : <span className="text-slate-300 italic">Uses org folder</span>}
+                          <td className="px-6 py-4 text-xs">
+                            {site.datto_folder_id ? (
+                              <span className="flex flex-col gap-0.5">
+                                {site.datto_folder_path && <span className="font-bold text-slate-700 flex items-center gap-1"><Folder size={11} className="text-amber-400 shrink-0" />{site.datto_folder_path.split('/').filter(Boolean).pop() || site.datto_folder_path}</span>}
+                                <span className="font-mono text-amber-600">{site.datto_folder_id}</span>
+                              </span>
+                            ) : <span className="text-slate-300 italic">Uses org folder</span>}
                           </td>
                           <td className="px-6 py-4 text-right">
                             <div className="flex items-center justify-end gap-2">
                               {site.datto_folder_id && (
                                 <button
-                                  onClick={() => setSyncConfigSite({ ...site, excluded_datto_folder_ids: site.excluded_datto_folder_ids ?? [] })}
+                                  onClick={e => { e.stopPropagation(); setSyncConfigSite({ ...site, excluded_datto_folder_ids: site.excluded_datto_folder_ids ?? [] }); }}
                                   className="text-violet-400 hover:text-violet-600 p-1.5 rounded-lg hover:bg-violet-50"
                                   title="Configure sync folders"
                                 ><Settings size={14} /></button>
                               )}
-                              <button onClick={() => editingSiteId === site.id ? setEditingSiteId(null) : startEditSite(site)} className="text-indigo-400 hover:text-indigo-600 p-1.5 rounded-lg hover:bg-indigo-50"><Pencil size={14} /></button>
-                              <button onClick={() => handleDeleteSite(site.id)} className="text-rose-400 hover:text-rose-600 p-1.5 rounded-lg hover:bg-rose-50"><X size={14} /></button>
+                              <button onClick={e => { e.stopPropagation(); handleDeleteSite(site.id); }} className="text-rose-400 hover:text-rose-600 p-1.5 rounded-lg hover:bg-rose-50"><X size={14} /></button>
                             </div>
                           </td>
                         </tr>
@@ -2411,83 +2562,96 @@ const SuperadminPanel = () => {
                           <tr><td colSpan={6} className="px-6 py-4 bg-indigo-50/50 border-b border-indigo-100">
                             <div className="space-y-3">
                               <h5 className="text-[10px] font-black uppercase tracking-widest text-indigo-600">Edit Site</h5>
-                              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                                <div><label className={labelClass}>Name</label><input value={editSiteName} onChange={e => setEditSiteName(e.target.value)} className={inputClass} /></div>
-                                <div>
-                                  <label className={labelClass}>Type</label>
-                                  <select value={editSiteType} onChange={e => setEditSiteType(e.target.value)} className={inputClass}>
-                                    {SITE_TYPES.map(t => <option key={t} value={t}>{getSiteLabel(t)}</option>)}
-                                  </select>
-                                  {editSiteType === 'OTHER' && (
-                                    <input value={editSiteTypeOther} onChange={e => setEditSiteTypeOther(e.target.value)} placeholder="Describe the site type…" className={`${inputClass} mt-2`} />
-                                  )}
-                                </div>
-                                <div>
-                                  <label className={labelClass}>Advisors</label>
-                                  <div className="space-y-1 mb-1.5">
-                                    {advisorSiteAssignments.filter((a: any) => a.site_id === site.id).map((a: any) => (
-                                      <div key={a.id} className="flex items-center justify-between px-3 py-1.5 bg-white border border-slate-200 rounded-xl text-sm">
-                                        <span className="font-bold text-slate-700">{users.find(u => u.id === a.advisor_id)?.email || a.advisor_id}</span>
-                                        <button onClick={() => handleDeleteAdvisorSiteAssignment(a.id)} className="text-rose-400 hover:text-rose-600 p-0.5 rounded"><X size={13} /></button>
-                                      </div>
-                                    ))}
-                                    {advisorSiteAssignments.filter((a: any) => a.site_id === site.id).length === 0 && <p className="text-[11px] text-slate-400">No advisors assigned</p>}
+                              <div className="grid grid-cols-2 gap-6">
+                                {/* Left: fields */}
+                                <div className="space-y-3">
+                                  <div><label className={labelClass}>Name</label><input value={editSiteName} onChange={e => setEditSiteName(e.target.value)} className={inputClass} /></div>
+                                  <div>
+                                    <label className={labelClass}>Type</label>
+                                    <select value={editSiteType} onChange={e => setEditSiteType(e.target.value)} className={inputClass}>
+                                      {SITE_TYPES.map(t => <option key={t} value={t}>{getSiteLabel(t)}</option>)}
+                                    </select>
+                                    {editSiteType === 'OTHER' && (
+                                      <input value={editSiteTypeOther} onChange={e => setEditSiteTypeOther(e.target.value)} placeholder="Describe the site type…" className={`${inputClass} mt-2`} />
+                                    )}
                                   </div>
-                                  <div className="relative">
-                                    <input value={siteAdvisorSearch} onChange={e => setSiteAdvisorSearch(e.target.value)} placeholder="Search to add…" className={`${inputClass} text-xs`} />
-                                    {siteAdvisorSearch && (
-                                      <div className="absolute z-10 left-0 right-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-lg overflow-hidden">
-                                        {advisors.filter(a => a.email.toLowerCase().includes(siteAdvisorSearch.toLowerCase()) && !advisorSiteAssignments.some((as: any) => as.site_id === site.id && as.advisor_id === a.id)).slice(0, 5).map(a => (
-                                          <button key={a.id} onClick={() => handleAddSiteAdvisor(site.id, a.id)} className="w-full text-left px-4 py-2 text-sm font-bold text-slate-700 hover:bg-indigo-50 hover:text-indigo-700">{a.email}</button>
-                                        ))}
-                                        {advisors.filter(a => a.email.toLowerCase().includes(siteAdvisorSearch.toLowerCase()) && !advisorSiteAssignments.some((as: any) => as.site_id === site.id && as.advisor_id === a.id)).length === 0 && <p className="px-4 py-2 text-sm text-slate-400">No matches</p>}
+                                  <div>
+                                    <label className={labelClass}>Datto Folder</label>
+                                    {showEditSitePicker ? (
+                                      <DattoFolderPicker
+                                        startFolderId={organisations.find(o => o.id === site.organisation_id)?.datto_folder_id || DATTO_ROOT_ID}
+                                        startFolderName={organisations.find(o => o.id === site.organisation_id)?.name || 'Customer Documents'}
+                                        onSelect={(name, id, path) => { setEditSiteFolderName(name); setEditSiteFolderId(id); setEditSiteFolderPath(path); setShowEditSitePicker(false); }}
+                                        onNavigate={(name, id) => { setEditSiteFolderName(name); setEditSiteFolderId(id); }}
+                                        onClose={() => setShowEditSitePicker(false)} />
+                                    ) : (
+                                      <div onClick={() => setShowEditSitePicker(true)} className={`${inputClass} flex items-center justify-between gap-2 cursor-pointer hover:border-indigo-300 min-h-[42px]`}>
+                                        {editSiteFolderName ? (
+                                          <span className="flex flex-col gap-0.5 min-w-0">
+                                            <span className="flex items-center gap-1.5 text-indigo-700 font-bold text-sm truncate"><Folder size={13} className="text-amber-400 shrink-0" />{editSiteFolderName}</span>
+                                            {editSiteFolderId && <span className="text-[10px] font-mono text-slate-400 pl-5 truncate">{editSiteFolderId}</span>}
+                                          </span>
+                                        ) : (
+                                          <span className="text-slate-400 text-sm">Click to browse…</span>
+                                        )}
+                                        <FolderOpen size={16} className="text-slate-300 shrink-0" />
                                       </div>
                                     )}
                                   </div>
-                                </div>
-                              </div>
-                              <div>
-                                <label className={labelClass}>Datto Folder</label>
-                                {showEditSitePicker ? (
-                                  <DattoFolderPicker
-                                    startFolderId={organisations.find(o => o.id === site.organisation_id)?.datto_folder_id || DATTO_ROOT_ID}
-                                    startFolderName={organisations.find(o => o.id === site.organisation_id)?.name || 'Customer Documents'}
-                                    onSelect={(name, id, path) => { setEditSiteFolderName(name); setEditSiteFolderId(id); setEditSiteFolderPath(path); setShowEditSitePicker(false); }}
-                                    onNavigate={(name, id) => { setEditSiteFolderName(name); setEditSiteFolderId(id); }}
-                                    onClose={() => setShowEditSitePicker(false)} />
-                                ) : (
-                                  <div onClick={() => setShowEditSitePicker(true)} className={`${inputClass} flex items-center justify-between gap-2 cursor-pointer hover:border-indigo-300`}>
-                                    {editSiteFolderName ? <span className="flex items-center gap-2 text-indigo-700 font-bold text-sm"><Folder size={14} className="text-amber-400" />{editSiteFolderName}</span> : <span className="text-slate-400 text-sm">Click to browse…</span>}
-                                    <FolderOpen size={16} className="text-slate-300" />
+                                  <div><label className={labelClass}>Employee Count (optional)</label><input type="number" min="1" value={editSiteEmployeeCount} onChange={e => setEditSiteEmployeeCount(e.target.value)} placeholder="e.g. 25" className={inputClass} /></div>
+                                  <div className="flex gap-2 pt-1">
+                                    <button onClick={() => handleUpdateSite(site.id)} className="px-4 py-2 bg-indigo-600 text-white rounded-xl text-[11px] font-black uppercase tracking-wider hover:bg-indigo-700">Save Changes</button>
+                                    <button onClick={() => { setEditingSiteId(null); setShowEditSitePicker(false); setSiteServices([]); setSiteAdvisorSearch(''); setSiteClientSearch(''); }} className="px-4 py-2 bg-white border border-slate-200 text-slate-500 rounded-xl text-[11px] font-black uppercase tracking-wider">Cancel</button>
                                   </div>
-                                )}
-                              </div>
-                              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                                <div><label className={labelClass}>Employee Count (optional)</label><input type="number" min="1" value={editSiteEmployeeCount} onChange={e => setEditSiteEmployeeCount(e.target.value)} placeholder="e.g. 25" className={inputClass} /></div>
-                              </div>
-
-                              {/* Client Users */}
-                              <div>
-                                <label className={labelClass}>Client Users</label>
-                                <div className="space-y-1 mb-1.5">
-                                  {clientSiteAssignments.filter((a: any) => a.site_id === site.id).map((a: any) => (
-                                    <div key={a.id} className="flex items-center justify-between px-3 py-1.5 bg-white border border-slate-200 rounded-xl text-sm">
-                                      <span className="font-bold text-slate-700">{users.find(u => u.id === a.client_user_id)?.email || a.client_user_id}</span>
-                                      <button onClick={() => handleDeleteClientSiteAssignment(a.id)} className="text-rose-400 hover:text-rose-600 p-0.5 rounded"><X size={13} /></button>
-                                    </div>
-                                  ))}
-                                  {clientSiteAssignments.filter((a: any) => a.site_id === site.id).length === 0 && <p className="text-[11px] text-slate-400">No client users assigned</p>}
                                 </div>
-                                <div className="relative">
-                                  <input value={siteClientSearch} onChange={e => setSiteClientSearch(e.target.value)} placeholder="Search by email to add…" className={`${inputClass} text-xs`} />
-                                  {siteClientSearch && (
-                                    <div className="absolute z-10 left-0 right-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-lg overflow-hidden">
-                                      {users.filter((u: any) => u.profile?.role === 'client' && u.email.toLowerCase().includes(siteClientSearch.toLowerCase()) && !clientSiteAssignments.some((a: any) => a.site_id === site.id && a.client_user_id === u.id)).slice(0, 5).map((u: any) => (
-                                        <button key={u.id} onClick={() => handleAddSiteClient(site.id, u.id)} className="w-full text-left px-4 py-2 text-sm font-bold text-slate-700 hover:bg-indigo-50 hover:text-indigo-700">{u.email}</button>
+                                {/* Right: user assignment */}
+                                <div className="space-y-4">
+                                  <div>
+                                    <label className={labelClass}>Advisors</label>
+                                    <div className="space-y-1 mb-1.5">
+                                      {advisorSiteAssignments.filter((a: any) => a.site_id === site.id).map((a: any) => (
+                                        <div key={a.id} className="flex items-center justify-between px-3 py-1.5 bg-white border border-slate-200 rounded-xl text-sm">
+                                          <span className="font-bold text-slate-700">{users.find(u => u.id === a.advisor_id)?.email || a.advisor_id}</span>
+                                          <button onClick={() => handleDeleteAdvisorSiteAssignment(a.id)} className="text-rose-400 hover:text-rose-600 p-0.5 rounded"><X size={13} /></button>
+                                        </div>
                                       ))}
-                                      {users.filter((u: any) => u.profile?.role === 'client' && u.email.toLowerCase().includes(siteClientSearch.toLowerCase()) && !clientSiteAssignments.some((a: any) => a.site_id === site.id && a.client_user_id === u.id)).length === 0 && <p className="px-4 py-2 text-sm text-slate-400">No matches</p>}
+                                      {advisorSiteAssignments.filter((a: any) => a.site_id === site.id).length === 0 && <p className="text-[11px] text-slate-400">No advisors assigned</p>}
                                     </div>
-                                  )}
+                                    <div className="relative">
+                                      <input value={siteAdvisorSearch} onChange={e => setSiteAdvisorSearch(e.target.value)} placeholder="Search to add…" className={`${inputClass} text-xs`} />
+                                      {siteAdvisorSearch && (
+                                        <div className="absolute z-10 left-0 right-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-lg overflow-hidden">
+                                          {advisors.filter(a => a.email.toLowerCase().includes(siteAdvisorSearch.toLowerCase()) && !advisorSiteAssignments.some((as: any) => as.site_id === site.id && as.advisor_id === a.id)).slice(0, 5).map(a => (
+                                            <button key={a.id} onClick={() => handleAddSiteAdvisor(site.id, a.id)} className="w-full text-left px-4 py-2 text-sm font-bold text-slate-700 hover:bg-indigo-50 hover:text-indigo-700">{a.email}</button>
+                                          ))}
+                                          {advisors.filter(a => a.email.toLowerCase().includes(siteAdvisorSearch.toLowerCase()) && !advisorSiteAssignments.some((as: any) => as.site_id === site.id && as.advisor_id === a.id)).length === 0 && <p className="px-4 py-2 text-sm text-slate-400">No matches</p>}
+                                        </div>
+                                      )}
+                                    </div>
+                                  </div>
+                                  <div>
+                                    <label className={labelClass}>Client Users <span className="text-slate-400 font-normal normal-case tracking-normal">(restricts to this site only)</span></label>
+                                    <div className="space-y-1 mb-1.5">
+                                      {clientSiteAssignments.filter((a: any) => a.site_id === site.id).map((a: any) => (
+                                        <div key={a.id} className="flex items-center justify-between px-3 py-1.5 bg-white border border-slate-200 rounded-xl text-sm">
+                                          <span className="font-bold text-slate-700">{users.find(u => u.id === a.client_user_id)?.email || a.client_user_id}</span>
+                                          <button onClick={() => handleDeleteClientSiteAssignment(a.id)} className="text-rose-400 hover:text-rose-600 p-0.5 rounded"><X size={13} /></button>
+                                        </div>
+                                      ))}
+                                      {clientSiteAssignments.filter((a: any) => a.site_id === site.id).length === 0 && <p className="text-[11px] text-slate-400">No specific clients assigned</p>}
+                                    </div>
+                                    <div className="relative">
+                                      <input value={siteClientSearch} onChange={e => setSiteClientSearch(e.target.value)} placeholder="Search by email to add…" className={`${inputClass} text-xs`} />
+                                      {siteClientSearch && (
+                                        <div className="absolute z-10 left-0 right-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-lg overflow-hidden">
+                                          {users.filter((u: any) => u.profile?.role === 'client' && u.email.toLowerCase().includes(siteClientSearch.toLowerCase()) && !clientSiteAssignments.some((a: any) => a.site_id === site.id && a.client_user_id === u.id)).slice(0, 5).map((u: any) => (
+                                            <button key={u.id} onClick={() => handleAddSiteClient(site.id, u.id)} className="w-full text-left px-4 py-2 text-sm font-bold text-slate-700 hover:bg-indigo-50 hover:text-indigo-700">{u.email}</button>
+                                          ))}
+                                          {users.filter((u: any) => u.profile?.role === 'client' && u.email.toLowerCase().includes(siteClientSearch.toLowerCase()) && !clientSiteAssignments.some((a: any) => a.site_id === site.id && a.client_user_id === u.id)).length === 0 && <p className="px-4 py-2 text-sm text-slate-400">No matches</p>}
+                                        </div>
+                                      )}
+                                    </div>
+                                  </div>
                                 </div>
                               </div>
 
@@ -2521,11 +2685,6 @@ const SuperadminPanel = () => {
                                   )}
                                 </div>
                               ) : null}
-
-                              <div className="flex gap-2">
-                                <button onClick={() => handleUpdateSite(site.id)} className="px-4 py-2 bg-indigo-600 text-white rounded-xl text-[11px] font-black uppercase tracking-wider hover:bg-indigo-700">Save Changes</button>
-                                <button onClick={() => { setEditingSiteId(null); setShowEditSitePicker(false); setSiteServices([]); setSiteAdvisorSearch(''); setSiteClientSearch(''); }} className="px-4 py-2 bg-white border border-slate-200 text-slate-500 rounded-xl text-[11px] font-black uppercase tracking-wider">Cancel</button>
-                              </div>
                             </div>
                           </td></tr>
                         )}
@@ -2569,7 +2728,7 @@ const SuperadminPanel = () => {
                   </div>
                   {userOrgId && (
                     <div>
-                      <label className={labelClass}>Sites <span className="text-slate-400 font-normal normal-case">(leave empty for all sites in org)</span></label>
+                      <label className={labelClass}>Restrict to specific sites <span className="text-slate-400 font-normal normal-case">(leave empty to allow all sites in org)</span></label>
                       <div className="border border-slate-200 rounded-xl p-3 space-y-1.5 max-h-40 overflow-y-auto">
                         {sites.filter((s: any) => s.organisation_id === userOrgId).map((s: any) => (
                           <label key={s.id} className="flex items-center gap-2 text-sm text-slate-700 cursor-pointer">
@@ -2594,16 +2753,63 @@ const SuperadminPanel = () => {
           {loading ? <div className="py-12 text-center text-slate-400 text-sm font-bold animate-pulse">Loading…</div> : (
             <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
               <table className="w-full text-left">
-                <thead><tr className="bg-slate-50 text-[10px] uppercase font-black text-slate-400 border-b border-slate-100"><th className="px-6 py-3">Email</th><th className="px-6 py-3">Role</th><th className="px-6 py-3">Organisation</th><th className="px-6 py-3"></th></tr></thead>
+                <thead><tr className="bg-slate-50 text-[10px] uppercase font-black text-slate-400 border-b border-slate-100"><th className="px-6 py-3">Email</th><th className="px-6 py-3">Role</th><th className="px-6 py-3">Organisation</th><th className="px-6 py-3">Sites</th><th className="px-6 py-3"></th></tr></thead>
                 <tbody className="divide-y divide-slate-100">
-                  {users.map(user => (
-                    <tr key={user.id} className="hover:bg-slate-50">
-                      <td className="px-6 py-4 font-bold text-slate-800">{user.email}</td>
-                      <td className="px-6 py-4"><span className={`text-[10px] font-black uppercase tracking-wider px-2 py-1 rounded-lg border ${user.profile?.role === 'superadmin' ? 'bg-indigo-100 text-indigo-700 border-indigo-200' : user.profile?.role === 'advisor' ? 'bg-amber-100 text-amber-700 border-amber-200' : 'bg-emerald-100 text-emerald-700 border-emerald-200'}`}>{user.profile?.role || 'unknown'}</span></td>
-                      <td className="px-6 py-4 text-sm text-slate-500">{user.profile?.organisation_id ? organisations.find(o => o.id === user.profile.organisation_id)?.name || '—' : '—'}</td>
-                      <td className="px-6 py-4 text-right">{user.profile?.role !== 'superadmin' && <button onClick={() => handleDeleteUser(user.id)} className="text-rose-400 hover:text-rose-600 p-1.5 rounded-lg hover:bg-rose-50"><X size={14} /></button>}</td>
-                    </tr>
-                  ))}
+                  {users.map(user => {
+                    const isClient = user.profile?.role === 'client';
+                    const userAssignments = clientSiteAssignments.filter((a: any) => a.client_user_id === user.id);
+                    const isExpanded = expandingUserId === user.id;
+                    return (
+                      <React.Fragment key={user.id}>
+                        <tr className={`${isClient ? 'cursor-pointer select-none' : ''} ${isExpanded ? 'bg-indigo-50/60' : 'hover:bg-slate-50'}`} onClick={isClient ? () => { setExpandingUserId(isExpanded ? null : user.id); setUserSiteSearch(''); } : undefined}>
+                          <td className="px-6 py-4 font-bold text-slate-800">{user.email}</td>
+                          <td className="px-6 py-4"><span className={`text-[10px] font-black uppercase tracking-wider px-2 py-1 rounded-lg border ${user.profile?.role === 'superadmin' ? 'bg-indigo-100 text-indigo-700 border-indigo-200' : user.profile?.role === 'advisor' ? 'bg-amber-100 text-amber-700 border-amber-200' : 'bg-emerald-100 text-emerald-700 border-emerald-200'}`}>{user.profile?.role || 'unknown'}</span></td>
+                          <td className="px-6 py-4 text-sm text-slate-500">{user.profile?.organisation_id ? organisations.find(o => o.id === user.profile.organisation_id)?.name || '—' : '—'}</td>
+                          <td className="px-6 py-4 text-sm text-slate-500">
+                            {isClient ? (
+                              userAssignments.length > 0
+                                ? <span className="text-xs font-bold text-slate-700">{userAssignments.map((a: any) => a.sites?.name || a.site_id).join(', ')}</span>
+                                : <span className="text-xs text-emerald-600 font-bold">All org sites</span>
+                            ) : '—'}
+                          </td>
+                          <td className="px-6 py-4 text-right">
+                            {user.profile?.role !== 'superadmin' && <button onClick={e => { e.stopPropagation(); handleDeleteUser(user.id); }} className="text-rose-400 hover:text-rose-600 p-1.5 rounded-lg hover:bg-rose-50"><X size={14} /></button>}
+                          </td>
+                        </tr>
+                        {isClient && isExpanded && (
+                          <tr className="bg-slate-50 border-t border-indigo-100">
+                            <td colSpan={5} className="px-8 py-4">
+                              <div className="max-w-md space-y-2">
+                                <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">Site Access</p>
+                                {userAssignments.length === 0 && (
+                                  <div className="flex items-center gap-2 px-3 py-2 bg-emerald-50 border border-emerald-200 rounded-xl text-xs text-emerald-700 font-bold mb-2">
+                                    <span>Default: all sites in organisation. Add specific sites below to restrict access.</span>
+                                  </div>
+                                )}
+                                {userAssignments.map((a: any) => (
+                                  <div key={a.id} className="flex items-center justify-between px-3 py-1.5 bg-white border border-slate-200 rounded-xl text-sm">
+                                    <span className="font-bold text-slate-700">{a.sites?.name || a.site_id}</span>
+                                    <button onClick={() => handleDeleteClientSiteAssignment(a.id)} className="text-rose-400 hover:text-rose-600 p-0.5 rounded" title="Remove restriction"><X size={13} /></button>
+                                  </div>
+                                ))}
+                                <div className="relative pt-1">
+                                  <input value={userSiteSearch} onChange={e => setUserSiteSearch(e.target.value)} placeholder="Search to restrict to a site…" className={`${inputClass} text-xs`} />
+                                  {userSiteSearch && (
+                                    <div className="absolute z-10 left-0 right-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-lg overflow-hidden">
+                                      {sites.filter((s: any) => s.name.toLowerCase().includes(userSiteSearch.toLowerCase()) && !userAssignments.some((a: any) => a.site_id === s.id)).slice(0, 5).map((s: any) => (
+                                        <button key={s.id} onClick={() => { handleAddSiteClient(s.id, user.id); setUserSiteSearch(''); }} className="w-full text-left px-4 py-2 text-sm font-bold text-slate-700 hover:bg-indigo-50 hover:text-indigo-700">{s.name}</button>
+                                      ))}
+                                      {sites.filter((s: any) => s.name.toLowerCase().includes(userSiteSearch.toLowerCase()) && !userAssignments.some((a: any) => a.site_id === s.id)).length === 0 && <p className="px-4 py-2 text-sm text-slate-400">No matches</p>}
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+                      </React.Fragment>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -2705,16 +2911,15 @@ const SuperadminPanel = () => {
                 <tbody className="divide-y divide-slate-100">
                   {requirements.map(req => (
                     <React.Fragment key={req.id}>
-                      <tr className="hover:bg-slate-50">
+                      <tr className={`cursor-pointer select-none ${editingReqId === req.id ? 'bg-indigo-50/60' : 'hover:bg-slate-50'}`} onClick={() => editingReqId === req.id ? setEditingReqId(null) : (setEditingReqId(req.id), setEditReqName(req.requirement_name), setEditReqDesc(req.description || ''), setEditReqMandatory(req.is_mandatory), setEditReqLegal(req.legal_basis || ''))}>
                         <td className="px-6 py-4">
                           <p className="font-bold text-slate-800 text-sm">{req.requirement_name}</p>
                           {req.description && <p className="text-[11px] text-slate-400 mt-0.5">{req.description}</p>}
                         </td>
                         <td className="px-6 py-4">{req.is_mandatory ? <span className="text-[10px] font-black uppercase px-2 py-1 rounded-full bg-rose-100 text-rose-700 border border-rose-200">Mandatory</span> : <span className="text-[10px] font-black uppercase px-2 py-1 rounded-full bg-slate-100 text-slate-500 border border-slate-200">Recommended</span>}</td>
                         <td className="px-6 py-4 text-[11px] text-slate-400 font-mono">{req.legal_basis || '—'}</td>
-                        <td className="px-6 py-4 text-right flex items-center justify-end gap-2">
-                          <button onClick={() => { setEditingReqId(req.id); setEditReqName(req.requirement_name); setEditReqDesc(req.description || ''); setEditReqMandatory(req.is_mandatory); setEditReqLegal(req.legal_basis || ''); }} className="text-indigo-400 hover:text-indigo-600 p-1.5 rounded-lg hover:bg-indigo-50"><Pencil size={14} /></button>
-                          <button onClick={() => handleDeleteRequirement(req.id)} className="text-rose-400 hover:text-rose-600 p-1.5 rounded-lg hover:bg-rose-50"><X size={14} /></button>
+                        <td className="px-6 py-4 text-right">
+                          <button onClick={e => { e.stopPropagation(); handleDeleteRequirement(req.id); }} className="text-rose-400 hover:text-rose-600 p-1.5 rounded-lg hover:bg-rose-50"><X size={14} /></button>
                         </td>
                       </tr>
                       {editingReqId === req.id && (
@@ -2903,8 +3108,8 @@ const LoginScreen = ({ onLogin }: { onLogin: () => void }) => {
       <div className="w-full max-w-md">
         <div className="text-center mb-8">
           <div className="w-16 h-16 bg-white rounded-2xl flex items-center justify-center text-indigo-950 font-black text-2xl mx-auto mb-4 shadow-xl">MB</div>
-          <h1 className="text-2xl font-black text-white tracking-tight">McCormack Benson</h1>
-          <p className="text-indigo-300 text-sm mt-1">H&S Compliance Portal</p>
+          <h1 className="text-2xl font-black text-white tracking-tight">McCormack Benson Health &amp; Safety</h1>
+          <p className="text-indigo-300 text-sm mt-1">Compliance Portal</p>
         </div>
         <div className="bg-white rounded-3xl p-8 shadow-2xl">
           <h2 className="text-lg font-black text-slate-900 mb-6">Sign in to your account</h2>
@@ -2941,7 +3146,7 @@ export default function App() {
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncLastRun, setSyncLastRun] = useState('2 hours ago');
   const [resolvedIds, setResolvedIds] = useState<string[]>([]);
-  const [filterPriority, setFilterPriority] = useState<Priority | 'all' | 'resolved'>('red');
+  const [filterPriority, setFilterPriority] = useState<Priority | 'all' | 'resolved'>('all');
   const [actionNotes, setActionNotes] = useState<Record<string, string>>({});
   const [sites, setSites] = useState<Site[]>([]);
   const [organisations, setOrganisations] = useState<Organisation[]>([]);
@@ -2977,7 +3182,11 @@ export default function App() {
   useEffect(() => {
     if (!user) return;
     supabase.from('profiles').select('*').eq('id', user.id).single().then(({ data }) => {
-      if (data) { setProfile(data); if (data.role === 'superadmin') setView('admin'); }
+      if (data) {
+        setProfile(data);
+        if (data.role === 'superadmin') setView('admin');
+        else setView('portfolio');
+      }
     });
     fetch('/api/admin/users').then(r => r.json()).then(users => {
       setAdvisors((users as any[]).filter(u => u.profile?.role === 'advisor').map(u => ({ id: u.id, email: u.email })));
@@ -3004,7 +3213,9 @@ export default function App() {
   }, [user, profile]);
 
   useEffect(() => {
-    if (!user || !profile || organisations.length === 0) return;
+    if (!user || !profile) return;
+    // For non-client roles, wait until organisations have loaded before querying sites
+    if (profile.role !== 'client' && organisations.length === 0) return;
     const load = async () => {
       const orgFolderMap = new Map(organisations.map(o => [o.id, o.datto_folder_id]));
       let sitesQuery = supabase.from('sites').select('*');
@@ -3012,14 +3223,21 @@ export default function App() {
         const orgIds = organisations.map(o => o.id);
         sitesQuery = sitesQuery.in('organisation_id', orgIds);
       } else if (profile.role === 'client') {
-        const { data: clientAssigns } = await supabase.from('client_site_assignments').select('site_id').eq('client_user_id', user.id);
-        const assignedSiteIds = (clientAssigns ?? []).map((a: any) => a.site_id);
+        // Use server-side API to reliably read client_site_assignments (bypasses RLS)
+        const { data: { session } } = await supabase.auth.getSession();
+        const token = session?.access_token ?? '';
+        const assignedSiteIds: string[] = await fetch('/api/client-sites', {
+          headers: { Authorization: `Bearer ${token}` },
+        }).then(r => r.ok ? r.json() : []).catch(() => []);
         if (assignedSiteIds.length > 0) {
+          // Specific sites assigned — restrict to those only
           sitesQuery = sitesQuery.in('id', assignedSiteIds);
-        } else if (profile.site_id) {
-          sitesQuery = sitesQuery.eq('id', profile.site_id); // legacy fallback
         } else if (profile.organisation_id) {
-          sitesQuery = sitesQuery.eq('organisation_id', profile.organisation_id); // legacy fallback
+          // Default: all sites in the client's organisation
+          sitesQuery = sitesQuery.eq('organisation_id', profile.organisation_id);
+        } else if (profile.site_id) {
+          // Legacy fallback: single site on profile
+          sitesQuery = sitesQuery.eq('id', profile.site_id);
         } else { setSites([]); return; }
       }
       const { data } = await sitesQuery;
@@ -3060,7 +3278,11 @@ export default function App() {
           }
         }
         setSites(finalMapped);
-        if (finalMapped.length > 0 && !selectedSite) { setSelectedSite(finalMapped[0]); recalcActionProgress(finalMapped[0].id); refreshComplianceScore(finalMapped[0].id); if (profile.role === 'client') setView('site'); }
+        if (finalMapped.length > 0 && !selectedSite) {
+          setSelectedSite(finalMapped[0]); recalcActionProgress(finalMapped[0].id); refreshComplianceScore(finalMapped[0].id);
+          // Auto-navigate to single site view only when there is exactly one site
+          if (finalMapped.length === 1) setView('site');
+        }
       }
     };
     load();
@@ -3070,8 +3292,15 @@ export default function App() {
     if (!user || sites.length === 0) return;
     const priorityMap: Record<string, Priority> = { critical: 'red', upcoming: 'amber', scheduled: 'green', red: 'red', amber: 'amber', green: 'green' };
     const siteIds = sites.map(s => s.id);
-    supabase.from('actions').select('*').in('site_id', siteIds).then(({ data }) => {
-      if (data) setAllActions(data.filter((a: any) => !a.site_document_id).map((a: any) => ({ id: a.id, action: a.title, description: a.description || '', date: a.due_date || '', site: sites.find(s => s.id === a.site_id)?.name || '', who: a.responsible_person || '', contractor: a.contractor || '', source: a.source_document_name || '', source_document_id: a.source_document_id || '', priority: (priorityMap[a.priority] || 'green') as Priority, regulation: a.regulation || '', notes: '', status: a.status as ActionStatus, hazardRef: a.hazard_ref || null, hazard: a.hazard || null, existingControls: a.existing_controls || null, riskRating: a.risk_rating || null, riskLevel: a.risk_level || null, resolvedDate: a.resolved_date || null, sourceFolderId: a.source_folder_id || null, isSuggested: a.is_suggested ?? false, updatedAt: a.updated_at || null, sourceFolderPath: a.source_folder_path || null, issueDate: a.issue_date || null, _siteDocumentId: a.site_document_id || null })));
+    supabase.from('actions').select('*').in('site_id', siteIds).then(async ({ data }) => {
+      if (!data) return;
+      const docIds = Array.from(new Set(data.map((a: any) => a.source_document_id).filter(Boolean)));
+      const docMap: Record<string, string | null> = {};
+      if (docIds.length > 0) {
+        const { data: docs } = await supabase.from('site_documents').select('id, datto_file_id').in('id', docIds);
+        (docs ?? []).forEach((d: any) => { docMap[d.id] = d.datto_file_id ?? null; });
+      }
+      setAllActions(data.filter((a: any) => !a.site_document_id).map((a: any) => ({ id: a.id, action: a.title, description: a.description || '', date: a.due_date || '', site: sites.find(s => s.id === a.site_id)?.name || '', who: a.responsible_person || '', contractor: a.contractor || '', source: a.source_document_name || '', source_document_id: a.source_document_id || '', priority: (priorityMap[a.priority] || 'green') as Priority, regulation: a.regulation || '', notes: '', status: a.status as ActionStatus, hazardRef: a.hazard_ref || null, hazard: a.hazard || null, existingControls: a.existing_controls || null, riskRating: a.risk_rating || null, riskLevel: a.risk_level || null, resolvedDate: a.resolved_date || null, sourceFolderId: a.source_folder_id || null, isSuggested: a.is_suggested ?? false, updatedAt: a.updated_at || null, sourceFolderPath: a.source_folder_path || null, issueDate: a.issue_date || null, _siteDocumentId: a.site_document_id || null, dattoFileId: a.source_document_id ? (docMap[a.source_document_id] ?? null) : null })));
     });
   }, [user, sites]);
 
@@ -3143,9 +3372,14 @@ export default function App() {
     setBrowserRootPath('');
     setExpandedActionId(null);
     setExpandedDocGroups(new Set());
-    setFilterPriority('red');
+    setFilterPriority('all');
     setSiteTab('actions');
   }, [selectedSite?.id]);
+
+  // Auto-load services whenever the selected site changes (for Actions Score panel enrichment)
+  React.useEffect(() => {
+    if (selectedSite?.id) loadIagServices(selectedSite.id);
+  }, [selectedSite?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Collapse open actions when switching tabs or filters
   React.useEffect(() => { setExpandedActionId(null); setExpandedDocGroups(new Set()); }, [siteTab, filterPriority]);
@@ -3348,7 +3582,13 @@ export default function App() {
       const priorityMap: Record<string, Priority> = { critical: 'red', upcoming: 'amber', scheduled: 'green', red: 'red', amber: 'amber', green: 'green' };
       const siteIds = sites.map(s => s.id);
       const { data: freshActionsData } = await supabase.from('actions').select('*').in('site_id', siteIds);
-      const currentActions: Action[] = freshActionsData ? freshActionsData.map((a: any) => ({ id: a.id, action: a.title, description: a.description || '', date: a.due_date || '', site: sites.find(s => s.id === a.site_id)?.name || '', who: a.responsible_person || '', contractor: a.contractor || '', source: a.source_document_name || '', source_document_id: a.source_document_id || '', priority: (priorityMap[a.priority] || 'green') as Priority, regulation: a.regulation || '', notes: '', status: a.status as ActionStatus, hazardRef: a.hazard_ref || null, hazard: a.hazard || null, existingControls: a.existing_controls || null, riskRating: a.risk_rating || null, riskLevel: a.risk_level || null, resolvedDate: a.resolved_date || null, sourceFolderId: a.source_folder_id || null, isSuggested: a.is_suggested ?? false })) : allActions;
+      const freshDocIds = Array.from(new Set((freshActionsData ?? []).map((a: any) => a.source_document_id).filter(Boolean)));
+      const freshDocMap: Record<string, string | null> = {};
+      if (freshDocIds.length > 0) {
+        const { data: freshDocs } = await supabase.from('site_documents').select('id, datto_file_id').in('id', freshDocIds);
+        (freshDocs ?? []).forEach((d: any) => { freshDocMap[d.id] = d.datto_file_id ?? null; });
+      }
+      const currentActions: Action[] = freshActionsData ? freshActionsData.filter((a: any) => !a.site_document_id).map((a: any) => ({ id: a.id, action: a.title, description: a.description || '', date: a.due_date || '', site: sites.find(s => s.id === a.site_id)?.name || '', who: a.responsible_person || '', contractor: a.contractor || '', source: a.source_document_name || '', source_document_id: a.source_document_id || '', priority: (priorityMap[a.priority] || 'green') as Priority, regulation: a.regulation || '', notes: '', status: a.status as ActionStatus, hazardRef: a.hazard_ref || null, hazard: a.hazard || null, existingControls: a.existing_controls || null, riskRating: a.risk_rating || null, riskLevel: a.risk_level || null, resolvedDate: a.resolved_date || null, sourceFolderId: a.source_folder_id || null, isSuggested: a.is_suggested ?? false, dattoFileId: a.source_document_id ? (freshDocMap[a.source_document_id] ?? null) : null })) : allActions;
       setAllActions(currentActions);
       setAiSyncProgress('Scanning folders…');
       const rootPath = await resolvePathFromRoot(site);
@@ -3714,7 +3954,7 @@ export default function App() {
       hasAmber: actions.some(a => derivePriority(a).priority === 'amber'),
       redCount: actions.filter(a => derivePriority(a).priority === 'red').length,
       amberCount: actions.filter(a => derivePriority(a).priority === 'amber').length,
-      highRiskCount: actions.filter(a => a.riskLevel === 'HIGH').length,
+      highRiskCount: actions.filter(a => a.riskLevel === 'HIGH' && !(a.date && ONGOING_RE.test(a.date))).length,
     }))
     .sort((a, b) => {
       if (a.hasRed !== b.hasRed) return a.hasRed ? -1 : 1;
@@ -3747,7 +3987,7 @@ export default function App() {
         <div className="w-12 h-12 bg-white rounded-xl flex items-center justify-center text-indigo-950 shadow-lg font-black text-xl italic hover:scale-105 transition-transform">MB</div>
         <nav className="flex flex-col gap-6">
           {profile?.role === 'superadmin' && <button onClick={() => setView('admin')} className={`p-3 rounded-xl transition-all ${view === 'admin' ? 'bg-indigo-700 text-white shadow-inner' : 'hover:text-white hover:bg-white/5'}`} title="Admin Panel"><Shield size={22} /></button>}
-          {profile?.role === 'advisor' && <button onClick={() => { setView('portfolio'); setSelectedSite(null); }} className={`p-3 rounded-xl transition-all ${view === 'portfolio' ? 'bg-indigo-700 text-white shadow-inner' : 'hover:text-white hover:bg-white/5'}`} title="Portfolio Dashboard"><Layout size={22} /></button>}
+          {(profile?.role === 'advisor' || (profile?.role === 'client' && sites.length > 1)) && <button onClick={() => { setView('portfolio'); setSelectedSite(null); }} className={`p-3 rounded-xl transition-all ${view === 'portfolio' ? 'bg-indigo-700 text-white shadow-inner' : 'hover:text-white hover:bg-white/5'}`} title="Dashboard"><Layout size={22} /></button>}
           {(profile?.role === 'advisor' || profile?.role === 'client') && <button onClick={() => { setView('site'); if (sites.length > 0 && !selectedSite) setSelectedSite(sites[0]); }} className={`p-3 rounded-xl transition-all ${view === 'site' ? 'bg-indigo-700 text-white shadow-inner' : 'hover:text-white hover:bg-white/5'}`} title="Action Plans"><ClipboardList size={22} /></button>}
           <button className="p-3 rounded-xl hover:text-white hover:bg-white/5" title="Settings"><Settings size={22} /></button>
         </nav>
@@ -3761,15 +4001,15 @@ export default function App() {
       <main className="pl-20">
         <header className="bg-white/95 backdrop-blur-sm border-b border-slate-200 px-8 py-4 flex items-center justify-between sticky top-0 z-10">
           <div className="flex items-center gap-3">
-            {view === 'site' && profile?.role === 'advisor' && <button onClick={() => setView('portfolio')} className="p-2 hover:bg-slate-100 rounded-lg text-slate-400"><ArrowLeft size={18} /></button>}
+            {view === 'site' && (profile?.role === 'advisor' || (profile?.role === 'client' && sites.length > 1)) && <button onClick={() => { setView('portfolio'); setSelectedSite(null); }} className="p-2 hover:bg-slate-100 rounded-lg text-slate-400"><ArrowLeft size={18} /></button>}
             <div>
-              <h1 className="text-base font-black text-slate-900 tracking-tight leading-none">McCormack Benson H&S</h1>
+              <h1 className="text-base font-black text-slate-900 tracking-tight leading-none">McCormack Benson Health &amp; Safety</h1>
               <div className="flex items-center gap-2 text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1"><Database size={9} /><span>Portal Sync: {syncLastRun}</span></div>
             </div>
           </div>
           <div className="flex items-center gap-5">
             <div className="text-right hidden sm:block"><p className="text-xs font-black text-slate-800">{user.email}</p><p className="text-[10px] text-indigo-600 font-bold uppercase tracking-widest">● {profile?.role}</p></div>
-            {profile?.role === 'advisor' && (
+            {(profile?.role === 'advisor' || (profile?.role === 'client' && sites.length > 1)) && (
               <div className="hidden lg:flex bg-slate-100 p-1 rounded-xl">
                 <button onClick={() => { setView('portfolio'); setSelectedSite(null); }} className={`px-4 py-1.5 text-[10px] font-black uppercase rounded-lg transition-all ${view === 'portfolio' ? 'bg-white shadow-sm text-indigo-600' : 'text-slate-400 hover:text-slate-600'}`}>Dashboard</button>
                 <button onClick={() => { setView('site'); if (sites.length > 0 && !selectedSite) setSelectedSite(sites[0]); }} className={`px-4 py-1.5 text-[10px] font-black uppercase rounded-lg transition-all ${view === 'site' ? 'bg-white shadow-sm text-indigo-600' : 'text-slate-400 hover:text-slate-600'}`}>Action Plan</button>
@@ -3781,7 +4021,7 @@ export default function App() {
         <div className="p-8 max-w-7xl mx-auto">
           {view === 'admin' && profile?.role === 'superadmin' && <SuperadminPanel />}
 
-          {view === 'portfolio' && profile?.role === 'advisor' && (
+          {view === 'portfolio' && (profile?.role === 'advisor' || profile?.role === 'client') && (
             <div className="space-y-8 animate-in fade-in duration-500">
               <div className="bg-gradient-to-br from-indigo-900 via-indigo-950 to-slate-900 rounded-3xl p-10 text-white flex flex-col lg:flex-row justify-between items-start lg:items-center gap-8 shadow-2xl relative overflow-hidden">
                 <div className="absolute top-0 right-0 w-96 h-96 bg-indigo-500 rounded-full -mr-32 -mt-32 blur-[100px] opacity-20 pointer-events-none" />
@@ -3954,66 +4194,158 @@ export default function App() {
               </div>
               {/* ── Score cards ── */}
               <div className="space-y-4">
-                {/* Row 1 — Actions Score (full width, prominent) */}
-                {(() => { const s = computeActionProgress(allActions.filter(a => a.site === selectedSite.name)); const c = scoreColor(s); return (
-                  <div className="bg-white rounded-2xl border border-slate-200 px-8 py-6 shadow-sm relative flex items-center justify-center gap-10 cursor-pointer hover:border-indigo-300 hover:shadow-md transition-all" onClick={() => setSiteTab('actions')}>
-                    <button onClick={() => setScoreExplanationCard('implementation')} className="absolute top-3 right-3 flex items-center gap-1 text-slate-300 hover:text-indigo-500 transition-colors" title="How is this calculated?"><AlertCircle size={14} /><span className="text-[9px] font-black uppercase tracking-wider">Help</span></button>
-                    <ComplianceRing score={s} size={96} />
-                    <div className="text-center">
-                      <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">Actions Score</p>
-                      <p className={`text-5xl font-black ${c.text}`}>{s}%</p>
-                      <p className="text-[11px] text-slate-400 font-medium mt-2">client managed</p>
+                {/* Row 1 — Compliance Score (3/4) + Industry Alignment (1/4) */}
+                <div className="grid grid-cols-4 gap-4 items-stretch">
+                {/* Compliance Score */}
+                {(() => {
+                  const siteActions = allActions.filter(a => a.site === selectedSite.name);
+                  const s = computeActionProgress(siteActions);
+                  const c = scoreColor(s);
+                  const today = new Date().toLocaleDateString('en-CA');
+                  const unresolved = siteActions.filter(a => a.status !== 'resolved');
+                  const overdueCount = unresolved.filter(a => { const d = a.date; return d && !ONGOING_RE.test(d) && /^\d{4}-\d{2}-\d{2}$/.test(d) && d < today; }).length;
+                  const upcomingCount = unresolved.filter(a => { const d = a.date; if (!d || ONGOING_RE.test(d) || !/^\d{4}-\d{2}-\d{2}$/.test(d)) return false; const daysAway = Math.ceil((new Date(d).getTime() - Date.now()) / 86400000); return d >= today && daysAway <= 30; }).length;
+                  const ongoingCount = unresolved.length - overdueCount - upcomingCount;
+                  const riskTiers = (['HIGH', 'MEDIUM', 'LOW'] as const).map(tier => {
+                    const forTier = siteActions.filter(a => a.riskLevel === tier);
+                    const resolvedCount = forTier.filter(a => a.status === 'resolved').length;
+                    const pct = forTier.length === 0 ? 0 : Math.round((resolvedCount / forTier.length) * 100);
+                    return { tier, total: forTier.length, resolved: resolvedCount, pct };
+                  });
+                  const hasRiskData = riskTiers.some(t => t.total > 0);
+                  const weightedResolved = riskTiers.reduce((sum, t) => sum + t.resolved * (t.tier === 'HIGH' ? 3 : t.tier === 'MEDIUM' ? 2 : 1), 0);
+                  const weightedTotal    = riskTiers.reduce((sum, t) => sum + t.total    * (t.tier === 'HIGH' ? 3 : t.tier === 'MEDIUM' ? 2 : 1), 0);
+                  const riskScore = weightedTotal === 0 ? 100 : Math.round((weightedResolved / weightedTotal) * 100);
+                  return (
+                    <div className="col-span-3 bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden cursor-pointer hover:border-indigo-300 hover:shadow-md transition-all" onClick={() => setSiteTab('actions')}>
+                      {/* Card header */}
+                      <div className="px-5 py-2.5 border-b border-slate-100 flex items-center justify-between">
+                        <p className="text-[11px] font-black uppercase tracking-widest text-slate-500">Compliance Score</p>
+                        <button onClick={e => { e.stopPropagation(); setScoreExplanationCard('implementation'); }} className="flex items-center gap-1 text-slate-300 hover:text-indigo-500 transition-colors" title="How is this calculated?"><AlertCircle size={14} /><span className="text-[9px] font-black uppercase tracking-wider">Help</span></button>
+                      </div>
+                      {/* Body */}
+                      <div className="px-5 py-4 flex items-center gap-6">
+                        <ComplianceRing score={s} size={96} percent />
+                        <div className="flex gap-8 items-start">
+                        <div className="min-w-0">
+                          <div className="flex items-baseline gap-2 mb-2.5">
+                            <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Actions Status</p>
+                            <p className={`text-[9px] font-black uppercase tracking-widest ${c.text}`}>{s}% completed</p>
+                          </div>
+                          {unresolved.length === 0
+                            ? <p className="text-[10px] font-black text-emerald-600 uppercase tracking-wider">all actions resolved</p>
+                            : (
+                              <div className="space-y-2.5 w-52">
+                                {([
+                                  { label: 'OVERDUE',   count: overdueCount,  barCls: 'bg-rose-500',  trackCls: 'bg-rose-100',  labelCls: 'text-rose-700 bg-rose-50 border-rose-200' },
+                                  { label: 'UPCOMING',  count: upcomingCount, barCls: 'bg-amber-400', trackCls: 'bg-amber-100', labelCls: 'text-amber-700 bg-amber-50 border-amber-200' },
+                                  { label: 'SCHEDULED', count: ongoingCount,  barCls: 'bg-emerald-500', trackCls: 'bg-emerald-100', labelCls: 'text-emerald-700 bg-emerald-50 border-emerald-200' },
+                                ] as const).map(({ label, count, barCls, trackCls, labelCls }) => {
+                                  const pct = Math.round((count / unresolved.length) * 100);
+                                  return (
+                                    <div key={label} className="flex items-center gap-2">
+                                      <span className={`text-[9px] font-black uppercase px-1.5 py-0.5 rounded border shrink-0 ${labelCls}`}>{label}</span>
+                                      <div className={`flex-1 h-2 rounded-full ${trackCls} overflow-hidden`}>
+                                        {count > 0 && <div className={`h-full rounded-full ${barCls} transition-all duration-700`} style={{ width: `${pct}%` }} />}
+                                      </div>
+                                      <span className="text-[10px] font-black text-slate-400 w-5 text-right shrink-0">{count}</span>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            )
+                          }
+                        </div>
+                        {hasRiskData && (
+                          <div>
+                            <p className="text-[9px] font-black uppercase tracking-widest text-slate-400 mb-2.5">Risk Rating</p>
+                            <div className="flex items-start gap-4">
+                            <RiskRing tiers={riskTiers} score={riskScore} size={96} />
+                            <div className="space-y-2.5 w-52">
+                              {riskTiers.map(({ tier, total, resolved, pct }) => {
+                                const [barCls, trackCls, labelCls] = tier === 'HIGH'
+                                  ? ['bg-rose-500', 'bg-rose-100', 'text-rose-700 bg-rose-50 border-rose-200']
+                                  : tier === 'MEDIUM'
+                                  ? ['bg-orange-400', 'bg-orange-100', 'text-orange-700 bg-orange-50 border-orange-200']
+                                  : ['bg-emerald-500', 'bg-emerald-100', 'text-emerald-700 bg-emerald-50 border-emerald-200'];
+                                return (
+                                  <div key={tier} className="flex items-center gap-2">
+                                    <span className={`text-[9px] font-black uppercase px-1.5 py-0.5 rounded border shrink-0 ${labelCls}`}>{tier === 'HIGH' ? 'HIGH RISK' : tier === 'MEDIUM' ? 'MEDIUM RISK' : 'LOW RISK'}</span>
+                                    <div className={`flex-1 h-2 rounded-full ${trackCls} overflow-hidden`}>
+                                      {total > 0 && <div className={`h-full rounded-full ${barCls} transition-all duration-700`} style={{ width: `${pct}%` }} />}
+                                    </div>
+                                    <span className="text-[10px] font-black text-slate-400 w-8 text-right shrink-0">{total === 0 ? '—' : `${resolved}/${total}`}</span>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                            </div>{/* end flex ring+bars */}
+                          </div>
+                        )}
+                        </div>{/* end columns wrapper */}
+                      </div>
                     </div>
-                  </div>
-                ); })()}
-                {/* Row 2 — IAG + Documentation Health (advisor/superadmin only) */}
-                <div className={`grid gap-4 ${profile?.role !== 'client' ? 'grid-cols-2' : 'grid-cols-1'}`}>
-                  {/* Industry Alignment */}
+                  );
+                })()}
+                  {/* Industry Alignment — col-span-1, fills height of compliance card */}
                   {(() => {
                     const raw = selectedSite.iagScore;
                     const s = raw ?? 0;
                     const c = scoreColor(s);
+                    const iagMandatory = iagServices.filter(sv => sv.is_mandatory);
+                    const iagMandatoryContracted = iagMandatory.filter(sv => sv.purchased).length;
+                    const iagMandatoryTotal = iagMandatory.length;
+                    const iagAllContracted = iagServices.filter(sv => sv.purchased).length;
+                    const iagAllTotal = iagServices.length;
+                    const iagMandatoryGap = iagMandatoryTotal > 0 && iagMandatoryContracted < iagMandatoryTotal;
                     return (
-                      <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm text-center relative cursor-pointer hover:border-violet-300 hover:shadow-md transition-all" onClick={() => { setSiteTab('iag'); loadIagServices(selectedSite.id); }}>
-                        <button onClick={e => { e.stopPropagation(); setScoreExplanationCard('iag'); }} className="absolute top-3 right-3 flex items-center gap-1 text-slate-300 hover:text-violet-500 transition-colors" title="How is this calculated?"><AlertCircle size={14} /><span className="text-[9px] font-black uppercase tracking-wider">Help</span></button>
-                        <div className="flex items-center justify-center gap-4">
-                          {raw !== null && <ComplianceRing score={s} size={64} />}
+                      <div className="col-span-1 bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden relative cursor-pointer hover:border-violet-300 hover:shadow-md transition-all flex flex-col" onClick={() => { setSiteTab('iag'); loadIagServices(selectedSite.id); }}>
+                        <div className="px-5 py-2.5 border-b border-slate-100 flex items-center justify-between">
+                          <p className="text-[11px] font-black uppercase tracking-widest text-slate-500">Industry Alignment</p>
+                          <button onClick={e => { e.stopPropagation(); setScoreExplanationCard('iag'); }} className="flex items-center gap-1 text-slate-300 hover:text-violet-500 transition-colors" title="How is this calculated?"><AlertCircle size={14} /><span className="text-[9px] font-black uppercase tracking-wider">Help</span></button>
+                        </div>
+                        <div className="flex-1 flex flex-col items-center justify-center px-5 py-4 gap-3">
+                          {raw !== null
+                            ? <ComplianceRing score={s} size={56} percent />
+                            : <div className="w-14 h-14 rounded-full border-4 border-slate-100 flex items-center justify-center"><span className="text-slate-300 text-sm font-black">—</span></div>
+                          }
                           <div className="text-center">
-                            <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1">Industry Alignment</p>
-                            {raw === null
-                              ? <p className="text-xl font-black text-slate-300">Not set</p>
-                              : <p className={`text-3xl font-black ${c.text}`}>{s}%</p>
-                            }
-                            <p className="text-[10px] text-slate-400 font-medium mt-1">coverage vs requirements</p>
+                            <p className="text-[9px] text-slate-400 font-medium">coverage vs requirements</p>
+                            {iagAllTotal > 0 && (
+                              <div className="flex items-center justify-center gap-1.5 flex-wrap mt-2">
+                                <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider border ${iagMandatoryGap ? 'bg-rose-50 border-rose-200 text-rose-700' : 'bg-emerald-50 border-emerald-200 text-emerald-700'}`}>{iagMandatoryContracted}/{iagMandatoryTotal} mandatory</span>
+                                <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-slate-50 border border-slate-200 text-slate-500 text-[9px] font-black uppercase tracking-wider">{iagAllContracted}/{iagAllTotal} contracted</span>
+                              </div>
+                            )}
                           </div>
                         </div>
                       </div>
                     );
                   })()}
-                  {/* Documentation Health — advisor/superadmin only */}
-                  {profile?.role !== 'client' && (() => { const s = selectedSite.compliance; const c = scoreColor(s); return (
-                    <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm text-center relative cursor-pointer hover:border-amber-300 hover:shadow-md transition-all" onClick={() => setSiteTab('dochealth')}>
-                      <button onClick={e => { e.stopPropagation(); setScoreExplanationCard('documentation'); }} className="absolute top-3 right-3 flex items-center gap-1 text-slate-300 hover:text-amber-500 transition-colors" title="How is this calculated?"><AlertCircle size={14} /><span className="text-[9px] font-black uppercase tracking-wider">Help</span></button>
-                      <div className="flex items-center justify-center gap-4">
-                        <ComplianceRing score={s} size={64} />
-                        <div className="text-center">
-                          <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1">Documentation Health</p>
-                          <p className={`text-3xl font-black ${c.text}`}>{s}%</p>
-                          <p className="text-[10px] text-slate-400 font-medium mt-1">advisor managed</p>
-                        </div>
+                </div>{/* end 4-col grid */}
+                {/* Row 2 — Documentation Health (advisor/superadmin only, full width) */}
+                {profile?.role !== 'client' && (() => { const s = selectedSite.compliance; const c = scoreColor(s); return (
+                  <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm text-center relative cursor-pointer hover:border-amber-300 hover:shadow-md transition-all" onClick={() => setSiteTab('dochealth')}>
+                    <button onClick={e => { e.stopPropagation(); setScoreExplanationCard('documentation'); }} className="absolute top-3 right-3 flex items-center gap-1 text-slate-300 hover:text-amber-500 transition-colors" title="How is this calculated?"><AlertCircle size={14} /><span className="text-[9px] font-black uppercase tracking-wider">Help</span></button>
+                    <div className="flex items-center justify-center gap-4">
+                      <ComplianceRing score={s} size={64} />
+                      <div className="text-center">
+                        <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1">Documentation Health</p>
+                        <p className={`text-3xl font-black ${c.text}`}>{s}%</p>
+                        <p className="text-[10px] text-slate-400 font-medium mt-1">advisor managed</p>
                       </div>
                     </div>
-                  ); })()}
-                </div>
+                  </div>
+                ); })()}
               </div>
               {scoreExplanationCard && <ScoreExplanationModal card={scoreExplanationCard} onClose={() => setScoreExplanationCard(null)} />}
               {/* Site tab toggle */}
               <div className="flex bg-slate-100 p-1 rounded-xl w-fit flex-wrap gap-0.5">
-                <button onClick={() => setSiteTab('actions')} className={`px-5 py-2 text-[11px] font-black uppercase tracking-widest rounded-lg transition-all ${siteTab === 'actions' ? 'bg-white shadow-sm text-indigo-600' : 'text-slate-400 hover:text-slate-600'}`}>Client Actions</button>
-                <button onClick={() => setSiteTab('documents')} className={`px-5 py-2 text-[11px] font-black uppercase tracking-widest rounded-lg transition-all ${siteTab === 'documents' ? 'bg-white shadow-sm text-amber-600' : 'text-slate-400 hover:text-slate-600'}`}>Client Managed</button>
+                <button onClick={() => setSiteTab('actions')} className={`px-5 py-2 text-[11px] font-black uppercase tracking-widest rounded-lg transition-all ${siteTab === 'actions' ? 'bg-white shadow-sm text-indigo-600' : 'text-slate-400 hover:text-slate-600'}`}>Assigned Actions</button>
+                {selectedSite.datto_folder_id && <button onClick={() => setSiteTab('files')} className={`px-5 py-2 text-[11px] font-black uppercase tracking-widest rounded-lg transition-all ${siteTab === 'files' ? 'bg-white shadow-sm text-sky-600' : 'text-slate-400 hover:text-slate-600'}`}>H&S Documents</button>}
+                <button onClick={() => setSiteTab('documents')} className={`px-5 py-2 text-[11px] font-black uppercase tracking-widest rounded-lg transition-all ${siteTab === 'documents' ? 'bg-white shadow-sm text-amber-600' : 'text-slate-400 hover:text-slate-600'}`}>Client Documents</button>
+                <button onClick={() => { setSiteTab('iag'); loadIagServices(selectedSite.id); }} className={`px-5 py-2 text-[11px] font-black uppercase tracking-widest rounded-lg transition-all ${siteTab === 'iag' ? 'bg-white shadow-sm text-violet-600' : 'text-slate-400 hover:text-slate-600'}`}>Industry Alignment</button>
                 {profile?.role !== 'client' && <button onClick={() => setSiteTab('dochealth')} className={`px-5 py-2 text-[11px] font-black uppercase tracking-widest rounded-lg transition-all ${siteTab === 'dochealth' ? 'bg-white shadow-sm text-amber-600' : 'text-slate-400 hover:text-slate-600'}`}>Advisor Actions</button>}
-                {profile?.role !== 'client' && <button onClick={() => { setSiteTab('iag'); loadIagServices(selectedSite.id); }} className={`px-5 py-2 text-[11px] font-black uppercase tracking-widest rounded-lg transition-all ${siteTab === 'iag' ? 'bg-white shadow-sm text-violet-600' : 'text-slate-400 hover:text-slate-600'}`}>Industry Alignment</button>}
-                {selectedSite.datto_folder_id && <button onClick={() => setSiteTab('files')} className={`px-5 py-2 text-[11px] font-black uppercase tracking-widest rounded-lg transition-all ${siteTab === 'files' ? 'bg-white shadow-sm text-sky-600' : 'text-slate-400 hover:text-slate-600'}`}>Files</button>}
               </div>
 
               {siteTab === 'actions' && (<>
@@ -4353,9 +4685,11 @@ export default function App() {
                         <a
                           key={item.id}
                           href={href}
+                          target={isOfficeLink ? undefined : '_blank'}
+                          rel={isOfficeLink ? undefined : 'noopener noreferrer'}
                           className="flex items-center gap-2.5 px-4 py-1.5 hover:bg-sky-50 cursor-pointer group block"
                           style={{ paddingLeft: `${36 + depth * 20}px` }}
-                          title={isOfficeLink ? 'Open in Word/Excel from mapped drive' : 'Download / open file'}
+                          title={isOfficeLink ? 'Open in Word/Excel from mapped drive' : 'View as PDF'}
                         >
                           <span className={`text-[9px] font-black px-1.5 py-0.5 rounded flex-shrink-0 ${badge.cls}`}>{badge.label}</span>
                           <span className="text-[12px] text-slate-600 group-hover:text-sky-700 truncate flex-1">{item.name}</span>
@@ -4395,8 +4729,9 @@ export default function App() {
                           searchResults.map(file => {
                             const badge = fileTypeBadge(file.name);
                             const href = getFileHref(file, file.folderPath, role);
+                            const isOfficeSearch = href.startsWith('ms-');
                             return (
-                              <a key={file.id} href={href} className="flex items-center gap-2.5 px-4 py-2 hover:bg-sky-50 cursor-pointer group block">
+                              <a key={file.id} href={href} target={isOfficeSearch ? undefined : '_blank'} rel={isOfficeSearch ? undefined : 'noopener noreferrer'} className="flex items-center gap-2.5 px-4 py-2 hover:bg-sky-50 cursor-pointer group block">
                                 <span className={`text-[9px] font-black px-1.5 py-0.5 rounded flex-shrink-0 ${badge.cls}`}>{badge.label}</span>
                                 <div className="flex-1 min-w-0">
                                   <p className="text-[12px] font-bold text-slate-700 group-hover:text-sky-700 truncate">{file.name}</p>
@@ -4416,8 +4751,8 @@ export default function App() {
                 );
               })()}
 
-              {/* ── Industry Alignment tab (advisor only) ── */}
-              {siteTab === 'iag' && profile?.role !== 'client' && (
+              {/* ── Industry Alignment tab ── */}
+              {siteTab === 'iag' && (
                 <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
                   <div className="bg-violet-600 px-6 py-4 flex items-center justify-between">
                     <h3 className="font-black text-white uppercase tracking-widest text-sm flex items-center gap-2"><Shield size={14} />Industry Alignment — {SITE_TYPE_LABELS[selectedSite.type] || selectedSite.type}</h3>
