@@ -76,7 +76,7 @@ interface ReviewAction extends ExtractedAction {
   advisorPriority: string | null;
 }
 interface Organisation { id: string; name: string; datto_folder_id: string | null; datto_folder_name: string | null; }
-interface Profile { role: 'superadmin' | 'advisor' | 'client'; site_id: string | null; organisation_id: string | null; }
+interface Profile { role: 'superadmin' | 'advisor' | 'client'; site_id: string | null; organisation_id: string | null; datto_base_path: string | null; }
 interface SiteDocument {
   id: string; site_id: string; uploaded_by: string | null; uploaded_at: string;
   file_name: string; datto_file_id: string | null; datto_folder_id: string | null;
@@ -443,9 +443,19 @@ function buildOfficeUri(basePath: string, folderPath: string, fileName: string):
   // Normalise base path separators to forward slashes, strip trailing slash
   const base = basePath.replace(/\\/g, '/').replace(/\/$/, '');
   const parts = [base, ...folderPath.split('/').filter(Boolean), fileName];
-  // Encode each segment but preserve slashes between them
-  const encoded = parts.map(p => p.replace(/ /g, '%20').replace(/&/g, '%26').replace(/#/g, '%23')).join('/');
-  return `${scheme}:ofe|u|file:///${encoded}`;
+  const encode = (s: string) => s.replace(/ /g, '%20').replace(/&/g, '%26').replace(/#/g, '%23');
+  if (base.startsWith('//')) {
+    // UNC path (//Paul/Workplace/Customer Documents) — convert to drive letter path.
+    // Drive-letter file:/// URIs reduce Word's network security prompting.
+    // Use stored drive letter from auto-detect (default W: if not set).
+    const driveLetter = (typeof window !== 'undefined' ? localStorage.getItem('dattoDriveLetter') : null) || 'W';
+    const afterWorkplace = base.replace(/^\/\/[^/]+\/Workplace/i, '') || '';
+    const drivePath = `${driveLetter}:${afterWorkplace}`; // e.g. W:/Customer Documents
+    const driveParts = [drivePath, ...folderPath.split('/').filter(Boolean), fileName];
+    return `${scheme}:ofe|u|file:///${driveParts.map(encode).join('/')}`;
+  }
+  // Local drive path (W:/Customer Documents or similar) — use as-is
+  return `${scheme}:ofe|u|file:///${parts.map(encode).join('/')}`;
 }
 const toUKDate = (iso: string) => { if (!isIsoDate(iso)) return iso; const [y, m, d] = iso.split('-'); return `${d}/${m}/${y.slice(2)}`; };
 
@@ -1129,13 +1139,13 @@ const AddActionForm = ({ site, onSave, onCancel }: { site: Site; onSave: (action
 };
 
 // ─── Document Card ────────────────────────────────────────────────────────────
-const DocumentCard = ({ doc, role, userId, actions, onDelete, onRename, onToggleAction }: {
+const DocumentCard = ({ doc, role, userId, actions, onDelete, onRename, onToggleAction, expanded, onExpand }: {
   doc: SiteDocument; role: string; userId: string | null; actions: Action[];
   onDelete: (id: string) => void;
   onRename: (id: string, newName: string) => void;
   onToggleAction: (id: string, resolved: boolean) => void;
+  expanded: boolean; onExpand: () => void;
 }) => {
-  const [expanded, setExpanded] = useState(false);
   const [editingName, setEditingName] = useState(false);
   const [nameInput, setNameInput] = useState(doc.document_name || doc.file_name || '');
   const today = new Date().toLocaleDateString('en-CA');
@@ -1150,109 +1160,119 @@ const DocumentCard = ({ doc, role, userId, actions, onDelete, onRename, onToggle
     ? `/viewer?docId=${doc.id}&fileName=${encodeURIComponent(doc.file_name ?? '')}&role=${role}`
     : null;
 
-  return (
-    <div>
-      {/* ── Single summary row ── */}
-      <div
-        className={`flex items-center gap-3 px-5 py-3.5 cursor-pointer hover:bg-slate-50 transition-colors select-none ${expanded ? 'bg-slate-50' : ''}`}
-        onClick={() => { if (!editingName) setExpanded(e => !e); }}
-      >
-        <ChevronDown size={13} className={`text-slate-300 flex-shrink-0 transition-transform duration-150 ${expanded ? 'rotate-180' : ''}`} />
+  // Card colours: expiry status takes precedence; client-provided defaults to indigo
+  const cardCls = expStatus === 'expired'  ? 'bg-rose-50/60 border-rose-200'
+                : expStatus === 'expiring' ? 'bg-amber-50/60 border-amber-200'
+                : expStatus === 'valid'    ? 'bg-emerald-50/40 border-emerald-200'
+                : doc.client_provided     ? 'bg-indigo-50/60 border-indigo-200'
+                : 'bg-white border-slate-200';
+  const barCls  = expStatus === 'expired'  ? 'bg-rose-400'
+                : expStatus === 'expiring' ? 'bg-amber-400'
+                : expStatus === 'valid'    ? 'bg-emerald-400'
+                : doc.client_provided     ? 'bg-indigo-400'
+                : 'bg-slate-300';
 
-        {/* Name */}
-        <div className="flex-1 min-w-0" onClick={e => e.stopPropagation()}>
+  return (
+    <div className={`rounded-2xl border transition-all duration-300 overflow-hidden ${cardCls}`}>
+      {/* ── Header row ── */}
+      <div className="px-4 py-3 flex flex-col md:flex-row md:items-center gap-3 cursor-pointer" onClick={() => { if (!editingName) onExpand(); }}>
+        <div className={`w-1.5 rounded-full self-stretch hidden md:block flex-shrink-0 ${barCls}`} />
+
+        {/* Name + inline meta */}
+        <div className="flex-1 min-w-0" onClick={e => editingName && e.stopPropagation()}>
           {editingName ? (
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2" onClick={e => e.stopPropagation()}>
               <input
                 className="text-sm font-black text-slate-900 border border-indigo-300 rounded-lg px-2 py-1 focus:outline-none focus:ring-2 focus:ring-indigo-300"
                 value={nameInput}
                 onChange={e => setNameInput(e.target.value)}
                 autoFocus
-                onClick={e => e.stopPropagation()}
               />
               <button onClick={() => { onRename(doc.id, nameInput); setEditingName(false); }} className="text-[10px] font-black text-emerald-600 bg-emerald-50 border border-emerald-200 px-2 py-1 rounded-lg hover:bg-emerald-100 whitespace-nowrap">Save</button>
               <button onClick={() => setEditingName(false)} className="text-[10px] font-black text-slate-400 hover:text-slate-600 whitespace-nowrap">Cancel</button>
             </div>
           ) : (
-            <div className="flex items-center gap-1.5 min-w-0">
-              <span className="text-[13px] font-bold text-slate-800 truncate">{doc.document_name || doc.file_name}</span>
-              {role === 'client' && (
-                <button onClick={e => { e.stopPropagation(); setEditingName(true); }} className="p-0.5 text-slate-300 hover:text-indigo-500 rounded flex-shrink-0" title="Rename">
-                  <Pencil size={10} />
-                </button>
-              )}
+            <div className="flex items-start justify-between gap-3 flex-wrap">
+              <div className="flex items-center gap-1.5 flex-wrap min-w-0">
+                {doc.client_provided && <Upload size={12} className="text-indigo-400 flex-shrink-0" title="Client provided" />}
+                <span className="font-bold text-[12px] leading-snug text-slate-900">{doc.document_name || doc.file_name}</span>
+                {doc.document_type && <><span className="text-slate-300 text-[11px]">|</span><span className="text-[11px] font-bold text-slate-500">{doc.document_type}</span></>}
+                {doc.issue_date && <><span className="text-slate-300 text-[11px]">|</span><span className="text-[12px] font-medium text-slate-500 flex-shrink-0"><span className="text-slate-400 font-normal">Issued: </span>{fmt(doc.issue_date)}</span></>}
+                {doc.expiry_date && <><span className="text-slate-300 text-[11px]">|</span><span className="text-[12px] font-medium text-slate-500 flex-shrink-0"><span className="text-slate-400 font-normal">Expires: </span>{fmt(doc.expiry_date)}</span></>}
+                {role === 'client' && (
+                  <button onClick={e => { e.stopPropagation(); setEditingName(true); }} className="p-0.5 text-slate-300 hover:text-indigo-500 rounded flex-shrink-0" title="Rename">
+                    <Pencil size={10} />
+                  </button>
+                )}
+              </div>
+              <div className="flex items-center gap-2 flex-shrink-0">
+                {expStatus === 'expired'  && <span className="text-[10px] font-black uppercase px-2.5 py-1 rounded-lg border bg-rose-50 border-rose-200 text-rose-700">Expired</span>}
+                {expStatus === 'expiring' && <span className="text-[10px] font-black uppercase px-2.5 py-1 rounded-lg border bg-amber-50 border-amber-200 text-amber-700">Expiring Soon</span>}
+                {expStatus === 'valid'    && <span className="text-[10px] font-black uppercase px-2.5 py-1 rounded-lg border bg-emerald-50 border-emerald-200 text-emerald-700">Valid</span>}
+                {openActions.length > 0 && <span className="text-[10px] font-black px-2.5 py-1 rounded-lg bg-indigo-50 text-indigo-600 border border-indigo-200">{openActions.length} action{openActions.length !== 1 ? 's' : ''}</span>}
+                {resolvedActions.length > 0 && openActions.length === 0 && <span className="text-[10px] font-black px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-600 border border-emerald-200">{resolvedActions.length} resolved</span>}
+              </div>
             </div>
-          )}
-        </div>
-
-        {/* Badges + dates */}
-        <div className="flex items-center gap-1.5 flex-shrink-0">
-          {doc.document_type && (
-            <span className="text-[9px] font-black uppercase tracking-wider text-slate-400 bg-slate-50 border border-slate-200 px-1.5 py-0.5 rounded">{doc.document_type}</span>
-          )}
-          {expStatus === 'expired'  && <span className="text-[9px] font-black uppercase px-1.5 py-0.5 rounded text-rose-700 bg-rose-50 border border-rose-200">Expired</span>}
-          {expStatus === 'expiring' && <span className="text-[9px] font-black uppercase px-1.5 py-0.5 rounded text-amber-700 bg-amber-50 border border-amber-200">Expiring</span>}
-          {expStatus === 'valid'    && <span className="text-[9px] font-black uppercase px-1.5 py-0.5 rounded text-emerald-700 bg-emerald-50 border border-emerald-200">Valid</span>}
-          {doc.expiry_date && <span className="text-[10px] font-bold text-slate-400">{fmt(doc.expiry_date)}</span>}
-          {openActions.length > 0 && (
-            <span className="text-[9px] font-black px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-600 border border-indigo-200">
-              {openActions.length} action{openActions.length !== 1 ? 's' : ''}
-            </span>
-          )}
-          {resolvedActions.length > 0 && openActions.length === 0 && (
-            <span className="text-[9px] font-black px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-600 border border-emerald-200">
-              {resolvedActions.length} resolved
-            </span>
-          )}
-        </div>
-
-        {/* Controls */}
-        <div className="flex items-center gap-0.5 flex-shrink-0" onClick={e => e.stopPropagation()}>
-          {viewHref && (
-            <a href={viewHref} target="_blank" rel="noopener noreferrer" className="p-1.5 text-slate-300 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors" title="View document">
-              <ExternalLink size={13} />
-            </a>
-          )}
-          {role === 'client' && (
-            <button onClick={() => { if (window.confirm('Delete this document? This cannot be undone.')) onDelete(doc.id); }} className="p-1.5 text-slate-200 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-colors" title="Delete">
-              <Trash2 size={13} />
-            </button>
           )}
         </div>
       </div>
 
       {/* ── Expanded detail panel ── */}
       {expanded && (
-        <div className="border-t border-slate-100">
-          {/* Meta row */}
-          <div className="flex items-center flex-wrap gap-x-6 gap-y-1 px-10 py-2.5 bg-slate-50 border-b border-slate-100">
-            {doc.issue_date  && <div><span className="text-[9px] font-black uppercase tracking-wider text-slate-400 mr-1">Issued</span><span className="text-[11px] font-bold text-slate-600">{fmt(doc.issue_date)}</span></div>}
-            {doc.expiry_date && <div><span className="text-[9px] font-black uppercase tracking-wider text-slate-400 mr-1">Expires</span><span className="text-[11px] font-bold text-slate-600">{fmt(doc.expiry_date)}</span></div>}
-            {doc.people_mentioned && doc.people_mentioned.length > 0 && (
-              <div className="flex items-center gap-1 text-[11px] text-slate-500"><Users size={10} className="text-slate-400 flex-shrink-0" />{doc.people_mentioned.join(', ')}</div>
-            )}
-            {doc.notes && <p className="text-[11px] text-slate-400 italic">{doc.notes}</p>}
-            <span className="ml-auto text-[10px] text-slate-300 whitespace-nowrap">{doc.file_name} · Uploaded {new Date(doc.uploaded_at).toLocaleDateString('en-GB')}</span>
+        <div className="border-t border-white/60 bg-white/60 backdrop-blur-sm px-6 py-5 space-y-5">
+          {/* Top row: dates + people + open doc link + delete */}
+          <div className="flex items-start justify-between gap-4 flex-wrap">
+            <div className="flex items-center gap-4 flex-wrap text-[12px] font-medium text-slate-600">
+              {doc.issue_date && <span><span className="text-slate-500 font-normal text-[11px] uppercase tracking-wider">Issued: </span>{fmt(doc.issue_date)}</span>}
+              {doc.expiry_date && <><span className="text-slate-300">|</span><span><span className="text-slate-500 font-normal text-[11px] uppercase tracking-wider">Expires: </span>{fmt(doc.expiry_date)}</span></>}
+              {doc.people_mentioned && doc.people_mentioned.length > 0 && (
+                <><span className="text-slate-300">|</span><span className="flex items-center gap-1"><Users size={11} className="text-slate-400" />{doc.people_mentioned.join(', ')}</span></>
+              )}
+            </div>
+            <div className="flex items-center gap-2 flex-shrink-0">
+              {viewHref && (
+                <a href={viewHref} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 text-[11px] font-bold text-indigo-600 hover:text-indigo-800 hover:underline" title="Open document">
+                  <ExternalLink size={12} className="text-indigo-500 flex-shrink-0" /><span className="font-normal text-slate-400 flex-shrink-0">Open:</span>{doc.file_name}
+                </a>
+              )}
+              {role === 'client' && (
+                <button onClick={() => { if (window.confirm('Delete this document? This cannot be undone.')) onDelete(doc.id); }} className="p-1.5 rounded-lg border border-rose-200 text-rose-400 hover:text-rose-600 hover:border-rose-400 hover:bg-rose-50 transition-colors" title="Delete">
+                  <Trash2 size={14} />
+                </button>
+              )}
+            </div>
           </div>
 
-          {/* Actions list */}
+          {/* Notes */}
+          {doc.notes && (
+            <div>
+              <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1.5">Notes</p>
+              <p className="text-sm text-slate-700 leading-relaxed">{doc.notes}</p>
+            </div>
+          )}
+
+          {/* Upload meta */}
+          <p className="text-[10px] text-slate-300">{doc.file_name} · Uploaded {new Date(doc.uploaded_at).toLocaleDateString('en-GB')}</p>
+
+          {/* Actions */}
           {actions.length === 0 ? (
-            <p className="px-10 py-4 text-[11px] text-slate-400 font-bold">No actions identified from this document.</p>
+            <p className="text-[11px] text-slate-400 font-bold">No actions identified from this document.</p>
           ) : (
-            <div className="divide-y divide-slate-100">
+            <div className="space-y-2">
+              <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Actions from this document</p>
               {actions.map(a => {
                 const cfg = priorityConfig[a.priority as Priority] ?? priorityConfig.green;
                 const isResolved = a.status === 'resolved';
                 return (
-                  <div key={a.id} className={`flex items-start gap-3 px-10 py-3 ${isResolved ? 'opacity-50' : ''}`}>
+                  <div key={a.id} className={`rounded-xl border px-4 py-3 flex items-start gap-3 ${isResolved ? 'bg-slate-50 border-slate-100 opacity-60' : `${cfg.bg} ${cfg.border}`}`}>
                     <div className={`w-1 rounded-full self-stretch flex-shrink-0 mt-0.5 ${isResolved ? 'bg-slate-300' : cfg.bar}`} style={{ minHeight: 28 }} />
                     <div className="flex-1 min-w-0 space-y-1">
-                      {a.hazard && <p className={`text-[10px] font-black uppercase tracking-wide ${isResolved ? 'text-slate-400' : 'text-slate-500'}`}>{a.hazard}</p>}
-                      <p className={`text-[11px] font-bold leading-snug ${isResolved ? 'line-through text-slate-400' : 'text-slate-800'}`}>{a.action}</p>
-                      <div className="flex flex-wrap gap-1.5">
+                      {a.hazard && <p className="text-[10px] font-black uppercase tracking-wide text-slate-500">{a.hazard}</p>}
+                      <p className={`text-[12px] font-bold leading-snug ${isResolved ? 'line-through text-slate-400' : 'text-slate-800'}`}>{a.action}</p>
+                      <div className="flex flex-wrap gap-1.5 mt-1">
                         {!isResolved && <span className={`text-[9px] font-black uppercase px-1.5 py-0.5 rounded border ${cfg.badge}`}>{cfg.label}</span>}
                         {(a as any).isSuggested && <span className="text-[9px] font-black uppercase px-1.5 py-0.5 rounded border border-violet-200 text-violet-600 bg-violet-50">AI Suggested</span>}
-                        {a.date && <span className="text-[9px] font-bold text-slate-500 flex items-center gap-1"><Clock size={9} />{a.date}</span>}
+                        {a.date && <span className="text-[9px] font-bold text-slate-500 flex items-center gap-1"><Clock size={9} />Due: {a.date}</span>}
                         {a.who && <span className="text-[9px] font-bold text-slate-500 flex items-center gap-1"><User size={9} />{a.who}</span>}
                       </div>
                     </div>
@@ -1598,6 +1618,7 @@ const SiteDocumentsTab = ({ site, profile, userId, onComplianceUpdate, onActions
   const [docActions, setDocActions] = useState<Action[]>([]);
   const [loading, setLoading] = useState(true);
   const [showUpload, setShowUpload] = useState(false);
+  const [expandedDocId, setExpandedDocId] = useState<string | null>(null);
 
   useEffect(() => {
     setLoading(true);
@@ -1697,7 +1718,7 @@ const SiteDocumentsTab = ({ site, profile, userId, onComplianceUpdate, onActions
       ) : documents.length === 0 ? (
         <div className="bg-white rounded-2xl border border-slate-200 p-12 text-center"><FileCheck size={32} className="text-slate-300 mx-auto mb-3" /><p className="font-black text-slate-700">No documents uploaded yet</p><p className="text-sm text-slate-400 mt-1">Upload certificates, training records, and compliance evidence.</p></div>
       ) : (
-        <div className="bg-white rounded-2xl border border-amber-100 shadow-sm overflow-hidden divide-y divide-amber-50">{documents.map(doc => <DocumentCard key={doc.id} doc={doc} role={profile.role} userId={userId} actions={docActions.filter(a => (a as any)._siteDocumentId === doc.id)} onDelete={handleDelete} onRename={handleRename} onToggleAction={handleToggleAction} />)}</div>
+        <div className="space-y-2">{documents.map(doc => <DocumentCard key={doc.id} doc={doc} role={profile.role} userId={userId} actions={docActions.filter(a => (a as any)._siteDocumentId === doc.id)} onDelete={handleDelete} onRename={handleRename} onToggleAction={handleToggleAction} expanded={expandedDocId === doc.id} onExpand={() => setExpandedDocId(prev => prev === doc.id ? null : doc.id)} />)}</div>
       )}
       {showUpload && <UploadModal site={site} userId={userId} onClose={() => setShowUpload(false)} onSaved={handleSaved} />}
     </div>
@@ -1715,7 +1736,7 @@ const DocHealthTab = ({ siteId, onComplianceUpdate }: { siteId: string; onCompli
   useEffect(() => {
     setLoading(true);
     Promise.all([
-      supabase.from('actions').select('source_document_name, issue_date').eq('site_id', siteId).not('source_document_name', 'is', null),
+      supabase.from('actions').select('source_document_name, issue_date').eq('site_id', siteId).not('source_document_name', 'is', null).is('site_document_id', null),
       supabase.from('document_health').select('document_name, review_due').eq('site_id', siteId),
     ]).then(([actRes, healthRes]) => {
       const actions = actRes.data ?? [];
@@ -1981,6 +2002,7 @@ const SuperadminPanel = () => {
   const [siteAdvisorId, setSiteAdvisorId] = useState('');
   const [siteFolderId, setSiteFolderId] = useState('');
   const [siteFolderName, setSiteFolderName] = useState('');
+  const [siteFolderPath, setSiteFolderPath] = useState('');
   const [showSiteFolderPicker, setShowSiteFolderPicker] = useState(false);
   const [sitePickerCurrentId, setSitePickerCurrentId] = useState('');
   const [sitePickerCurrentName, setSitePickerCurrentName] = useState('');
@@ -2131,10 +2153,11 @@ const SuperadminPanel = () => {
     const finalId = siteFolderId || (showSiteFolderPicker ? sitePickerCurrentId : '');
     if (!finalId) { flash('Datto folder is required — select the site\'s H&S document folder before saving.', true); return; }
     const typeValue = siteType === 'OTHER' ? (siteTypeOther.trim() || 'OTHER') : siteType;
-    const { error } = await supabase.from('sites').insert({ name: siteName.trim(), type: typeValue, organisation_id: siteOrgId, datto_folder_id: finalId || null, advisor_id: siteAdvisorId || null, compliance_score: 0, trend: 0 });
+    const { data: newSite, error } = await supabase.from('sites').insert({ name: siteName.trim(), type: typeValue, organisation_id: siteOrgId, datto_folder_id: finalId || null, datto_folder_path: siteFolderPath || null, advisor_id: siteAdvisorId || null, compliance_score: 0, trend: 0 }).select('id').single();
     if (error) { flash(error.message, true); return; }
+    if (siteFolderPath) fetch('/api/datto/setup-site-folders', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ folderPath: siteFolderPath, siteId: newSite?.id }) });
     flash('Site created!');
-    setSiteName(''); setSiteType('OFFICE'); setSiteTypeOther(''); setSiteOrgId(''); setSiteAdvisorId(''); setSiteFolderId(''); setSiteFolderName(''); setShowSiteFolderPicker(false); setShowSiteForm(false);
+    setSiteName(''); setSiteType('OFFICE'); setSiteTypeOther(''); setSiteOrgId(''); setSiteAdvisorId(''); setSiteFolderId(''); setSiteFolderName(''); setSiteFolderPath(''); setShowSiteFolderPicker(false); setShowSiteForm(false);
     loadSites();
   };
 
@@ -2254,6 +2277,7 @@ const SuperadminPanel = () => {
     const empCount = editSiteEmployeeCount !== '' ? parseInt(editSiteEmployeeCount, 10) : null;
     const { error } = await supabase.from('sites').update({ name: editSiteName.trim(), type: editTypeValue, datto_folder_id: finalId || null, datto_folder_path: editSiteFolderPath || null, advisor_id: editSiteAdvisorId || null, employee_count: empCount }).eq('id', id);
     if (error) { flash(error.message, true); return; }
+    if (editSiteFolderPath) fetch('/api/datto/setup-site-folders', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ folderPath: editSiteFolderPath, siteId: id }) });
     flash('Site updated!'); setEditingSiteId(null); setShowEditSitePicker(false); setSiteServices([]); loadSites();
   };
 
@@ -2508,7 +2532,7 @@ const SuperadminPanel = () => {
               <FolderPickerField
                 folderId={siteFolderId} folderName={siteFolderName} showPicker={showSiteFolderPicker}
                 onOpenPicker={(v: boolean) => setShowSiteFolderPicker(v)}
-                onSelectFolder={(name: string, id: string, _path: string) => { setSiteFolderName(name); setSiteFolderId(id); setShowSiteFolderPicker(false); }}
+                onSelectFolder={(name: string, id: string, _path: string) => { setSiteFolderName(name); setSiteFolderId(id); setSiteFolderPath(_path); setShowSiteFolderPicker(false); }}
                 onNavigate={(name: string, id: string) => { setSitePickerCurrentName(name); setSitePickerCurrentId(id); }}
                 orgForPicker={selectedOrgForSitePicker} labelText="Datto Folder" labelHint="optional — if blank, uses the organisation folder"
               />
@@ -3010,6 +3034,76 @@ const FolderCheckboxTree = ({ folderId, folderName, depth, includedIds, onToggle
   );
 };
 
+const DattoPathModal = ({ userId, currentPath, onClose, onSave }: {
+  userId: string; currentPath: string; onClose: () => void; onSave: (path: string) => void;
+}) => {
+  const [path, setPath] = useState(currentPath || 'W:/Customer Documents');
+  const [detecting, setDetecting] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [detectError, setDetectError] = useState('');
+
+  const handleDetect = async () => {
+    setDetecting(true); setDetectError('');
+    try {
+      const res = await fetch('/api/datto/resolve-drive-path');
+      const json = await res.json();
+      if (json.path) {
+        setPath(json.path);
+        if (json.driveLetter) localStorage.setItem('dattoDriveLetter', json.driveLetter);
+      } else { setDetectError(json.error || 'Could not detect path'); }
+    } catch { setDetectError('Detection failed'); }
+    finally { setDetecting(false); }
+  };
+
+  const handleSave = async () => {
+    setSaving(true);
+    await fetch('/api/admin/users', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId, datto_base_path: path }),
+    });
+    setSaving(false);
+    onSave(path);
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6" onClick={e => e.stopPropagation()}>
+        <h2 className="font-black text-slate-900 text-base mb-1">Word Document Path</h2>
+        <p className="text-[11px] text-slate-500 mb-5 leading-relaxed">
+          The path used to open Word documents from your Datto drive. Click <strong>Detect</strong> to auto-fill from your local Datto drive mapping, or enter it manually.
+        </p>
+        <div className="flex gap-2 mb-2">
+          <input
+            type="text"
+            value={path}
+            onChange={e => setPath(e.target.value)}
+            className="flex-1 text-[12px] font-mono border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400"
+            placeholder="W:/Customer Documents"
+          />
+          <button
+            onClick={handleDetect}
+            disabled={detecting}
+            className="px-3 py-2 text-[11px] font-black uppercase tracking-widest bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg transition-colors disabled:opacity-50 whitespace-nowrap"
+          >
+            {detecting ? '…' : 'Detect'}
+          </button>
+        </div>
+        {detectError && <p className="text-[11px] text-rose-600 mb-3">{detectError}</p>}
+        <p className="text-[10px] text-slate-400 mb-5">
+          If your Office Trusted Location shows a <code>\\MachineName\Workplace\...</code> UNC path, enter that here instead of <code>W:/</code>.
+        </p>
+        <div className="flex gap-2 justify-end">
+          <button onClick={onClose} className="px-4 py-2 text-[11px] font-black uppercase tracking-widest text-slate-500 hover:text-slate-700 transition-colors">Cancel</button>
+          <button onClick={handleSave} disabled={saving} className="px-4 py-2 text-[11px] font-black uppercase tracking-widest bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl transition-colors disabled:opacity-50">
+            {saving ? 'Saving…' : 'Save'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 const SyncConfigModal = ({ site, onClose, onSave }: {
   site: Site; onClose: () => void; onSave: (siteId: string, includedIds: string[]) => void;
 }) => {
@@ -3152,6 +3246,7 @@ export default function App() {
   const [organisations, setOrganisations] = useState<Organisation[]>([]);
   const [allActions, setAllActions] = useState<Action[]>([]);
   const [showAddAction, setShowAddAction] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
   const [expandedActionId, setExpandedActionId] = useState<string | null>(null);
   const [expandedDocGroups, setExpandedDocGroups] = useState<Set<string>>(new Set());
   const [aiSyncing, setAiSyncing] = useState(false);
@@ -3163,6 +3258,9 @@ export default function App() {
   const [browserRootPath, setBrowserRootPath] = useState<string>('');
   const [fileSearchQuery, setFileSearchQuery] = useState('');
   const [searchFileCache, setSearchFileCache] = useState<{ siteId: string; files: (DattoItem & { folderPath: string })[] } | null>(null);
+  const [sectionFiles, setSectionFiles] = useState<Map<string, (DattoItem & { parentFolderId: string; folderPath: string })[]>>(new Map());
+  const [sectionLoading, setSectionLoading] = useState<Set<string>>(new Set());
+  const [expandedSubfolders, setExpandedSubfolders] = useState<Set<string>>(new Set());
   const [searchLoading, setSearchLoading] = useState(false);
   const [aiStatusMessage, setAiStatusMessage] = useState('');
   const [aiError, setAiError] = useState<string | null>(null);
@@ -3184,6 +3282,13 @@ export default function App() {
     supabase.from('profiles').select('*').eq('id', user.id).single().then(({ data }) => {
       if (data) {
         setProfile(data);
+        if (data.datto_base_path) {
+          localStorage.setItem('dattoBasePath', data.datto_base_path);
+          // Derive drive letter from stored UNC path if not already cached
+          if (!localStorage.getItem('dattoDriveLetter')) {
+            localStorage.setItem('dattoDriveLetter', 'W');
+          }
+        }
         if (data.role === 'superadmin') setView('admin');
         else setView('portfolio');
       }
@@ -3191,7 +3296,7 @@ export default function App() {
     fetch('/api/admin/users').then(r => r.json()).then(users => {
       setAdvisors((users as any[]).filter(u => u.profile?.role === 'advisor').map(u => ({ id: u.id, email: u.email })));
     }).catch(() => {});
-  }, [user]);
+  }, [user?.id]);
 
   useEffect(() => {
     if (!user || !profile) return;
@@ -3317,7 +3422,7 @@ export default function App() {
   const refreshComplianceScore = async (siteId: string) => {
     try {
       const [actRes, healthRes] = await Promise.all([
-        supabase.from('actions').select('source_document_name, issue_date').eq('site_id', siteId).not('source_document_name', 'is', null),
+        supabase.from('actions').select('source_document_name, issue_date').eq('site_id', siteId).not('source_document_name', 'is', null).is('site_document_id', null),
         supabase.from('document_health').select('document_name, review_due').eq('site_id', siteId),
       ]);
       const actions = actRes.data ?? [];
@@ -3388,11 +3493,13 @@ export default function App() {
   React.useEffect(() => {
     if (siteTab !== 'files' || !selectedSite?.datto_folder_id) return;
     if (folderData.has(selectedSite.datto_folder_id)) return;
+    setSectionFiles(new Map());
+    setSectionLoading(new Set());
+    setExpandedSubfolders(new Set());
     const init = async () => {
       const rootPath = await resolvePathFromRoot(selectedSite);
       setBrowserRootPath(rootPath);
       await loadFolder(selectedSite.datto_folder_id!, rootPath);
-      setExpandedFolderIds(new Set([selectedSite.datto_folder_id!]));
     };
     init();
   }, [siteTab, selectedSite?.id]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -3482,7 +3589,7 @@ export default function App() {
     for (const ra of toAdd) await handleAddReviewAction(ra.id);
   };
 
-  const EXCLUDED_FOLDERS = ['archive', 'evidence', 'photos', '_doc_converted_tmp'];
+  const EXCLUDED_FOLDERS = ['archive', 'evidence', 'photos', '_doc_converted_tmp', 'client provided documents'];
   const ROOT_FOLDER_ID = '1239993420';
 
   const fetchAllFiles = async (
@@ -3595,18 +3702,14 @@ export default function App() {
       const includedFolderIds = site.included_datto_folder_ids;
       let allItems;
       if (includedFolderIds && includedFolderIds.length > 0) {
-        // Opt-in mode: fetch files only from explicitly selected folders
-        const perFolder = await Promise.all(includedFolderIds.map(async (fId) => {
-          try {
-            const res = await fetch(`/api/datto?folderId=${fId}`);
-            if (!res.ok) return [];
-            const raw = await res.json();
-            return normaliseItems(raw)
-              .filter((i: DattoItem) => i.type === 'file')
-              .map((i: DattoItem) => ({ ...i, parentFolderId: fId, folderPath: rootPath }));
-          } catch { return []; }
-        }));
-        allItems = perFolder.flat();
+        // Opt-in mode: walk the full tree (so subfolder paths are correct) then filter
+        // to only files whose direct parent is one of the selected folder IDs.
+        // Previously fetched only direct children with folderPath = rootPath, which
+        // lost the subfolder path and broke the W: drive "Open Doc" link.
+        const includedSet = new Set(includedFolderIds.map(String));
+        const userExcludedIds = new Set(site.excluded_datto_folder_ids ?? []);
+        const allFilesFromRoot = await fetchAllFiles(site.datto_folder_id, userExcludedIds, rootPath);
+        allItems = allFilesFromRoot.filter(f => includedSet.has(String(f.parentFolderId)));
       } else {
         // Fallback: old exclusion model
         const userExcludedIds = new Set(site.excluded_datto_folder_ids ?? []);
@@ -3630,6 +3733,26 @@ export default function App() {
         }
       }
       docxFiles = Array.from(stemMap.values());
+
+      // True two-way sync: remove portal actions for docs no longer present in Datto.
+      // Covers AI-sync-only docs (no site_documents entry) — the site_documents cascade in
+      // /api/documents handles upload-linked docs separately.
+      {
+        const allDattoFileIds = new Set(allItems.map((f: any) => String(f.id)));
+        const uniquePortalDocIds = [
+          ...new Set(
+            currentActions
+              .filter((a: Action) => a.source_document_id && !a.dattoFileId)
+              .map((a: Action) => String(a.source_document_id))
+          )
+        ];
+        const missingDocIds = uniquePortalDocIds.filter(id => !allDattoFileIds.has(id));
+        if (missingDocIds.length > 0) {
+          const missingSet = new Set(missingDocIds);
+          await supabase.from('actions').delete().in('source_document_id', missingDocIds).eq('site_id', site.id);
+          setAllActions(prev => prev.filter(a => !missingSet.has(String(a.source_document_id))));
+        }
+      }
 
       const THREE_YEARS_AGO = new Date(Date.now() - 3 * 365 * 24 * 60 * 60 * 1000).getTime();
       if (!forceAll && site.last_ai_sync) {
@@ -3989,7 +4112,7 @@ export default function App() {
           {profile?.role === 'superadmin' && <button onClick={() => setView('admin')} className={`p-3 rounded-xl transition-all ${view === 'admin' ? 'bg-indigo-700 text-white shadow-inner' : 'hover:text-white hover:bg-white/5'}`} title="Admin Panel"><Shield size={22} /></button>}
           {(profile?.role === 'advisor' || (profile?.role === 'client' && sites.length > 1)) && <button onClick={() => { setView('portfolio'); setSelectedSite(null); }} className={`p-3 rounded-xl transition-all ${view === 'portfolio' ? 'bg-indigo-700 text-white shadow-inner' : 'hover:text-white hover:bg-white/5'}`} title="Dashboard"><Layout size={22} /></button>}
           {(profile?.role === 'advisor' || profile?.role === 'client') && <button onClick={() => { setView('site'); if (sites.length > 0 && !selectedSite) setSelectedSite(sites[0]); }} className={`p-3 rounded-xl transition-all ${view === 'site' ? 'bg-indigo-700 text-white shadow-inner' : 'hover:text-white hover:bg-white/5'}`} title="Action Plans"><ClipboardList size={22} /></button>}
-          <button className="p-3 rounded-xl hover:text-white hover:bg-white/5" title="Settings"><Settings size={22} /></button>
+          {(profile?.role === 'advisor' || profile?.role === 'superadmin') && <button onClick={() => setShowSettings(true)} className="p-3 rounded-xl hover:text-white hover:bg-white/5" title="Settings"><Settings size={22} /></button>}
         </nav>
         <div className="mt-auto flex flex-col gap-5 items-center">
           {profile?.role === 'advisor' && <button onClick={handleDattoSync} className={`p-3 rounded-xl transition-all ${isSyncing ? 'text-white animate-spin' : 'hover:text-white hover:bg-white/5'}`} title="Sync"><RefreshCw size={22} /></button>}
@@ -4625,9 +4748,15 @@ export default function App() {
                 }} />
               )}
 
-              {/* ── Files browser tab ── */}
+              {/* ── Files browser tab — accordion style ── */}
               {siteTab === 'files' && selectedSite.datto_folder_id && (() => {
                 const role = profile?.role || 'client';
+                const rootEntry = folderData.get(selectedSite.datto_folder_id!);
+                const rootItems = rootEntry ? [...rootEntry.items].sort((a, b) =>
+                  a.type === b.type ? a.name.localeCompare(b.name) : a.type === 'folder' ? -1 : 1
+                ) : [];
+                const rootFolders = rootItems.filter(i => i.type === 'folder');
+                const rootFiles = rootItems.filter(i => i.type === 'file');
 
                 const handleSearchChange = async (q: string) => {
                   setFileSearchQuery(q);
@@ -4641,63 +4770,45 @@ export default function App() {
                   }
                 };
 
-                const toggleFolder = async (folder: DattoItem, parentPath: string) => {
-                  const folderPath = parentPath ? `${parentPath}/${folder.name}` : folder.name;
+                const toggleSection = async (folder: DattoItem) => {
                   if (expandedFolderIds.has(folder.id)) {
-                    setExpandedFolderIds(prev => { const s = new Set(prev); s.delete(folder.id); return s; });
+                    setExpandedFolderIds(new Set());
                   } else {
-                    setExpandedFolderIds(prev => { const s = new Set(prev); s.add(folder.id); return s; });
-                    if (!folderData.has(folder.id)) await loadFolder(folder.id, folderPath);
+                    setExpandedFolderIds(new Set([folder.id]));
+                    if (!sectionFiles.has(folder.id)) {
+                      setSectionLoading(prev => { const s = new Set(prev); s.add(folder.id); return s; });
+                      try {
+                        const folderPath = rootEntry ? `${rootEntry.path}/${folder.name}` : folder.name;
+                        const all = await fetchAllFiles(folder.id, new Set(), folderPath, true);
+                        setSectionFiles(prev => new Map(prev).set(folder.id, all.filter(f => f.type === 'file')));
+                      } finally {
+                        setSectionLoading(prev => { const s = new Set(prev); s.delete(folder.id); return s; });
+                      }
+                    }
                   }
                 };
 
-                const renderTree = (folderId: string, depth = 0): React.ReactNode => {
-                  const entry = folderData.get(folderId);
-                  if (!entry) return null;
-                  const sorted = [...entry.items].sort((a, b) =>
-                    a.type === b.type ? a.name.localeCompare(b.name) : a.type === 'folder' ? -1 : 1
+                const renderFileRow = (file: DattoItem & { folderPath?: string }, subPath?: string) => {
+                  const badge = fileTypeBadge(file.name);
+                  const href = getFileHref(file, file.folderPath || browserRootPath, role);
+                  const isOfficeLink = href.startsWith('ms-');
+                  return (
+                    <a
+                      key={file.id}
+                      href={href}
+                      target={isOfficeLink ? undefined : '_blank'}
+                      rel={isOfficeLink ? undefined : 'noopener noreferrer'}
+                      className="flex items-center gap-3 px-4 py-2.5 hover:bg-sky-50 group transition-colors"
+                      title={isOfficeLink ? 'Open in Word/Excel from mapped drive' : undefined}
+                    >
+                      <span className={`text-[9px] font-black px-1.5 py-0.5 rounded flex-shrink-0 ${badge.cls}`}>{badge.label}</span>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-[12px] font-semibold text-slate-700 group-hover:text-sky-700 truncate">{file.name.replace(/\.[^.]+$/, '')}</p>
+                        {subPath && <p className="text-[10px] text-slate-400 truncate mt-0.5">{subPath}</p>}
+                      </div>
+                      {file.modified && <span className="text-[10px] text-slate-300 flex-shrink-0 tabular-nums">{new Date(file.modified).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: '2-digit' })}</span>}
+                    </a>
                   );
-                  return sorted.map(item => {
-                    if (item.type === 'folder') {
-                      const isExpanded = expandedFolderIds.has(item.id);
-                      const isLoading = loadingFolderIds.has(item.id);
-                      return (
-                        <div key={item.id}>
-                          <button
-                            onClick={() => toggleFolder(item, entry.path)}
-                            className="w-full flex items-center gap-2 px-4 py-2 hover:bg-slate-50 text-left group transition-colors"
-                            style={{ paddingLeft: `${16 + depth * 20}px` }}
-                          >
-                            <span className={`text-slate-400 transition-transform flex-shrink-0 ${isExpanded ? 'rotate-90' : ''}`}>
-                              {isLoading ? <span className="inline-block w-3 h-3 border-2 border-slate-300 border-t-sky-500 rounded-full animate-spin" /> : '▶'}
-                            </span>
-                            <span className="text-slate-400 flex-shrink-0">📁</span>
-                            <span className="text-[12px] font-bold text-slate-700 truncate flex-1">{item.name}</span>
-                          </button>
-                          {isExpanded && renderTree(item.id, depth + 1)}
-                        </div>
-                      );
-                    } else {
-                      const badge = fileTypeBadge(item.name);
-                      const href = getFileHref(item, entry.path, role);
-                      const isOfficeLink = href.startsWith('ms-');
-                      return (
-                        <a
-                          key={item.id}
-                          href={href}
-                          target={isOfficeLink ? undefined : '_blank'}
-                          rel={isOfficeLink ? undefined : 'noopener noreferrer'}
-                          className="flex items-center gap-2.5 px-4 py-1.5 hover:bg-sky-50 cursor-pointer group block"
-                          style={{ paddingLeft: `${36 + depth * 20}px` }}
-                          title={isOfficeLink ? 'Open in Word/Excel from mapped drive' : 'View as PDF'}
-                        >
-                          <span className={`text-[9px] font-black px-1.5 py-0.5 rounded flex-shrink-0 ${badge.cls}`}>{badge.label}</span>
-                          <span className="text-[12px] text-slate-600 group-hover:text-sky-700 truncate flex-1">{item.name}</span>
-                          {item.modified && <span className="text-[10px] text-slate-300 flex-shrink-0">{new Date(item.modified).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: '2-digit' })}</span>}
-                        </a>
-                      );
-                    }
-                  });
                 };
 
                 const searchResults = fileSearchQuery.trim() && searchFileCache
@@ -4705,48 +4816,136 @@ export default function App() {
                   : null;
 
                 return (
-                  <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+                  <div className="space-y-2">
                     {/* Search bar */}
-                    <div className="px-4 py-3 border-b border-slate-100 flex items-center gap-3">
+                    <div className="bg-white rounded-2xl border border-slate-200 shadow-sm px-4 py-3 flex items-center gap-3">
                       <Search size={14} className="text-slate-400 flex-shrink-0" />
                       <input
                         type="text"
-                        placeholder="Search files…"
+                        placeholder="Search all files…"
                         value={fileSearchQuery}
                         onChange={e => handleSearchChange(e.target.value)}
                         className="flex-1 text-sm text-slate-700 placeholder-slate-300 bg-transparent outline-none"
                       />
-                      {searchLoading && <span className="text-[10px] font-bold text-slate-400 animate-pulse">Loading…</span>}
+                      {searchLoading && <span className="text-[10px] font-bold text-slate-400 animate-pulse">Searching…</span>}
                       {fileSearchQuery && <button onClick={() => setFileSearchQuery('')} className="text-slate-300 hover:text-slate-500"><X size={13} /></button>}
                     </div>
 
-                    {/* Tree or search results */}
-                    <div className="divide-y divide-slate-50 py-1 max-h-[60vh] overflow-y-auto">
-                      {searchResults !== null ? (
-                        searchResults.length === 0 ? (
+                    {/* Search results */}
+                    {searchResults !== null ? (
+                      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+                        {searchResults.length === 0 ? (
                           <div className="p-8 text-center text-slate-400 text-sm font-bold">No files match "{fileSearchQuery}"</div>
                         ) : (
-                          searchResults.map(file => {
-                            const badge = fileTypeBadge(file.name);
-                            const href = getFileHref(file, file.folderPath, role);
-                            const isOfficeSearch = href.startsWith('ms-');
-                            return (
-                              <a key={file.id} href={href} target={isOfficeSearch ? undefined : '_blank'} rel={isOfficeSearch ? undefined : 'noopener noreferrer'} className="flex items-center gap-2.5 px-4 py-2 hover:bg-sky-50 cursor-pointer group block">
-                                <span className={`text-[9px] font-black px-1.5 py-0.5 rounded flex-shrink-0 ${badge.cls}`}>{badge.label}</span>
-                                <div className="flex-1 min-w-0">
-                                  <p className="text-[12px] font-bold text-slate-700 group-hover:text-sky-700 truncate">{file.name}</p>
-                                  {file.folderPath && <p className="text-[10px] text-slate-400 truncate">{file.folderPath}</p>}
+                          <div className="divide-y divide-slate-50">
+                            {searchResults.map(file => {
+                              const relPath = file.folderPath?.replace(browserRootPath, '').replace(/^\//, '') || '';
+                              return renderFileRow(file, relPath || undefined);
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    ) : loadingFolderIds.has(selectedSite.datto_folder_id!) && !rootEntry ? (
+                      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-8 text-center text-slate-400 text-sm font-bold animate-pulse">Loading…</div>
+                    ) : (
+                      <>
+                        {/* Accordion sections — one per top-level folder */}
+                        {rootFolders.map(folder => {
+                          const isExpanded = expandedFolderIds.has(folder.id);
+                          const isLoading = sectionLoading.has(folder.id);
+                          const files = sectionFiles.get(folder.id) ?? [];
+                          return (
+                            <div key={folder.id} className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+                              <button
+                                onClick={() => toggleSection(folder)}
+                                className="w-full flex items-center gap-3 px-4 py-3.5 hover:bg-slate-50 transition-colors text-left"
+                              >
+                                {isExpanded
+                                  ? <FolderOpen size={15} className="text-amber-400 flex-shrink-0" />
+                                  : <Folder size={15} className="text-amber-400 flex-shrink-0" />
+                                }
+                                <span className="text-[13px] font-bold text-slate-800 flex-1 truncate">{folder.name}</span>
+                                {isExpanded && files.length > 0 && (
+                                  <span className="text-[10px] font-bold text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full flex-shrink-0">{files.length}</span>
+                                )}
+                                {isLoading
+                                  ? <span className="inline-block w-3.5 h-3.5 border-2 border-slate-200 border-t-sky-500 rounded-full animate-spin flex-shrink-0" />
+                                  : <ChevronDown size={14} className={`text-slate-400 flex-shrink-0 transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
+                                }
+                              </button>
+                              {isExpanded && !isLoading && (
+                                <div className="border-t border-slate-100">
+                                  {files.length === 0 ? (
+                                    <p className="px-4 py-4 text-[12px] text-slate-400">No files found in this section.</p>
+                                  ) : (() => {
+                                    const sectionPath = `${rootEntry?.path}/${folder.name}`;
+                                    const grouped = new Map<string, typeof files>();
+                                    for (const file of files) {
+                                      const rel = file.folderPath?.replace(sectionPath, '').replace(/^\//, '') || '';
+                                      const existing = grouped.get(rel) ?? [];
+                                      existing.push(file);
+                                      grouped.set(rel, existing);
+                                    }
+                                    const sortedGroups = [...grouped.entries()].sort(([a], [b]) =>
+                                      !a ? -1 : !b ? 1 : a.localeCompare(b)
+                                    );
+                                    return sortedGroups.map(([groupPath, groupFiles]) => {
+                                      if (!groupPath) {
+                                        // Files directly in section root — always visible, no toggle
+                                        return (
+                                          <div key="__root__" className="divide-y divide-slate-50">
+                                            {groupFiles.map(file => renderFileRow(file))}
+                                          </div>
+                                        );
+                                      }
+                                      const subKey = `${folder.id}::${groupPath}`;
+                                      const isSubOpen = expandedSubfolders.has(subKey);
+                                      return (
+                                        <div key={groupPath}>
+                                          <button
+                                            onClick={() => setExpandedSubfolders(prev => {
+                                              const s = new Set([...prev].filter(k => !k.startsWith(`${folder.id}::`)));
+                                              if (!prev.has(subKey)) s.add(subKey);
+                                              return s;
+                                            })}
+                                            className="w-full px-4 py-2 bg-slate-50 border-y border-slate-100 flex items-center gap-2 hover:bg-slate-100 transition-colors text-left"
+                                          >
+                                            {isSubOpen
+                                              ? <FolderOpen size={11} className="text-amber-400 flex-shrink-0" />
+                                              : <Folder size={11} className="text-amber-300 flex-shrink-0" />
+                                            }
+                                            <span className="text-[11px] font-bold text-slate-600 flex-1">{groupPath}</span>
+                                            <span className="text-[10px] text-slate-400 mr-1">{groupFiles.length}</span>
+                                            <ChevronDown size={11} className={`text-slate-400 flex-shrink-0 transition-transform ${isSubOpen ? 'rotate-180' : ''}`} />
+                                          </button>
+                                          {isSubOpen && (
+                                            <div className="divide-y divide-slate-50">
+                                              {groupFiles.map(file => renderFileRow(file))}
+                                            </div>
+                                          )}
+                                        </div>
+                                      );
+                                    });
+                                  })()}
                                 </div>
-                              </a>
-                            );
-                          })
-                        )
-                      ) : loadingFolderIds.has(selectedSite.datto_folder_id!) && !folderData.has(selectedSite.datto_folder_id!) ? (
-                        <div className="p-8 text-center text-slate-400 text-sm font-bold animate-pulse">Loading files…</div>
-                      ) : (
-                        renderTree(selectedSite.datto_folder_id!)
-                      )}
-                    </div>
+                              )}
+                            </div>
+                          );
+                        })}
+
+                        {/* Any files sitting directly in the root (no subfolder) */}
+                        {rootFiles.length > 0 && (
+                          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+                            <div className="px-4 py-3 border-b border-slate-100">
+                              <span className="text-[11px] font-black uppercase tracking-widest text-slate-400">Other files</span>
+                            </div>
+                            <div className="divide-y divide-slate-50">
+                              {rootFiles.map(file => renderFileRow({ ...file, folderPath: rootEntry?.path ?? '' }))}
+                            </div>
+                          </div>
+                        )}
+                      </>
+                    )}
                   </div>
                 );
               })()}
@@ -4811,6 +5010,18 @@ export default function App() {
       </main>
       {showSyncConfig && selectedSite && (
         <SyncConfigModal site={selectedSite} onClose={() => setShowSyncConfig(false)} onSave={handleSaveSyncConfig} />
+      )}
+      {showSettings && profile && (profile.role === 'advisor' || profile.role === 'superadmin') && (
+        <DattoPathModal
+          userId={user.id}
+          currentPath={typeof window !== 'undefined' ? (localStorage.getItem('dattoBasePath') || '') : ''}
+          onClose={() => setShowSettings(false)}
+          onSave={(path) => {
+            localStorage.setItem('dattoBasePath', path);
+            setProfile(prev => prev ? { ...prev, datto_base_path: path } : prev);
+            setShowSettings(false);
+          }}
+        />
       )}
     </div>
   );

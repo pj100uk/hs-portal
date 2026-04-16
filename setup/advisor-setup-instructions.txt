@@ -1,0 +1,51 @@
+HS Portal - Advisor Machine Setup
+==================================
+
+QUICK SETUP
+-----------
+1. Make sure Datto WorkPlace is running
+2. Double-click advisor-setup.bat — no admin password needed
+3. Close and reopen Word
+4. In the HS Portal, open Settings (top right) and click "Auto-detect"
+   under Datto Path — this saves your drive mapping once
+
+That's it. Steps below are only needed if something doesn't work.
+
+
+WHAT IT DOES
+------------
+The script applies four changes to your Windows/Office profile:
+- Adds your computer to the Local Intranet security zone
+- Disables the Office hyperlink security prompt
+- Adds Datto WorkPlace as a Trusted Location in Word, Excel and PowerPoint
+- Works regardless of which drive letter Datto is mapped to
+
+
+KNOWN LIMITATION
+----------------
+A "Do you trust this content?" prompt may still appear the first time
+you open a document. Click Yes — this is a Windows security feature
+that cannot be fully suppressed. The file will open normally.
+
+
+TROUBLESHOOTING
+---------------
+Script says "W:\Customer Documents\ not found"
+  > Datto WorkPlace isn't running or W: isn't connected. Start it and retry.
+
+Word still shows a warning after running the script
+  > Make sure you fully closed and reopened Word (check Task Manager for
+    any WINWORD.EXE processes).
+
+File opens in Protected View (yellow banner)
+  > Open Word > File > Options > Trust Center > Trust Center Settings >
+    Trusted Locations. Confirm \\{YourComputerName}\Workplace\Customer
+    Documents\ is listed with Sub Folders = Allowed, and that
+    "Allow Trusted Locations on my network" is ticked at the bottom.
+
+File doesn't open at all
+  > Open Windows Explorer and check W:\Customer Documents\ is accessible.
+    If not, restart Datto WorkPlace.
+
+Need your computer name?
+  > Open Command Prompt and type: hostname

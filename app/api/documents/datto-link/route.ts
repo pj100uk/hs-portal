@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import Busboy from 'busboy';
 import { resolveClientDocsFolderId, BASE_URL, AUTH_HEADER } from '../../datto/folder-utils';
+import fs from 'fs';
+import path from 'path';
 
 export const runtime = 'nodejs';
 
@@ -10,14 +12,56 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
+const DATTO_DRIVE_ROOT = 'W:\\Customer Documents';
+
 function escapeRegex(s: string) {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/** Write file to W: drive and return the Datto file ID by listing the folder via API */
+async function writeViaDrive(
+  siteFolderPath: string,
+  targetFolderId: string,
+  fileName: string,
+  fileBuffer: Buffer,
+): Promise<string | null> {
+  const destDir = path.join(DATTO_DRIVE_ROOT, ...siteFolderPath.split('/'), 'Client Provided Documents');
+  const destPath = path.join(destDir, fileName);
+
+  // Ensure the folder exists (should already be there from setup-site-folders)
+  fs.mkdirSync(destDir, { recursive: true });
+  fs.writeFileSync(destPath, fileBuffer);
+  console.log('[datto-link] wrote file to W: drive:', destPath);
+
+  // Poll the Datto API for up to 5s to get the file ID
+  for (let i = 0; i < 5; i++) {
+    await new Promise(r => setTimeout(r, 1000));
+    try {
+      const listRes = await fetch(`${BASE_URL}/file/${targetFolderId}/files`, {
+        headers: { Authorization: AUTH_HEADER },
+        cache: 'no-store',
+      });
+      if (listRes.ok) {
+        const json = await listRes.json();
+        const arr: any[] = Array.isArray(json) ? json : (json.result ?? json.files ?? json.items ?? []);
+        const match = arr.find((i: any) => (i.name ?? i.fileName) === fileName);
+        if (match) {
+          const id = String(match.id ?? match.fileId ?? match.fileID ?? '');
+          if (id) { console.log('[datto-link] found file ID:', id); return id; }
+        }
+      }
+    } catch { /* retry */ }
+    console.log('[datto-link] poll attempt', i + 1, '— file not visible yet');
+  }
+
+  console.warn('[datto-link] file not found in Datto listing after 5s — ID will be null');
+  return null;
 }
 
 export async function POST(request: NextRequest) {
   try {
     const contentType = request.headers.get('content-type') ?? '';
-    const { fileBuffer, fileName, mimeType, documentId, oldDattoFileId } =
+    const { fileBuffer, fileName, documentId, oldDattoFileId } =
       await parseMultipart(request, contentType);
 
     if (!fileBuffer || !fileName) {
@@ -38,7 +82,7 @@ export async function POST(request: NextRequest) {
 
     const { data: site } = await supabase
       .from('sites')
-      .select('datto_folder_id')
+      .select('datto_folder_id, datto_folder_path')
       .eq('id', doc.site_id)
       .single();
 
@@ -46,22 +90,19 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ dattoFileId: null, noFolder: true });
     }
 
-    // Resolve or create "Client Provided Documents" subfolder (falls back to root if creation fails)
+    // Resolve the "Client Provided Documents" subfolder ID (find by name, don't create via API)
     const targetFolderId = await resolveClientDocsFolderId(site.datto_folder_id);
 
-    // If a previous version exists, rename it to v(n) dd-mm-yy before uploading new
+    // If replacing an existing file — rename old version with v(n) date suffix via W: drive
     if (oldDattoFileId) {
       try {
-        // Get old file's current name
         const metaRes = await fetch(`${BASE_URL}/file/${oldDattoFileId}`, {
           headers: { Authorization: AUTH_HEADER },
           cache: 'no-store',
         });
-        const oldName: string = metaRes.ok
-          ? ((await metaRes.json()).name ?? fileName)
-          : fileName;
+        const oldName: string = metaRes.ok ? ((await metaRes.json()).name ?? fileName) : fileName;
 
-        // Scan folder to determine next version number
+        // Determine next version number from folder listing
         let versionNum = 1;
         try {
           const listRes = await fetch(`${BASE_URL}/file/${targetFolderId}/files`, {
@@ -90,40 +131,37 @@ export async function POST(request: NextRequest) {
           ? `${oldName.slice(0, dotIndex)} v${versionNum} ${dd}-${mm}-${yy}${oldName.slice(dotIndex)}`
           : `${oldName} v${versionNum} ${dd}-${mm}-${yy}`;
 
-        await fetch(`${BASE_URL}/file/${oldDattoFileId}?name=${encodeURIComponent(archivedName)}`, {
-          method: 'PATCH',
-          headers: { Authorization: AUTH_HEADER },
-        });
+        // Rename via W: drive
+        if (site.datto_folder_path) {
+          const dir = path.join(DATTO_DRIVE_ROOT, ...site.datto_folder_path.split('/'), 'Client Provided Documents');
+          const oldPath = path.join(dir, oldName);
+          const newPath = path.join(dir, archivedName);
+          if (fs.existsSync(oldPath)) {
+            fs.renameSync(oldPath, newPath);
+            console.log('[datto-link] renamed old file:', oldName, '→', archivedName);
+          } else {
+            // Fallback: rename via Datto API PATCH
+            await fetch(`${BASE_URL}/file/${oldDattoFileId}?name=${encodeURIComponent(archivedName)}`, {
+              method: 'PATCH',
+              headers: { Authorization: AUTH_HEADER },
+            });
+          }
+        }
       } catch (err) {
         console.error('[datto-link] version rename failed:', err);
         // Non-fatal — continue with upload
       }
     }
 
-    // Upload new file with original name
-    const form = new FormData();
-    form.append('partData', new Blob([new Uint8Array(fileBuffer)], { type: mimeType ?? 'application/octet-stream' }), fileName);
-    form.append('fileName', fileName);
-    form.append('makeUnique', 'false');
-
-    const uploadRes = await fetch(`${BASE_URL}/file/${targetFolderId}/files`, {
-      method: 'POST',
-      headers: { Authorization: AUTH_HEADER },
-      body: form,
-    });
-
+    // Write new file via W: drive, get Datto file ID
     let dattoFileId: string | null = null;
-    if (uploadRes.ok) {
-      const uploaded = await uploadRes.json();
-      const raw = uploaded.value ?? uploaded.result ?? uploaded;
-      dattoFileId = String(raw.fileID ?? raw.id ?? raw.fileId ?? '') || null;
-      console.log('[datto-link] uploaded, dattoFileId:', dattoFileId);
+    if (site.datto_folder_path) {
+      dattoFileId = await writeViaDrive(site.datto_folder_path, targetFolderId, fileName, fileBuffer);
     } else {
-      const detail = await uploadRes.text();
-      console.error('[datto-link] Datto upload failed (non-fatal):', uploadRes.status, detail);
+      console.warn('[datto-link] no datto_folder_path on site — cannot write via W: drive');
     }
 
-    // Update Supabase record with Datto file info
+    // Update Supabase record
     await supabase
       .from('site_documents')
       .update({ datto_file_id: dattoFileId, datto_folder_id: targetFolderId })

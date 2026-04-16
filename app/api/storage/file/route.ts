@@ -30,6 +30,7 @@ const CONTENT_TYPES: Record<string, string> = {
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const docId = searchParams.get('docId');
+  const forceDownload = searchParams.get('download') === '1';
 
   if (!docId) return NextResponse.json({ error: 'docId required' }, { status: 400 });
 
@@ -54,7 +55,7 @@ export async function GET(request: NextRequest) {
     return new NextResponse(buffer, {
       headers: {
         'Content-Type': contentType,
-        'Content-Disposition': `inline; filename="${doc.file_name}"`,
+        'Content-Disposition': `${forceDownload ? 'attachment' : 'inline'}; filename="${doc.file_name}"`,
       },
     });
   }
@@ -71,7 +72,7 @@ export async function GET(request: NextRequest) {
   return new NextResponse(arrayBuffer, {
     headers: {
       'Content-Type': contentType,
-      'Content-Disposition': `inline; filename="${doc.file_name}"`,
+      'Content-Disposition': `${forceDownload ? 'attachment' : 'inline'}; filename="${doc.file_name}"`,
     },
   });
 }

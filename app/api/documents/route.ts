@@ -1,12 +1,28 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { recalcSiteCompliance } from './recalc-compliance';
-import { BASE_URL, AUTH_HEADER, resolveArchiveFolderId } from '../datto/folder-utils';
+import { BASE_URL, AUTH_HEADER } from '../datto/folder-utils';
+import fs from 'fs';
+import path from 'path';
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
+
+const DATTO_DRIVE_ROOT = 'W:\\Customer Documents';
+
+/** Resolve the W: drive path for a client-provided document */
+function clientDocPath(siteFolderPath: string, fileName: string) {
+  return path.join(DATTO_DRIVE_ROOT, ...siteFolderPath.split('/'), 'Client Provided Documents', fileName);
+}
+
+/** Resolve the W: drive path for the Archive folder (sibling of H&S Manual) */
+function archiveFolderPath(siteFolderPath: string) {
+  const parts = siteFolderPath.split('/');
+  const parentParts = parts.slice(0, -1); // strip the H&S Manual segment
+  return path.join(DATTO_DRIVE_ROOT, ...parentParts, 'Archive');
+}
 
 // GET /api/documents?siteId=xxx[&clientProvided=true|false]
 export async function GET(request: NextRequest) {
@@ -87,25 +103,64 @@ export async function PATCH(request: NextRequest) {
     .from('site_documents')
     .update({ document_name, document_type, issue_date: issue_date || null, expiry_date: expiry_date || null, people_mentioned, notes })
     .eq('id', documentId)
-    .select('site_id, datto_file_id, file_name')
+    .select('site_id, datto_file_id, file_name, client_provided')
     .single();
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  // If renaming and the doc has a Datto file, push the rename there too
-  if (document_name && data.datto_file_id) {
+  // Rename client-provided file on W: drive:
+  // 1. Copy old version → Archive/{originalName} v1 dd-mm-yy.ext
+  // 2. Rename current file in Client Provided Documents → newName.ext
+  if (document_name && data.datto_file_id && data.client_provided) {
     try {
-      const originalName: string = data.file_name ?? 'file';
-      const dotIndex = originalName.lastIndexOf('.');
-      const ext = dotIndex !== -1 ? originalName.slice(dotIndex) : '';
-      // Append extension only if the new name doesn't already have one
-      const newFileName = document_name.includes('.') ? document_name : `${document_name}${ext}`;
-      await fetch(`${BASE_URL}/file/${data.datto_file_id}?name=${encodeURIComponent(newFileName)}`, {
-        method: 'PATCH',
-        headers: { Authorization: AUTH_HEADER },
-      });
+      const { data: site } = await supabase
+        .from('sites')
+        .select('datto_folder_path')
+        .eq('id', data.site_id)
+        .single();
+
+      if (site?.datto_folder_path) {
+        const originalName: string = data.file_name ?? 'file';
+        const dotIndex = originalName.lastIndexOf('.');
+        const ext = dotIndex !== -1 ? originalName.slice(dotIndex) : '';
+        const newFileName = document_name.includes('.') ? document_name : `${document_name}${ext}`;
+        const srcPath = clientDocPath(site.datto_folder_path, originalName);
+
+        if (fs.existsSync(srcPath)) {
+          // Step 1 — archive old version with next version number
+          const now = new Date();
+          const dd = String(now.getDate()).padStart(2, '0');
+          const mm = String(now.getMonth() + 1).padStart(2, '0');
+          const yy = String(now.getFullYear()).slice(2);
+          const baseName = dotIndex !== -1 ? originalName.slice(0, dotIndex) : originalName;
+          const archiveDir = archiveFolderPath(site.datto_folder_path);
+          fs.mkdirSync(archiveDir, { recursive: true });
+          // Find next version number by scanning Archive for existing versions of this file
+          let versionNum = 1;
+          try {
+            const existing = fs.readdirSync(archiveDir);
+            const vRegex = new RegExp(`^${baseName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} v(\\d+)`, 'i');
+            const maxV = existing.reduce((max, f) => {
+              const m = f.match(vRegex);
+              return m ? Math.max(max, parseInt(m[1], 10)) : max;
+            }, 0);
+            versionNum = maxV + 1;
+          } catch { /* default to v1 */ }
+          const archivedName = `${baseName} v${versionNum} ${dd}-${mm}-${yy}${ext}`;
+          fs.copyFileSync(srcPath, path.join(archiveDir, archivedName));
+          console.log('[documents] archived old version → Archive/', archivedName);
+
+          // Step 2 — rename in place
+          const newPath = clientDocPath(site.datto_folder_path, newFileName);
+          fs.renameSync(srcPath, newPath);
+          await supabase.from('site_documents').update({ file_name: newFileName }).eq('id', documentId);
+          console.log('[documents] renamed on W: drive:', originalName, '→', newFileName);
+        } else {
+          console.warn('[documents] file not found on W: drive for rename:', srcPath);
+        }
+      }
     } catch (err) {
-      console.error('[documents] Datto rename failed:', err);
+      console.error('[documents] W: drive rename failed:', err);
     }
   }
 
@@ -161,73 +216,42 @@ export async function DELETE(request: NextRequest) {
       .is('site_document_id', null);
   }
 
-  // Archive in Datto — move to Archive subfolder with OV- date suffix (non-fatal if it fails)
+  // Archive client-provided files on W: drive — rename with v1 date suffix and move to Archive
+  // Advisor docs (AI-synced) are left untouched in Datto; only the portal record is removed.
   // skipDattoRename is set when datto-link already handled the rename (replace duplicate flow)
-  if (data.datto_file_id && !body.skipDattoRename) {
+  if (data.client_provided && data.datto_file_id && !body.skipDattoRename) {
     try {
-      const now = new Date();
-      const dd = String(now.getDate()).padStart(2, '0');
-      const mm = String(now.getMonth() + 1).padStart(2, '0');
-      const yy = String(now.getFullYear()).slice(2);
+      const { data: siteData } = await supabase
+        .from('sites')
+        .select('datto_folder_path')
+        .eq('id', data.site_id)
+        .single();
 
-      const originalName: string = data.file_name ?? 'file';
-      const dotIndex = originalName.lastIndexOf('.');
-      const archivedName = dotIndex !== -1
-        ? `${originalName.slice(0, dotIndex)} v1 ${dd}-${mm}-${yy}${originalName.slice(dotIndex)}`
-        : `${originalName} v1 ${dd}-${mm}-${yy}`;
+      if (siteData?.datto_folder_path) {
+        const now = new Date();
+        const dd = String(now.getDate()).padStart(2, '0');
+        const mm = String(now.getMonth() + 1).padStart(2, '0');
+        const yy = String(now.getFullYear()).slice(2);
+        const originalName: string = data.file_name ?? 'file';
+        const dotIndex = originalName.lastIndexOf('.');
+        const archivedName = dotIndex !== -1
+          ? `${originalName.slice(0, dotIndex)} v1 ${dd}-${mm}-${yy}${originalName.slice(dotIndex)}`
+          : `${originalName} v1 ${dd}-${mm}-${yy}`;
 
-      // Resolve the archive folder — client uploads archive inside the client docs folder,
-      // advisor docs archive at the site root level
-      const archiveParentId = data.datto_folder_id ?? null;
-      const archiveFolderId = archiveParentId ? await resolveArchiveFolderId(archiveParentId) : null;
+        const srcPath = clientDocPath(siteData.datto_folder_path, originalName);
+        const archiveDir = archiveFolderPath(siteData.datto_folder_path);
+        const destPath = path.join(archiveDir, archivedName);
 
-      if (archiveFolderId) {
-        // Move = download + re-upload to archive folder + delete original
-        // (Datto PATCH only supports name/locked — no move parameter exists)
-        const downloadRes = await fetch(`${BASE_URL}/file/${data.datto_file_id}/data`, {
-          headers: { Authorization: AUTH_HEADER },
-        });
-        if (downloadRes.ok) {
-          const fileBytes = await downloadRes.arrayBuffer();
-          const form = new FormData();
-          form.append('partData', new Blob([fileBytes]), archivedName);
-          form.append('fileName', archivedName);
-          form.append('makeUnique', 'false');
-          const uploadRes = await fetch(`${BASE_URL}/file/${archiveFolderId}/files`, {
-            method: 'POST',
-            headers: { Authorization: AUTH_HEADER },
-            body: form,
-          });
-          if (uploadRes.ok) {
-            // Delete the original now the archive copy exists
-            await fetch(`${BASE_URL}/file/${data.datto_file_id}`, {
-              method: 'DELETE',
-              headers: { Authorization: AUTH_HEADER },
-            });
-          } else {
-            // Upload to archive failed — fall back to renaming in place
-            console.warn('[documents] Datto archive upload failed:', uploadRes.status);
-            await fetch(`${BASE_URL}/file/${data.datto_file_id}?name=${encodeURIComponent(archivedName)}`, {
-              method: 'PATCH',
-              headers: { Authorization: AUTH_HEADER },
-            });
-          }
+        if (fs.existsSync(srcPath)) {
+          fs.mkdirSync(archiveDir, { recursive: true });
+          fs.renameSync(srcPath, destPath);
+          console.log('[documents] archived on W: drive:', originalName, '→ Archive/', archivedName);
         } else {
-          // Download failed — fall back to renaming in place
-          await fetch(`${BASE_URL}/file/${data.datto_file_id}?name=${encodeURIComponent(archivedName)}`, {
-            method: 'PATCH',
-            headers: { Authorization: AUTH_HEADER },
-          });
+          console.warn('[documents] file not found on W: drive for archive:', srcPath);
         }
-      } else {
-        // No archive folder — rename in place as before
-        await fetch(`${BASE_URL}/file/${data.datto_file_id}?name=${encodeURIComponent(archivedName)}`, {
-          method: 'PATCH',
-          headers: { Authorization: AUTH_HEADER },
-        });
       }
     } catch (err) {
-      console.error('[documents] Datto archive failed:', err);
+      console.error('[documents] W: drive archive failed:', err);
     }
   }
 

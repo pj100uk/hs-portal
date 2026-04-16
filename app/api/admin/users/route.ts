@@ -55,14 +55,17 @@ export async function POST(request: NextRequest) {
   return NextResponse.json({ user: userData.user });
 }
 
-// PATCH — update a user's profile (organisation_id)
+// PATCH — update a user's profile (organisation_id, datto_base_path)
 export async function PATCH(request: NextRequest) {
-  const { userId, organisation_id } = await request.json();
+  const { userId, organisation_id, datto_base_path } = await request.json();
   if (!userId) return NextResponse.json({ error: 'userId is required' }, { status: 400 });
+
+  const updates: Record<string, unknown> = { organisation_id: organisation_id ?? null };
+  if (datto_base_path !== undefined) updates.datto_base_path = datto_base_path || null;
 
   const { error } = await supabaseAdmin
     .from('profiles')
-    .update({ organisation_id: organisation_id ?? null })
+    .update(updates)
     .eq('id', userId);
 
   if (error) return NextResponse.json({ error: error.message }, { status: 400 });

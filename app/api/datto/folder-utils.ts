@@ -4,7 +4,6 @@ export const BASE_URL = 'https://eu.workplace.datto.com/2/api/v1';
 export const AUTH_HEADER = 'Basic ' + Buffer.from(`${CLIENT_ID}:${CLIENT_SECRET}`).toString('base64');
 
 const CLIENT_DOCS_FOLDER_NAME = 'Client Provided Documents';
-const ARCHIVE_FOLDER_NAME = 'Archive';
 
 /** Extract ID from a Datto item response — matches all known field variants */
 function extractId(item: any): string | null {
@@ -78,20 +77,6 @@ async function resolveSubfolder(parentFolderId: string, folderName: string): Pro
   }
 
   return { id: null, error: `Datto folder create failed (${createRes.status}): ${createBody}` };
-}
-
-/**
- * Returns the ID of the "Archive" subfolder under the given parent folder,
- * creating it if it doesn't exist.
- */
-export async function resolveArchiveFolderId(parentFolderId: string): Promise<string | null> {
-  try {
-    const { id } = await resolveSubfolder(parentFolderId, ARCHIVE_FOLDER_NAME);
-    return id;
-  } catch (err) {
-    console.error('[folder-utils] resolveArchiveFolderId exception:', err);
-    return null;
-  }
 }
 
 /**

@@ -68,6 +68,18 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: insertErr.message }, { status: 500 });
     }
 
+    // Save file to Supabase Storage so the viewer can open it
+    const storagePath = `${doc.id}/${fileName}`;
+    const { error: storageErr } = await supabase.storage
+      .from('client-uploads')
+      .upload(storagePath, fileBuffer!, { contentType: mimeType, upsert: true });
+
+    if (storageErr) {
+      // Clean up the DB record if storage failed
+      await supabase.from('site_documents').delete().eq('id', doc.id);
+      return NextResponse.json({ error: `Storage upload failed: ${storageErr.message}` }, { status: 500 });
+    }
+
     await recalcSiteCompliance(siteId, supabase);
 
     return NextResponse.json({ documentId: doc.id, duplicateId, duplicateName, duplicateDattoFileId });
