@@ -58,6 +58,6 @@ export async function POST(request: NextRequest) {
 
   const action_progress = totalPoints === 0 ? 100 : Math.round((resolvedPoints / totalPoints) * 100);
   await supabase.from('sites').update({ action_progress }).eq('id', body.site_id);
-  await recalcSiteCompliance(body.site_id, supabase);
+  await recalcSiteCompliance(body.site_id, supabase).catch((e) => { console.error('[recalc] recalcSiteCompliance failed:', e?.message ?? e); });
   return NextResponse.json({ action_progress });
 }

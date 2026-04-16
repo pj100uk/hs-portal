@@ -230,7 +230,7 @@ const getSiteIcon = (type: string, size = 20) => {
 
 const priorityConfig = {
   red:   { label: 'Overdue',   bg: 'bg-rose-50',    border: 'border-rose-200',    text: 'text-rose-700',    bar: 'bg-rose-500',    dot: 'bg-rose-500',    badge: 'bg-rose-100 text-rose-700 border-rose-200' },
-  amber: { label: 'Upcoming',  bg: 'bg-amber-50',   border: 'border-amber-200',   text: 'text-amber-700',   bar: 'bg-amber-500',   dot: 'bg-amber-500',   badge: 'bg-amber-100 text-amber-700 border-amber-200' },
+  amber: { label: 'Upcoming',  bg: 'bg-amber-100',  border: 'border-amber-200',   text: 'text-amber-700',   bar: 'bg-amber-500',   dot: 'bg-amber-500',   badge: 'bg-amber-200 text-amber-800 border-amber-300' },
   green: { label: 'Scheduled', bg: 'bg-emerald-50', border: 'border-emerald-200', text: 'text-emerald-700', bar: 'bg-emerald-500', dot: 'bg-emerald-500', badge: 'bg-emerald-100 text-emerald-700 border-emerald-200' },
 };
 
@@ -564,25 +564,23 @@ const ActionCard = ({ action, isResolved, onToggleResolve, onAddNote, onDelete, 
               {(action as any).isSuggested &&<span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-lg border border-violet-200 text-violet-600 bg-violet-50 flex-shrink-0">AI Suggested</span>}
             </div>
             <div className="flex items-center gap-2 flex-shrink-0">
+              {action.riskLevel && (() => {
+                const riskDarkCls = action.riskLevel === 'HIGH' ? 'bg-rose-600 text-white border-rose-700'
+                  : action.riskLevel === 'MEDIUM' ? 'bg-orange-200 text-orange-800 border-orange-300'
+                  : 'bg-emerald-200 text-emerald-800 border-emerald-300';
+                return <span className={`text-[10px] font-black uppercase w-28 py-1 rounded-full border text-center ${riskDarkCls}`}>{action.riskLevel} Risk</span>;
+              })()}
               {isResolved ? (
-                <span className="text-[10px] font-black uppercase px-2.5 py-1 rounded-lg border bg-white border-slate-200 text-slate-400">Resolved</span>
+                <span className="text-[10px] font-black uppercase w-28 py-1 rounded-full border text-center bg-white border-slate-200 text-slate-400">Resolved</span>
               ) : isOngoing ? (
-                <span className="text-[10px] font-black uppercase px-2.5 py-1 rounded-lg border bg-emerald-50 border-emerald-200 text-emerald-700">Ongoing</span>
+                <span className="text-[10px] font-black uppercase w-28 py-1 rounded-full border text-center bg-emerald-50 border-emerald-200 text-emerald-700">Ongoing</span>
               ) : (
-                <>
-                  {(() => {
-                    const dueLightCls = derivedPriority === 'red' ? 'bg-rose-200 text-rose-700 border-rose-300'
-                      : derivedPriority === 'amber' ? 'bg-amber-50 text-amber-500 border-amber-100'
-                      : 'bg-emerald-50 text-emerald-500 border-emerald-100';
-                    return <span className={`text-[10px] font-black uppercase px-2.5 py-1 rounded-lg border ${dueLightCls}`}>{derivedLabel}</span>;
-                  })()}
-                  {action.riskLevel && (() => {
-                    const riskDarkCls = action.riskLevel === 'HIGH' ? 'bg-rose-600 text-white border-rose-700'
-                      : action.riskLevel === 'MEDIUM' ? 'bg-orange-200 text-orange-800 border-orange-300'
-                      : 'bg-emerald-200 text-emerald-800 border-emerald-300';
-                    return <span className={`text-[10px] font-black uppercase py-1 rounded-lg border w-24 text-center inline-block ${riskDarkCls}`}>{action.riskLevel} Risk</span>;
-                  })()}
-                </>
+                (() => {
+                  const dueLightCls = derivedPriority === 'red' ? 'bg-rose-200 text-rose-700 border-rose-300'
+                    : derivedPriority === 'amber' ? 'bg-amber-200 text-amber-800 border-amber-300'
+                    : 'bg-emerald-50 text-emerald-500 border-emerald-100';
+                  return <span className={`text-[10px] font-black uppercase w-28 py-1 rounded-full border text-center ${dueLightCls}`}>{derivedLabel}</span>;
+                })()
               )}
             </div>
           </div>
@@ -690,21 +688,13 @@ const ActionCard = ({ action, isResolved, onToggleResolve, onAddNote, onDelete, 
             </div>
           )}
           <div><p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1.5">Requirement Detail</p><p className="text-sm text-slate-700 leading-relaxed">{action.description}</p></div>
-          {/* AI Suggestion mini-card */}
-          {action.riskRating && (
+          {/* AI Suggestion mini-card — only shown when there's a regulation to display */}
+          {action.regulation && (
             <div className="rounded-xl border border-violet-100 bg-violet-50/60 px-4 py-3 space-y-1.5">
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-[10px] font-black uppercase tracking-wider text-violet-500 flex items-center gap-1.5">
-                  <Sparkles size={10} />AI Suggestion
-                </span>
-                <span className={`px-2 py-0.5 rounded-md text-[10px] font-black border ${
-                  action.riskLevel === 'HIGH' ? 'bg-rose-100 text-rose-700 border-rose-200' :
-                  action.riskLevel === 'MEDIUM' ? 'bg-amber-100 text-amber-700 border-amber-200' :
-                  action.riskLevel === 'LOW' ? 'bg-emerald-100 text-emerald-700 border-emerald-200' :
-                  'bg-slate-100 text-slate-600 border-slate-200'
-                }`}>Risk: {action.riskRating}</span>
-              </div>
-              {action.regulation && <p className="text-[11px] text-slate-600"><span className="font-black">Regulation:</span> {action.regulation}</p>}
+              <span className="text-[10px] font-black uppercase tracking-wider text-violet-500 flex items-center gap-1.5">
+                <Sparkles size={10} />AI Suggestion
+              </span>
+              <p className="text-[11px] text-slate-600"><span className="font-black">Regulation:</span> {action.regulation}</p>
             </div>
           )}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -1194,7 +1184,7 @@ const DocumentCard = ({ doc, role, userId, actions, onDelete, onRename, onToggle
           ) : (
             <div className="flex items-start justify-between gap-3 flex-wrap">
               <div className="flex items-center gap-1.5 flex-wrap min-w-0">
-                {doc.client_provided && <Upload size={12} className="text-indigo-400 flex-shrink-0" title="Client provided" />}
+                {doc.client_provided && <span title="Client provided"><Upload size={12} className="text-indigo-400 flex-shrink-0" /></span>}
                 <span className="font-bold text-[12px] leading-snug text-slate-900">{doc.document_name || doc.file_name}</span>
                 {doc.document_type && <><span className="text-slate-300 text-[11px]">|</span><span className="text-[11px] font-bold text-slate-500">{doc.document_type}</span></>}
                 {doc.issue_date && <><span className="text-slate-300 text-[11px]">|</span><span className="text-[12px] font-medium text-slate-500 flex-shrink-0"><span className="text-slate-400 font-normal">Issued: </span>{fmt(doc.issue_date)}</span></>}
@@ -2986,7 +2976,7 @@ const SuperadminPanel = () => {
 // ─── Sync Config Modal ────────────────────────────────────────────────────────
 const FolderCheckboxTree = ({ folderId, folderName, depth, includedIds, onToggle }: {
   folderId: string; folderName: string; depth: number;
-  includedIds: Set<string>; onToggle: (id: string) => void;
+  includedIds: Set<string>; onToggle: (id: string, name: string) => void;
 }) => {
   const [expanded, setExpanded] = useState(true);
   const [children, setChildren] = useState<DattoItem[] | null>(null);
@@ -3020,15 +3010,18 @@ const FolderCheckboxTree = ({ folderId, folderName, depth, includedIds, onToggle
         <button onClick={handleExpand} className="w-4 h-4 flex items-center justify-center text-slate-300 hover:text-slate-500 flex-shrink-0">
           {loading ? <span className="text-[9px] animate-pulse">…</span> : expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
         </button>
-        <input type="checkbox" checked={isIncluded} onChange={() => onToggle(folderId)} className="w-3.5 h-3.5 flex-shrink-0 accent-violet-600" />
+        <input type="checkbox" checked={isIncluded} onChange={() => onToggle(folderId, folderName)} className="w-3.5 h-3.5 flex-shrink-0 accent-violet-600" />
         <Folder size={13} className={isIncluded ? 'text-amber-400 flex-shrink-0' : 'text-slate-300 flex-shrink-0'} />
         <span className={`text-xs font-bold flex-1 truncate ${isIncluded ? 'text-slate-700' : 'text-slate-400'}`}>{folderName}</span>
+        {children !== null && children.length > 0 && (
+          <span className="text-[10px] text-slate-400 font-bold bg-slate-50 border border-slate-100 px-1.5 py-0.5 rounded flex-shrink-0">{children.length} folder{children.length !== 1 ? 's' : ''}</span>
+        )}
         {fileCount !== null && (
           <span className="text-[10px] text-slate-400 font-bold bg-slate-50 border border-slate-100 px-1.5 py-0.5 rounded flex-shrink-0">{fileCount} file{fileCount !== 1 ? 's' : ''}</span>
         )}
       </div>
       {expanded && children !== null && children.map(child => (
-        <FolderCheckboxTree key={child.id} folderId={child.id} folderName={child.name} depth={depth + 1} includedIds={includedIds} onToggle={onToggle} />
+        <FolderCheckboxTree key={child.id} folderId={child.id} folderName={child.name} depth={depth + 1} includedIds={includedIds} onToggle={(id, name) => onToggle(id, name)} />
       ))}
     </div>
   );
@@ -3110,29 +3103,34 @@ const SyncConfigModal = ({ site, onClose, onSave }: {
   const [includedFolders, setIncludedFolders] = useState<Map<string, string>>(
     new Map((site.included_datto_folder_ids ?? []).map(id => [id, id]))
   );
-  const [showPicker, setShowPicker] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState('');
 
-  const handleSelect = (name: string, id: string) => {
-    setIncludedFolders(prev => { const next = new Map(prev); next.set(id, name); return next; });
-    setShowPicker(false);
-  };
-
-  const handleRemove = (id: string) => {
-    setIncludedFolders(prev => { const next = new Map(prev); next.delete(id); return next; });
+  const handleToggle = (id: string, name: string) => {
+    setIncludedFolders(prev => {
+      const next = new Map(prev);
+      if (next.has(id)) { next.delete(id); } else { next.set(id, name); }
+      return next;
+    });
   };
 
   const handleSave = async () => {
     setSaving(true); setSaveError('');
     const includedArr = Array.from(includedFolders.keys());
-    const { error } = await supabase.from('sites').update({ included_datto_folder_ids: includedArr }).eq('id', site.id);
+    const { error } = await supabase.from('sites').update({ included_datto_folder_ids: includedArr, excluded_datto_folder_ids: [] }).eq('id', site.id);
     if (error) { setSaveError('Failed to save. Please try again.'); setSaving(false); return; }
+    // Delete actions from folders that were just removed from the included set
+    const oldIncluded = new Set((site.included_datto_folder_ids ?? []).map(String));
+    const removedFolders = [...oldIncluded].filter(id => !includedArr.includes(id));
+    if (removedFolders.length > 0) {
+      await supabase.from('actions').delete().eq('site_id', site.id).in('source_folder_id', removedFolders);
+    }
     onSave(site.id, includedArr);
     onClose();
   };
 
   if (!site.datto_folder_id) return null;
+  const includedIds = new Set(includedFolders.keys());
   return (
     <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
       <div className="bg-white rounded-3xl shadow-2xl w-full max-w-lg overflow-hidden">
@@ -3144,39 +3142,22 @@ const SyncConfigModal = ({ site, onClose, onSave }: {
           <button onClick={onClose} className="text-violet-200 hover:text-white"><X size={18} /></button>
         </div>
         <div className="bg-violet-50 border-b border-violet-100 px-6 py-3">
-          <p className="text-[11px] text-violet-700 font-bold">Select folders to include in AI Sync. Leave empty to scan all folders.</p>
+          <p className="text-[11px] text-violet-700 font-bold">Tick folders to include in AI Sync. Leave all unticked to scan everything.</p>
         </div>
-        <div className="px-4 py-4 space-y-3">
-          {/* Selected folders */}
-          {includedFolders.size > 0 && (
-            <div className="flex flex-wrap gap-2">
-              {Array.from(includedFolders.entries()).map(([id, name]) => (
-                <span key={id} className="flex items-center gap-1.5 px-3 py-1 bg-violet-100 text-violet-700 border border-violet-200 rounded-lg text-[11px] font-black">
-                  <Folder size={11} className="text-amber-400" />{name}
-                  <button onClick={() => handleRemove(id)} className="text-violet-400 hover:text-rose-500 ml-0.5"><X size={11} /></button>
-                </span>
-              ))}
-            </div>
-          )}
-          {/* Folder picker */}
-          {showPicker ? (
-            <DattoFolderPicker
-              startFolderId={site.datto_folder_id}
-              startFolderName={site.name}
-              onSelect={handleSelect}
-              onClose={() => setShowPicker(false)}
-            />
-          ) : (
-            <button onClick={() => setShowPicker(true)} className="w-full flex items-center justify-between gap-2 px-4 py-2.5 border border-slate-200 rounded-xl hover:border-violet-300 text-left">
-              <span className="text-slate-400 text-sm">Click to browse and add a folder…</span>
-              <FolderOpen size={16} className="text-slate-300" />
-            </button>
-          )}
+        {/* Checkbox folder tree */}
+        <div className="px-4 py-3 max-h-80 overflow-y-auto">
+          <FolderCheckboxTree
+            folderId={site.datto_folder_id}
+            folderName={site.name}
+            depth={0}
+            includedIds={includedIds}
+            onToggle={handleToggle}
+          />
         </div>
         <div className="bg-slate-50 border-t border-slate-100 px-6 py-4 flex items-center justify-between">
           <div>
             {includedFolders.size > 0 ? <span className="text-[11px] font-bold text-violet-600">{includedFolders.size} folder{includedFolders.size !== 1 ? 's' : ''} selected</span> : <span className="text-[11px] font-bold text-slate-400">No folders selected — will scan all</span>}
-            {saveError && <span className="text-[11px] font-bold text-rose-600">{saveError}</span>}
+            {saveError && <p className="text-[11px] font-bold text-rose-600 mt-1">{saveError}</p>}
           </div>
           <div className="flex gap-3">
             <button onClick={onClose} className="px-5 py-2 bg-white border border-slate-200 text-slate-500 rounded-xl text-[11px] font-black uppercase tracking-wider hover:bg-slate-50">Cancel</button>
@@ -3402,8 +3383,8 @@ export default function App() {
       const docIds = Array.from(new Set(data.map((a: any) => a.source_document_id).filter(Boolean)));
       const docMap: Record<string, string | null> = {};
       if (docIds.length > 0) {
-        const { data: docs } = await supabase.from('site_documents').select('id, datto_file_id').in('id', docIds);
-        (docs ?? []).forEach((d: any) => { docMap[d.id] = d.datto_file_id ?? null; });
+        const { data: docs } = await supabase.from('site_documents').select('id, datto_file_id').in('datto_file_id', docIds);
+        (docs ?? []).forEach((d: any) => { docMap[d.datto_file_id] = d.datto_file_id ?? null; });
       }
       setAllActions(data.filter((a: any) => !a.site_document_id).map((a: any) => ({ id: a.id, action: a.title, description: a.description || '', date: a.due_date || '', site: sites.find(s => s.id === a.site_id)?.name || '', who: a.responsible_person || '', contractor: a.contractor || '', source: a.source_document_name || '', source_document_id: a.source_document_id || '', priority: (priorityMap[a.priority] || 'green') as Priority, regulation: a.regulation || '', notes: '', status: a.status as ActionStatus, hazardRef: a.hazard_ref || null, hazard: a.hazard || null, existingControls: a.existing_controls || null, riskRating: a.risk_rating || null, riskLevel: a.risk_level || null, resolvedDate: a.resolved_date || null, sourceFolderId: a.source_folder_id || null, isSuggested: a.is_suggested ?? false, updatedAt: a.updated_at || null, sourceFolderPath: a.source_folder_path || null, issueDate: a.issue_date || null, _siteDocumentId: a.site_document_id || null, dattoFileId: a.source_document_id ? (docMap[a.source_document_id] ?? null) : null })));
     });
@@ -3660,8 +3641,14 @@ export default function App() {
     }
   };
 
+  const ukToIso = (raw: string): string => {
+    const m = raw.match(/^(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{2,4})$/);
+    if (!m) return raw;
+    const year = m[3].length === 2 ? `20${m[3]}` : m[3];
+    return `${year}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`;
+  };
   const resolveDueDate = (dueDate: string | null, dueDateRelative: string | null, assessmentDate: string | null): string | null => {
-    if (dueDate) return dueDate;
+    if (dueDate) return ukToIso(dueDate);
     if (!dueDateRelative) return null;
     const base = assessmentDate ? new Date(assessmentDate) : new Date();
     const lower = dueDateRelative.toLowerCase();
@@ -3674,7 +3661,8 @@ export default function App() {
     else return dueDateRelative; // pass through text like "Ongoing", "Continuous" etc.
     return base.toISOString().split('T')[0];
   };
-  const handleAiSync = async (site: Site, forceAll = false) => {
+  const [syncingDocId, setSyncingDocId] = useState<string | null>(null);
+  const handleAiSync = async (site: Site, forceAll = false, singleFileId?: string) => {
     if (!site.datto_folder_id) return;
     aiCancelledRef.current = false;
     setAiSyncing(true);
@@ -3692,8 +3680,8 @@ export default function App() {
       const freshDocIds = Array.from(new Set((freshActionsData ?? []).map((a: any) => a.source_document_id).filter(Boolean)));
       const freshDocMap: Record<string, string | null> = {};
       if (freshDocIds.length > 0) {
-        const { data: freshDocs } = await supabase.from('site_documents').select('id, datto_file_id').in('id', freshDocIds);
-        (freshDocs ?? []).forEach((d: any) => { freshDocMap[d.id] = d.datto_file_id ?? null; });
+        const { data: freshDocs } = await supabase.from('site_documents').select('id, datto_file_id').in('datto_file_id', freshDocIds);
+        (freshDocs ?? []).forEach((d: any) => { freshDocMap[d.datto_file_id] = d.datto_file_id ?? null; });
       }
       const currentActions: Action[] = freshActionsData ? freshActionsData.filter((a: any) => !a.site_document_id).map((a: any) => ({ id: a.id, action: a.title, description: a.description || '', date: a.due_date || '', site: sites.find(s => s.id === a.site_id)?.name || '', who: a.responsible_person || '', contractor: a.contractor || '', source: a.source_document_name || '', source_document_id: a.source_document_id || '', priority: (priorityMap[a.priority] || 'green') as Priority, regulation: a.regulation || '', notes: '', status: a.status as ActionStatus, hazardRef: a.hazard_ref || null, hazard: a.hazard || null, existingControls: a.existing_controls || null, riskRating: a.risk_rating || null, riskLevel: a.risk_level || null, resolvedDate: a.resolved_date || null, sourceFolderId: a.source_folder_id || null, isSuggested: a.is_suggested ?? false, dattoFileId: a.source_document_id ? (freshDocMap[a.source_document_id] ?? null) : null })) : allActions;
       setAllActions(currentActions);
@@ -3769,6 +3757,9 @@ export default function App() {
           if (!mod) return true;
           return new Date(mod).getTime() > THREE_YEARS_AGO;
         });
+      }
+      if (singleFileId) {
+        docxFiles = docxFiles.filter(f => String(f.id) === String(singleFileId));
       }
       if (docxFiles.length === 0) {
         setAiStatusMessage(site.last_ai_sync && !forceAll ? 'No new documents since last sync. Use "Sync all" to reprocess everything.' : 'No supported documents found in this folder.');
@@ -3854,9 +3845,9 @@ export default function App() {
           }
           const { actions, documentMeta } = await aiRes.json();
           console.log(`[AI-SYNC] ${doc.name} — Gemini returned ${(actions as ExtractedAction[]).length} actions:`);
-          (actions as ExtractedAction[]).forEach((a: ExtractedAction, i: number) => console.log(`  [${i}] hazardRef=${a.hazardRef ?? 'null'} | "${a.description}"`));
+          (actions as ExtractedAction[]).forEach((a: ExtractedAction, i: number) => console.log(`  [${i}] hazardRef=${a.hazardRef ?? 'null'} riskRating="${a.riskRating}" riskLevel=${a.riskLevel} | "${a.description}"`));
           // For DOCX: read action plan table to enrich AI actions with hazardRefs + two-way sync
-          type ReadRow = { hazardRef: string; actionText: string; responsiblePerson: string; targetDate: string; completedDate: string };
+          type ReadRow = { hazardRef: string; actionText: string; responsiblePerson: string; targetDate: string; completedDate: string; riskRating: string };
           let readRows: ReadRow[] = [];
           // Also fetch structured HTML hazard descriptions from the document parser
           let parsedHazards: { ref: string; description: string; existingControls?: string }[] = [];
@@ -3868,7 +3859,7 @@ export default function App() {
             try { if (readResRaw?.ok) { const { rows } = await readResRaw.json(); if (rows) readRows = rows; } } catch { /* non-fatal */ }
             try { if (hazardsResRaw?.ok) { const { hazards } = await hazardsResRaw.json(); if (hazards?.length > 0) parsedHazards = hazards; } } catch { /* non-fatal */ }
           }
-          console.log(`[AI-SYNC] ${doc.name} — readactions returned ${readRows.length} rows:`, readRows.map(r => `${r.hazardRef}:"${r.actionText}"`));
+          console.log(`[AI-SYNC] ${doc.name} — readactions returned ${readRows.length} rows:`, readRows.map(r => `${r.hazardRef}:"${r.actionText}" risk="${r.riskRating}"`));
 
           // Enrich AI actions that lack hazardRef by matching against action plan table rows
           if (readRows.length > 0) {
@@ -3894,9 +3885,35 @@ export default function App() {
 
           // Build a lookup: hazardRef → parsed HTML description from document parser
           const parsedHazardMap = new Map(parsedHazards.map(h => [String(h.ref), h]));
+          // Build a lookup: hazardRef → all readactions rows (multiple rows per ref allowed)
+          const readRowsByRef = new Map<string, typeof readRows>();
+          for (const r of readRows) {
+            if (!r.hazardRef) continue;
+            const key = String(r.hazardRef).trim();
+            if (!readRowsByRef.has(key)) readRowsByRef.set(key, []);
+            readRowsByRef.get(key)!.push(r);
+          }
+          // Find best-matching row for a hazardRef given an action text (exact → includes → first)
+          const bestReadRow = (hazardRef: string | null | undefined, actionText: string | null | undefined) => {
+            if (!hazardRef) return undefined;
+            const rows = readRowsByRef.get(String(hazardRef).trim());
+            if (!rows || rows.length === 0) return undefined;
+            if (rows.length === 1) return rows[0];
+            if (!actionText) return rows[0];
+            const norm = (s: string) => s.toLowerCase().replace(/\s+/g, ' ').trim();
+            const needle = norm(actionText);
+            const exact = rows.find(r => norm(r.actionText) === needle);
+            if (exact) return exact;
+            const includes = rows.find(r => norm(r.actionText).includes(needle) || needle.includes(norm(r.actionText)));
+            return includes ?? rows[0];
+          };
 
           const newActions: ReviewAction[] = (actions as ExtractedAction[]).map((a: ExtractedAction) => {
             const parsedH = a.hazardRef ? parsedHazardMap.get(String(a.hazardRef)) : undefined;
+            // Risk rating from the actions table takes precedence over Gemini's inference
+            const tableRow = bestReadRow(a.hazardRef, a.description);
+            const tableRiskRating = tableRow?.riskRating || null;
+            const tableRiskLevel = tableRiskRating ? (normaliseRiskLevel(tableRiskRating)?.toUpperCase() as 'HIGH' | 'MEDIUM' | 'LOW' | null ?? null) : null;
             const portalActionsForRef = a.hazardRef
               ? currentActions.filter(e => e.source_document_id === doc.id && e.site === site.name && String(e.hazardRef) === String(a.hazardRef))
               : [];
@@ -3924,6 +3941,9 @@ export default function App() {
               // Use document-parser HTML over Gemini plain text for structure-preserving rendering
               hazard: parsedH?.description ?? a.hazard,
               existingControls: parsedH?.existingControls ?? a.existingControls,
+              // Actions-table risk rating is authoritative — overrides Gemini's inferred value
+              riskRating: tableRiskRating ?? a.riskRating,
+              riskLevel: tableRiskLevel ?? a.riskLevel, // prefer table-derived level; fall back to Gemini
               dueDate: resolveDueDate(a.dueDate, a.dueDateRelative, documentMeta?.assessmentDate ?? null),
               id: `${doc.id}-${Math.random().toString(36).slice(2)}`,
               docName: doc.name,
@@ -3942,12 +3962,54 @@ export default function App() {
             setReviewActions(prev => [...prev, ...newActions]);
           }
 
-          // Update hazard/existing controls from AI extraction for already-existing actions
+          // Build a stable portal-action → Word-row pairing once, shared by both aiUpdates and two-way sync.
+          // This prevents the two blocks from making conflicting claims when portal action texts haven't
+          // been updated yet (aiUpdates runs before two-way sync updates texts in DB).
+          const normText = (s: string | null | undefined) => (s ?? '').toLowerCase().replace(/\s+/g, ' ').trim();
+          const docActionsForDoc = currentActions.filter((a: Action) => a.source_document_id === doc.id);
+          const rowPairingMap = new Map<string, typeof readRows[0]>(); // portal action id → matched Word row
+          if (readRows.length > 0) {
+            const claimedRowIdxByRef = new Map<string, Set<number>>();
+            for (const docAction of docActionsForDoc) {
+              if (!docAction.hazardRef) continue;
+              const ref = String(docAction.hazardRef).trim();
+              const allRows = readRowsByRef.get(ref) ?? [];
+              if (allRows.length === 0) continue;
+              const claimed = claimedRowIdxByRef.get(ref) ?? new Set<number>();
+              const available = allRows.map((r, i) => ({ r, i })).filter(({ i }) => !claimed.has(i));
+              if (available.length === 0) continue;
+              let best = available[0];
+              if (docAction.action && available.length > 1) {
+                const needle = normText(docAction.action);
+                const exact = available.find(({ r }) => normText(r.actionText) === needle);
+                const sub = !exact ? available.find(({ r }) => { const h = normText(r.actionText); return h.includes(needle) || needle.includes(h); }) : undefined;
+                best = exact ?? sub ?? available[0];
+              }
+              claimed.add(best.i);
+              claimedRowIdxByRef.set(ref, claimed);
+              rowPairingMap.set(docAction.id, best.r);
+            }
+          }
+
+          // Update hazard/existing controls/risk from AI extraction for already-existing actions.
+          // For each Gemini action (na), find the portal action whose paired Word row best matches na's text.
+          const claimedPortalActionIds = new Set<string>();
           for (const na of newActions.filter(n => n.added)) {
-            const existingAction = currentActions.find(existing =>
-              existing.source_document_id === doc.id && existing.hazardRef === na.hazardRef
+            const candidates = docActionsForDoc.filter(a =>
+              a.hazardRef === na.hazardRef && !claimedPortalActionIds.has(a.id)
             );
-            if (!existingAction) continue;
+            if (candidates.length === 0) continue;
+            // Prefer the portal action whose paired row action text matches na.description
+            let existingAction = candidates[0];
+            if (candidates.length > 1) {
+              const needle = normText(na.description);
+              const byRow = candidates.find(a => normText(rowPairingMap.get(a.id)?.actionText) === needle);
+              const byRowSub = !byRow ? candidates.find(a => { const h = normText(rowPairingMap.get(a.id)?.actionText); return h.includes(needle) || needle.includes(h); }) : undefined;
+              // Fall back to matching against portal action text
+              const byText = (!byRow && !byRowSub) ? candidates.find(a => normText(a.action) === needle) : undefined;
+              existingAction = byRow ?? byRowSub ?? byText ?? candidates[0];
+            }
+            claimedPortalActionIds.add(existingAction.id);
             const aiUpdates: Record<string, any> = {};
             // na.hazard/existingControls is now HTML from document parser; always update plain text, never downgrade HTML to plain text
             const existingHazardIsHtml = existingAction.hazard?.trimStart().startsWith('<');
@@ -3956,8 +4018,14 @@ export default function App() {
             const newControlsIsHtml = na.existingControls?.trimStart().startsWith('<');
             if (na.hazard && na.hazard !== existingAction.hazard && (!existingHazardIsHtml || newHazardIsHtml)) aiUpdates.hazard = na.hazard;
             if (na.existingControls && na.existingControls !== existingAction.existingControls && (!existingControlsIsHtml || newControlsIsHtml)) aiUpdates.existing_controls = na.existingControls;
-            if (na.riskRating && na.riskRating !== existingAction.riskRating) aiUpdates.risk_rating = na.riskRating;
-            if (na.riskLevel && na.riskLevel !== existingAction.riskLevel) aiUpdates.risk_level = na.riskLevel;
+            // Risk from the paired Word row (never from Gemini inference)
+            const pairedRow = rowPairingMap.get(existingAction.id);
+            const naTableRisk = pairedRow?.riskRating ?? bestReadRow(na.hazardRef, na.description)?.riskRating;
+            if (naTableRisk && naTableRisk !== existingAction.riskRating) {
+              aiUpdates.risk_rating = naTableRisk;
+              const derived = normaliseRiskLevel(naTableRisk)?.toUpperCase() as 'HIGH' | 'MEDIUM' | 'LOW' | undefined;
+              if (derived) aiUpdates.risk_level = derived;
+            }
             if (na.docFolderPath && na.docFolderPath !== existingAction.sourceFolderPath) aiUpdates.source_folder_path = na.docFolderPath;
             if (na.documentMeta?.assessmentDate && na.documentMeta.assessmentDate !== existingAction.issueDate) aiUpdates.issue_date = na.documentMeta.assessmentDate;
             if (Object.keys(aiUpdates).length > 0) {
@@ -3975,24 +4043,27 @@ export default function App() {
             }
           }
 
-          // Two-way sync: update existing portal actions from action plan table
+          // Two-way sync: update text/date/responsible on existing portal actions from Word action table.
+          // Uses the same rowPairingMap computed above so pairing is consistent with aiUpdates.
           if (readRows.length > 0) {
-            const docActions = currentActions.filter((a: Action) => a.source_document_id === doc.id);
-            for (const docAction of docActions) {
-              if (!docAction.hazardRef) continue;
-              const docRow = readRows.find(r => String(r.hazardRef).trim() === String(docAction.hazardRef).trim());
-              if (!docRow) continue;
+            console.log(`[TWO-WAY] ${doc.name} — ${docActionsForDoc.length} portal actions, ${readRows.length} table rows`);
+            for (const docAction of docActionsForDoc) {
+              if (!docAction.hazardRef) { console.log(`[TWO-WAY] skip — no hazardRef on portal action "${docAction.action}"`); continue; }
+              const docRow = rowPairingMap.get(docAction.id);
+              if (!docRow) { console.log(`[TWO-WAY] no table row for hazardRef="${docAction.hazardRef}"`); continue; }
+              console.log(`[TWO-WAY] ref=${docAction.hazardRef} tableDate="${docRow.targetDate}" portalDate="${docAction.date}"`);
               const updates: Partial<Action> = {};
               const supaUpdates: Record<string, any> = {};
               if (docRow.actionText && docRow.actionText !== docAction.action) { updates.action = docRow.actionText; supaUpdates.title = docRow.actionText; }
               if (docRow.responsiblePerson && docRow.responsiblePerson !== docAction.who) { updates.who = docRow.responsiblePerson; supaUpdates.responsible_person = docRow.responsiblePerson; }
               if (docRow.targetDate) {
-                const resolvedTarget = /^\d{4}-\d{2}-\d{2}$/.test(docRow.targetDate)
-                  ? docRow.targetDate
-                  : resolveDueDate(null, docRow.targetDate, documentMeta?.assessmentDate ?? docAction.issueDate ?? null);
+                const normalisedDate = ukToIso(docRow.targetDate);
+                const resolvedTarget = /^\d{4}-\d{2}-\d{2}$/.test(normalisedDate)
+                  ? normalisedDate
+                  : resolveDueDate(null, normalisedDate, documentMeta?.assessmentDate ?? docAction.issueDate ?? null);
                 if (resolvedTarget && resolvedTarget !== docAction.date) { updates.date = resolvedTarget; supaUpdates.due_date = resolvedTarget; }
               }
-              if (docRow.completedDate && !docAction.resolvedDate) { updates.resolvedDate = docRow.completedDate; updates.status = 'resolved'; supaUpdates.resolved_date = docRow.completedDate; supaUpdates.status = 'resolved'; }
+              if (docRow.completedDate && !docAction.resolvedDate) { const isoCompleted = ukToIso(docRow.completedDate); updates.resolvedDate = isoCompleted; updates.status = 'resolved'; supaUpdates.resolved_date = isoCompleted; supaUpdates.status = 'resolved'; }
               if (Object.keys(supaUpdates).length > 0) {
                 await supabase.from('actions').update(supaUpdates).eq('id', docAction.id);
                 setAllActions((prev: Action[]) => prev.map((a: Action) => a.id === docAction.id ? { ...a, ...updates } : a));
@@ -4030,6 +4101,10 @@ export default function App() {
   };
 
   const handleForceAiSync = (site: Site) => handleAiSync(site, true);
+  const handleSingleDocSync = (site: Site, fileId: string) => {
+    setSyncingDocId(fileId);
+    handleAiSync(site, true, fileId).finally(() => setSyncingDocId(null));
+  };
 
   const viewSites = filterOrgId ? sites.filter(s => s.organisation_id === filterOrgId) : sites;
   const viewActions = allActions.filter(a => viewSites.some(s => s.name === a.site));
@@ -4071,6 +4146,7 @@ export default function App() {
   const docGroups = Array.from(docGroupMap.entries())
     .map(([source, actions]) => ({
       source,
+      fileId: actions[0]?.source_document_id || null,
       displayName: source.replace(/\.[^.]+$/, ''),
       actions,
       hasRed: actions.some(a => derivePriority(a).priority === 'red'),
@@ -4698,23 +4774,33 @@ export default function App() {
               <div className="space-y-4">
                 {filteredActions.length === 0 ? (
                   <div className="bg-white rounded-2xl border border-slate-200 p-12 text-center"><CheckCircle2 size={32} className="text-emerald-400 mx-auto mb-3" /><p className="font-black text-slate-700">No actions for this site</p><p className="text-sm text-slate-400 mt-1">All items resolved or filtered out.</p></div>
-                ) : docGroups.map(({ source, displayName, actions, redCount, amberCount, highRiskCount, hasRed, hasAmber }) => {
+                ) : docGroups.map(({ source, fileId, displayName, actions, redCount, amberCount, highRiskCount, hasRed, hasAmber }) => {
                   const isOpen = expandedDocGroups.has(source);
+                  const isSyncingThis = syncingDocId === String(fileId);
                   return (
                     <div key={source}>
-                      <button
-                        onClick={() => toggleDocGroup(source)}
-                        className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-xl border border-indigo-200 transition-colors text-left ${isOpen ? 'bg-indigo-200' : 'bg-indigo-100 hover:bg-indigo-200'}`}
-                      >
-                        <ChevronDown size={14} className={`text-slate-400 flex-shrink-0 transition-transform ${isOpen ? '' : '-rotate-90'}`} />
-                        <span className="font-black text-[12px] text-slate-700 truncate flex-1">{displayName}</span>
+                      <div className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-xl border border-indigo-200 transition-colors ${isOpen ? 'bg-indigo-200' : 'bg-indigo-100'}`}>
+                        <button onClick={() => toggleDocGroup(source)} className="flex items-center gap-3 flex-1 text-left min-w-0">
+                          <ChevronDown size={14} className={`text-slate-400 flex-shrink-0 transition-transform ${isOpen ? '' : '-rotate-90'}`} />
+                          <span className="font-black text-[12px] text-slate-700 truncate flex-1">{displayName}</span>
+                        </button>
                         <div className="flex items-center gap-1.5 flex-shrink-0">
                           {redCount > 0 && <span className="text-[11px] font-black uppercase px-2 py-0.5 rounded-lg bg-rose-100 text-rose-700 border border-rose-200">{redCount} Overdue action{redCount !== 1 ? 's' : ''}</span>}
                           {highRiskCount > 0 && <span className="text-[11px] font-black uppercase px-2 py-0.5 rounded-lg bg-rose-600 text-white border border-rose-700">{highRiskCount} High Risk</span>}
                           {amberCount > 0 && !hasRed && <span className="text-[11px] font-black uppercase px-2 py-0.5 rounded-lg bg-amber-100 text-amber-700 border border-amber-200">{amberCount} upcoming</span>}
                           {!hasRed && !hasAmber && <span className="text-[11px] font-black uppercase px-2 py-0.5 rounded-lg bg-emerald-100 text-emerald-700 border border-emerald-200">{actions.length} scheduled</span>}
+                          {profile?.role === 'advisor' && fileId && (
+                            <button
+                              onClick={e => { e.stopPropagation(); if (!isSyncingThis && !aiSyncing) handleSingleDocSync(selectedSite, String(fileId)); }}
+                              disabled={isSyncingThis || aiSyncing}
+                              title="Re-sync this document"
+                              className={`p-1 rounded-lg transition-colors ${isSyncingThis ? 'text-violet-500 animate-spin' : 'text-indigo-300 hover:text-violet-500'} disabled:opacity-40`}
+                            >
+                              <RefreshCw size={13} />
+                            </button>
+                          )}
                         </div>
-                      </button>
+                      </div>
                       {isOpen && (
                         <div className="space-y-3 mt-2 pl-2">
                           {actions.map(action => <ActionCard key={action.id} action={{ ...action, notes: actionNotes[action.id] || action.notes }} isResolved={resolvedIds.includes(action.id) || action.status === 'resolved'} onToggleResolve={toggleResolve} onAddNote={handleAddNote} onDelete={handleDeleteAction} onUpdateIssueDate={handleUpdateIssueDate} role={profile?.role || 'client'} expanded={expandedActionId === action.id} onExpand={() => setExpandedActionId(prev => prev === action.id ? null : action.id)} />)}

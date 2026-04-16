@@ -33,6 +33,7 @@ const COLUMN_PATTERNS: Record<string, string[]> = {
   responsible: ['responsible', 'personresponsible', 'responsibleperson', 'responsibleparty', 'responsiblefor'],
   targetDate:  ['targetdate', 'duedate', 'targetcompletion', 'targetcompletiondate', 'date'],
   completed:   ['completiondate', 'datecompleted', 'completeddate', 'completed', 'dateofcompletion'],
+  riskRating:  ['riskrating', 'risk', 'risklevel', 'rating', 'riskassessment', 'riskpriority'],
 };
 
 const INCLUDE_MATCH_KEYS: (keyof typeof COLUMN_PATTERNS)[] = ['responsible', 'completed'];
@@ -117,7 +118,7 @@ export async function GET(request: NextRequest) {
   }
 
   const dataRows = rowMatches.slice(columnHeaderRowIndex + 1);
-  const result: { hazardRef: string; actionText: string; responsiblePerson: string; targetDate: string; completedDate: string }[] = [];
+  const result: { hazardRef: string; actionText: string; responsiblePerson: string; targetDate: string; completedDate: string; riskRating: string }[] = [];
 
   for (const rowMatch of dataRows) {
     const cells = Array.from(rowMatch[0].matchAll(/<w:tc\b[\s\S]*?<\/w:tc>/g)).map(m => cellText(m[0]).trim());
@@ -126,11 +127,12 @@ export async function GET(request: NextRequest) {
     const responsiblePerson = colIndex.responsible !== undefined ? (cells[colIndex.responsible] ?? '') : '';
     const targetDate = colIndex.targetDate !== undefined ? (cells[colIndex.targetDate] ?? '') : '';
     const completedDate = colIndex.completed !== undefined ? (cells[colIndex.completed] ?? '') : '';
+    const riskRating = colIndex.riskRating !== undefined ? (cells[colIndex.riskRating] ?? '') : '';
 
     // Skip entirely empty rows
     if (!hazardRef && !actionText && !responsiblePerson && !targetDate && !completedDate) continue;
 
-    result.push({ hazardRef, actionText, responsiblePerson, targetDate, completedDate });
+    result.push({ hazardRef, actionText, responsiblePerson, targetDate, completedDate, riskRating });
   }
 
   return NextResponse.json({ rows: result });
