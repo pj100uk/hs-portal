@@ -1,4 +1,4 @@
--- Schema dumped at 2026-04-17T12:37:55.437Z
+-- Schema dumped at 2026-04-17T14:20:11.417Z
 
 TABLE: actions
   id uuid NOT NULL DEFAULT gen_random_uuid()
@@ -130,5 +130,6 @@ TABLE: sites
   included_datto_folder_ids _text
   datto_parent_folder_id text
   vault_folder_id text
+  iag_weighted_score int4
 
 

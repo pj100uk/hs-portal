@@ -181,6 +181,8 @@ export async function PATCH(request: NextRequest) {
       site_document_id: documentId,
       is_suggested: a.suggested ?? false,
       hazard: a.hazardContext ?? null,
+      risk_level: 'LOW',
+      risk_rating: 'Low',
     }));
     console.log('[documents] inserting actions:', rows.length, 'for document:', documentId);
     const { error: actErr } = await supabase.from('actions').insert(rows);

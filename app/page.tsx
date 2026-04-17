@@ -38,6 +38,7 @@ interface Site {
   included_datto_folder_ids?: string[] | null;
   actionProgress: number;
   iagScore: number | null;
+  iagWeightedScore: number | null;
   employeeCount: number | null;
 }
 
@@ -375,11 +376,11 @@ const ScoreExplanationModal = ({ card, onClose }: { card: 'implementation' | 'ia
       color: 'bg-indigo-600',
       body: (
         <>
-          <p className="text-[11px] font-black uppercase tracking-widest text-indigo-600 mb-1">Actions Status</p>
+          <p className="text-[11px] font-black uppercase tracking-widest text-indigo-600 mb-1">Actions Progress</p>
           <p className="text-sm text-slate-600 leading-relaxed">This measures how well your compliance actions are being managed. The score reflects what percentage of your actions are <strong>on track</strong> — not overdue and not imminently due.</p>
           <p className="text-sm text-slate-600 leading-relaxed mt-3">Not all actions carry equal weight. <strong>Overdue</strong> actions count 10× against your score, actions <strong>due within 30 days</strong> count 5×, and well-scheduled future actions count 1×. Resolving overdue items has the biggest positive impact.</p>
           <p className="text-sm text-slate-500 mt-3 font-mono bg-slate-50 px-3 py-2 rounded-xl border border-slate-100">Score = on-track weight ÷ total weight × 100</p>
-          <p className="text-[11px] font-black uppercase tracking-widest text-indigo-600 mt-5 mb-1">Risk Control</p>
+          <p className="text-[11px] font-black uppercase tracking-widest text-indigo-600 mt-5 mb-1">Risk Health</p>
           <p className="text-sm text-slate-600 leading-relaxed">Breaks the score down by risk level — HIGH, MEDIUM, and LOW. It shows how many actions in each category are on track, so you can see at a glance whether your most critical risks are being managed.</p>
           <div className="mt-4 space-y-2">
             {[{ label: '85% – 100%', color: 'bg-emerald-100 text-emerald-700 border-emerald-200', desc: 'Well managed — actions planned and on schedule.' }, { label: '50% – 84%', color: 'bg-amber-100 text-amber-700 border-amber-200', desc: 'Attention needed — overdue or urgent actions present.' }, { label: '0% – 49%', color: 'bg-rose-100 text-rose-700 border-rose-200', desc: 'High risk — significant overdue actions require immediate attention.' }].map(t => (
@@ -1025,6 +1026,7 @@ const AddActionForm = ({ site, onSave, onCancel }: { site: Site; onSave: (action
   const handleSave = async () => {
     if (!title.trim()) { setError('Title is required'); return; }
     if (!dueDate) { setError('Target date is required'); return; }
+    if (!riskRating) { setError('Risk rating is required'); return; }
     setSaving(true); setError('');
     const { data, error: err } = await supabase.from('actions').insert({
       site_id: site.id, title: title.trim(), description: description.trim(), priority: 'green', status: 'open',
@@ -1106,7 +1108,6 @@ const AddActionForm = ({ site, onSave, onCancel }: { site: Site; onSave: (action
               {([{ val: 'high', label: 'High', active: 'bg-rose-600 text-white border-rose-600' }, { val: 'medium', label: 'Medium', active: 'bg-amber-500 text-white border-amber-500' }, { val: 'low', label: 'Low', active: 'bg-emerald-600 text-white border-emerald-600' }] as const).map(r => (
                 <button key={r.val} type="button" onClick={() => { setRiskRating(r.val); setRiskRatingOverridden(true); }} className={`flex-1 py-2.5 rounded-xl text-[11px] font-black border transition-all ${riskRating === r.val ? r.active : 'bg-white text-slate-500 border-slate-200'}`}>{r.label}</button>
               ))}
-              {riskRating && <button type="button" onClick={() => { setRiskRating(null); setRiskRatingOverridden(false); }} className="px-2 py-2.5 rounded-xl border border-slate-200 bg-white text-slate-300 hover:text-rose-400" title="Clear risk rating"><X size={12} /></button>}
             </div>
           </div>
         </div>
@@ -3339,6 +3340,7 @@ export default function App() {
           compliance: s.compliance_score ?? 0, trend: s.trend ?? 0,
           actionProgress: s.action_progress ?? 100,
           iagScore: s.iag_score ?? null,
+          iagWeightedScore: s.iag_weighted_score ?? null,
           employeeCount: s.employee_count ?? null,
           red: 0, amber: 0, green: 0, lastReview: '—',
           datto_folder_id: s.datto_folder_id || orgFolderMap.get(s.organisation_id) || null,
@@ -3359,7 +3361,7 @@ export default function App() {
               finalMapped = [...mapped, ...extraData.map((s: any) => ({
                 id: s.id, name: s.name, type: s.type, organisation_id: s.organisation_id,
                 compliance: s.compliance_score ?? 0, trend: s.trend ?? 0,
-                actionProgress: s.action_progress ?? 100, iagScore: s.iag_score ?? null,
+                actionProgress: s.action_progress ?? 100, iagScore: s.iag_score ?? null, iagWeightedScore: s.iag_weighted_score ?? null,
                 employeeCount: s.employee_count ?? null, red: 0, amber: 0, green: 0, lastReview: '—',
                 datto_folder_id: s.datto_folder_id || orgFolderMap.get(s.organisation_id) || null,
                 advisor_id: s.advisor_id ?? null, last_ai_sync: s.last_ai_sync ?? null,
@@ -4273,25 +4275,59 @@ export default function App() {
                   <div className="lg:col-span-2 bg-white rounded-3xl border border-slate-200 p-8 shadow-sm">
                     <h3 className="font-black text-slate-900 text-lg tracking-tight uppercase mb-8">Compliance Benchmarking</h3>
                     <div className="space-y-6">
-                      {viewSites.map(site => (
+                      {viewSites.map(site => {
+                        const onTrack = computeActionProgress(allActions.filter(a => a.site === site.name));
+                        return (
                         <div key={site.id} className="group cursor-pointer" onClick={() => handleSiteClick(site)}>
                           <div className="flex justify-between items-center mb-2">
                             <div className="flex items-center gap-3"><div className="w-7 h-7 bg-slate-50 rounded-lg flex items-center justify-center text-slate-400 group-hover:bg-indigo-600 group-hover:text-white transition-all text-xs">{getSiteIcon(site.type, 14)}</div><span className="text-sm font-bold text-slate-700 group-hover:text-indigo-700">{site.name}</span></div>
-                            <div className="flex items-center gap-3"><span className={`text-[10px] font-black flex items-center gap-1 ${site.trend >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>{site.trend >= 0 ? <TrendingUp size={11} /> : <ArrowUpRight size={11} className="rotate-90" />}{site.trend >= 0 ? '+' : ''}{site.trend}%</span><span className={`font-black text-sm ${scoreColor(site.compliance).text}`}>{site.compliance}%</span></div>
+                            <span className={`font-black text-sm ${scoreColor(onTrack).text}`}>{onTrack}% on track</span>
                           </div>
-                          <div className="w-full bg-slate-100 h-3 rounded-full overflow-hidden shadow-inner"><div className={`h-full rounded-full transition-all duration-1000 ${scoreColor(site.compliance).bar}`} style={{ width: `${site.compliance}%` }} /></div>
+                          <div className="w-full bg-slate-100 h-3 rounded-full overflow-hidden shadow-inner"><div className={`h-full rounded-full transition-all duration-1000 ${scoreColor(onTrack).bar}`} style={{ width: `${onTrack}%` }} /></div>
                         </div>
-                      ))}
+                        );
+                      })}
                       {viewSites.length === 0 && <p className="text-sm text-slate-400 text-center py-8">No sites assigned yet.</p>}
                     </div>
                   </div>
                   <div className="bg-white rounded-3xl border border-slate-200 p-8 shadow-sm flex flex-col">
                     <h3 className="font-black text-slate-900 text-lg tracking-tight uppercase mb-6">Action Summary</h3>
                     <div className="flex-1 flex flex-col justify-center items-center">
-                      <div className="relative w-36 h-36 flex items-center justify-center mb-6">
-                        <svg className="w-full h-full -rotate-90" viewBox="0 0 160 160"><circle cx="80" cy="80" r="70" stroke="#f1f5f9" strokeWidth="16" fill="none" /><circle cx="80" cy="80" r="70" stroke="#f43f5e" strokeWidth="16" fill="none" strokeDasharray="440" strokeDashoffset="418" strokeLinecap="round" /></svg>
-                        <div className="absolute text-center"><p className="text-3xl font-black text-slate-900 leading-none">{viewActions.length}</p><p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mt-0.5">Total</p></div>
-                      </div>
+                      {(() => {
+                        const circ = 2 * Math.PI * 70;
+                        const total = viewActions.length;
+                        const scheduledCnt = viewActions.filter(a => derivePriority(a).priority === 'green').length;
+                        const segs = [
+                          { count: criticalCount, color: '#f43f5e' },
+                          { count: upcomingCount, color: '#fbbf24' },
+                          { count: scheduledCnt, color: '#10b981' },
+                        ];
+                        const arcs: { color: string; len: number; startDeg: number }[] = [];
+                        let cum = 0;
+                        if (total > 0) {
+                          for (const seg of segs) {
+                            if (seg.count > 0) {
+                              const len = (seg.count / total) * circ;
+                              arcs.push({ color: seg.color, len, startDeg: (cum / circ) * 360 });
+                              cum += len;
+                            }
+                          }
+                        }
+                        return (
+                          <div className="relative w-36 h-36 flex items-center justify-center mb-6">
+                            <svg className="w-full h-full -rotate-90" viewBox="0 0 160 160">
+                              <circle cx="80" cy="80" r="70" stroke="#f1f5f9" strokeWidth="16" fill="none" />
+                              {arcs.map((arc, i) => (
+                                <circle key={i} cx="80" cy="80" r="70" stroke={arc.color} strokeWidth="16" fill="none"
+                                  strokeDasharray={`${arc.len} ${circ - arc.len}`}
+                                  transform={`rotate(${arc.startDeg} 80 80)`}
+                                />
+                              ))}
+                            </svg>
+                            <div className="absolute text-center"><p className="text-3xl font-black text-slate-900 leading-none">{total}</p><p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mt-0.5">Total</p></div>
+                          </div>
+                        );
+                      })()}
                       <div className="w-full space-y-2.5">
                         {[{ label: 'Overdue', count: criticalCount, color: 'bg-rose-50 text-rose-700 border-rose-100' }, { label: 'Upcoming / Review Due', count: upcomingCount, color: 'bg-amber-50 text-amber-700 border-amber-100' }, { label: 'Scheduled / Review', count: viewActions.filter(a => derivePriority(a).priority === 'green').length, color: 'bg-emerald-50 text-emerald-700 border-emerald-100' }].map(item => (
                           <div key={item.label} className={`flex items-center justify-between text-xs font-black px-4 py-2.5 rounded-xl border ${item.color}`}><span>{item.label}</span><span className="text-base font-black">{item.count}</span></div>
@@ -4300,17 +4336,43 @@ export default function App() {
                     </div>
                   </div>
                   <div className="lg:col-span-3 grid grid-cols-2 md:grid-cols-4 gap-4">
-                    {viewSites.map(site => (
+                    {viewSites.map(site => {
+                      const siteActions = allActions.filter(a => a.site === site.name);
+                      const actionsScore = computeActionProgress(siteActions);
+                      const today = new Date().toLocaleDateString('en-CA');
+                      const riskTiers = (['HIGH', 'MEDIUM', 'LOW'] as const).map(tier => {
+                        const forTier = siteActions.filter(a => a.riskLevel === tier);
+                        const onTrackCount = forTier.filter(a => {
+                          if (a.status === 'resolved') return true;
+                          const d = a.date;
+                          return !(d && !ONGOING_RE.test(d) && /^\d{4}-\d{2}-\d{2}$/.test(d) && d < today);
+                        }).length;
+                        return { total: forTier.length, onTrack: onTrackCount, w: tier === 'HIGH' ? 3 : tier === 'MEDIUM' ? 2 : 1 };
+                      });
+                      const wTotal = riskTiers.reduce((s, t) => s + t.total * t.w, 0);
+                      const wOnTrack = riskTiers.reduce((s, t) => s + t.onTrack * t.w, 0);
+                      const riskScore = wTotal === 0 ? null : Math.round((wOnTrack / wTotal) * 100);
+                      const components = ([
+                        { val: actionsScore,           w: 0.4 },
+                        { val: riskScore,              w: 0.4 },
+                        { val: site.iagWeightedScore,  w: 0.2 },
+                      ] as { val: number | null; w: number }[]).filter(c => c.val !== null) as { val: number; w: number }[];
+                      const totalW = components.reduce((s, c) => s + c.w, 0);
+                      const hsPerformance = components.length === 0 ? actionsScore
+                        : Math.round(components.reduce((s, c) => s + c.val * c.w, 0) / totalW);
+                      const bars = [
+                        { label: 'H&S Performance', val: hsPerformance },
+                        { label: 'Actions Progress', val: actionsScore },
+                        { label: 'Risk Health', val: riskScore },
+                        ...(profile?.role !== 'client' ? [{ label: 'Documents', val: site.compliance }] : []),
+                      ];
+                      return (
                       <div key={site.id} className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm cursor-pointer hover:border-indigo-300 hover:shadow-md transition-all group" onClick={() => handleSiteClick(site)}>
-                        <div className="flex items-start justify-between mb-4"><div className="w-10 h-10 bg-slate-50 rounded-xl flex items-center justify-center text-slate-400 group-hover:bg-indigo-600 group-hover:text-white transition-all">{getSiteIcon(site.type)}</div><ComplianceRing score={site.compliance} /></div>
+                        <div className="flex items-start justify-between mb-4"><div className="w-10 h-10 bg-slate-50 rounded-xl flex items-center justify-center text-slate-400 group-hover:bg-indigo-600 group-hover:text-white transition-all">{getSiteIcon(site.type)}</div><ComplianceRing score={hsPerformance} /></div>
                         <p className="font-black text-sm text-slate-800 leading-tight mb-1">{site.name}</p>
                         <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-3">{site.type}</p>
                         <div className="space-y-1.5">
-                          {[
-                            { label: 'Actions', val: site.actionProgress ?? 100 },
-                            { label: 'Alignment', val: site.iagScore ?? null },
-                            { label: 'Documents', val: site.compliance },
-                          ].map(({ label, val }) => (
+                          {bars.map(({ label, val }) => (
                             <div key={label}>
                               <div className="flex justify-between text-[9px] font-black uppercase tracking-wider text-slate-400 mb-0.5">
                                 <span>{label}</span>
@@ -4323,7 +4385,8 @@ export default function App() {
                           ))}
                         </div>
                       </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
               )}
@@ -4439,6 +4502,29 @@ export default function App() {
                   const weightedOnTrack = riskTiers.reduce((sum, t) => sum + t.onTrack * (t.tier === 'HIGH' ? 3 : t.tier === 'MEDIUM' ? 2 : 1), 0);
                   const weightedTotal   = riskTiers.reduce((sum, t) => sum + t.total   * (t.tier === 'HIGH' ? 3 : t.tier === 'MEDIUM' ? 2 : 1), 0);
                   const riskScore = weightedTotal === 0 ? 100 : Math.round((weightedOnTrack / weightedTotal) * 100);
+
+                  const iagMandatoryComp = iagServices.filter(sv => sv.is_mandatory);
+                  const iagRecommendedComp = iagServices.filter(sv => !sv.is_mandatory);
+                  const iagMandScore = iagMandatoryComp.length === 0 ? null
+                    : Math.round((iagMandatoryComp.filter(sv => sv.purchased).length / iagMandatoryComp.length) * 100);
+                  const iagRecScore = iagRecommendedComp.length === 0 ? null
+                    : Math.round((iagRecommendedComp.filter(sv => sv.purchased).length / iagRecommendedComp.length) * 100);
+                  const iagWeightedComp =
+                    iagMandScore !== null && iagRecScore !== null ? Math.round(iagMandScore * 0.8 + iagRecScore * 0.2)
+                    : iagMandScore !== null ? iagMandScore
+                    : iagRecScore !== null ? iagRecScore
+                    : (selectedSite.iagWeightedScore ?? null);
+
+                  const hsPerfComponents = ([
+                    { val: s,               w: 0.4, label: 'ACTIONS' },
+                    { val: riskScore,       w: 0.4, label: 'RISK' },
+                    { val: iagWeightedComp, w: 0.2, label: 'IAG' },
+                  ] as { val: number | null; w: number; label: string }[]).filter(c => c.val !== null) as { val: number; w: number; label: string }[];
+                  const hsPerfTotalW = hsPerfComponents.reduce((sum, comp) => sum + comp.w, 0);
+                  const hsPerf = hsPerfComponents.length === 0 ? null
+                    : Math.round(hsPerfComponents.reduce((sum, comp) => sum + comp.val * comp.w, 0) / hsPerfTotalW);
+                  const scoreHex = (v: number) => v >= 80 ? '#10b981' : v >= 60 ? '#fbbf24' : '#f43f5e';
+
                   return (
                     <div className="col-span-3 bg-white rounded-2xl border border-slate-200 shadow-sm cursor-pointer hover:border-indigo-300 hover:shadow-md transition-all" onClick={() => setSiteTab('actions')}>
                       {/* Card header */}
@@ -4447,60 +4533,122 @@ export default function App() {
                         <button onClick={e => { e.stopPropagation(); setScoreExplanationCard('implementation'); }} className="flex items-center gap-1 text-slate-300 hover:text-indigo-500 transition-colors" title="How is this calculated?"><AlertCircle size={14} /><span className="text-[9px] font-black uppercase tracking-wider">Help</span></button>
                       </div>
                       {/* Body */}
-                      <div className="px-5 py-4 flex items-center gap-6">
-                        <ComplianceRing score={s} size={96} percent />
+                      <div className="px-5 py-4 flex items-start gap-8">
                         <div className="flex gap-8 items-start">
                         <div className="min-w-0">
                           <div className="group mb-2.5 cursor-default">
-                            <p className="text-[9px] font-black uppercase tracking-widest text-slate-400 flex items-center">Actions Status<InlineTip text="% of actions that are not overdue and not due within 30 days. Overdue actions are weighted more heavily." /></p>
-                            <p className={`text-sm font-black uppercase tracking-wide ${c.text}`}>{s}% on track</p>
+                            <p className="text-[11px] font-black uppercase tracking-widest text-slate-600 flex items-center">Actions Progress<InlineTip text="% of actions that are not overdue and not due within 30 days. Overdue actions are weighted more heavily." /></p>
+                            <p className={`text-[11px] font-black uppercase tracking-wide ${c.text}`}>{s}% on track</p>
                           </div>
                           {unresolved.length === 0
                             ? <p className="text-[10px] font-black text-emerald-600 uppercase tracking-wider">all actions resolved</p>
-                            : (
-                              <div className="space-y-2.5 w-52">
-                                {([
-                                  { label: 'OVERDUE',   count: overdueCount,  barCls: 'bg-rose-500',  trackCls: 'bg-rose-100',  labelCls: 'text-rose-700 bg-rose-50 border-rose-200' },
-                                  { label: 'UPCOMING',  count: upcomingCount, barCls: 'bg-amber-400', trackCls: 'bg-amber-100', labelCls: 'text-amber-700 bg-amber-50 border-amber-200' },
-                                  { label: 'SCHEDULED', count: ongoingCount,  barCls: 'bg-emerald-500', trackCls: 'bg-emerald-100', labelCls: 'text-emerald-700 bg-emerald-50 border-emerald-200' },
-                                ] as const).map(({ label, count, barCls, trackCls, labelCls }) => {
-                                  const pct = Math.round((count / unresolved.length) * 100);
-                                  return (
-                                    <div key={label} className="flex items-center gap-2">
-                                      <span className={`text-[9px] font-black uppercase px-1.5 py-0.5 rounded border shrink-0 ${labelCls}`}>{label}</span>
-                                      <div className={`flex-1 h-3 rounded-full ${trackCls} overflow-hidden`}>
-                                        {count > 0 && <div className={`h-full rounded-full ${barCls} transition-all duration-700`} style={{ width: `${pct}%` }} />}
+                            : (() => {
+                                const circ = 2 * Math.PI * 50;
+                                const segs = [
+                                  { count: overdueCount,  color: '#f43f5e' },
+                                  { count: upcomingCount, color: '#fbbf24' },
+                                  { count: ongoingCount,  color: '#10b981' },
+                                ].filter(s => s.count > 0);
+                                let cum = 0;
+                                const arcs = segs.map(s => {
+                                  const len = (s.count / unresolved.length) * circ;
+                                  const startDeg = (cum / circ) * 360;
+                                  cum += len;
+                                  return { ...s, len, startDeg };
+                                });
+                                return (
+                                  <div className="flex items-start gap-3">
+                                    <div className="relative w-28 h-28 shrink-0 flex items-center justify-center">
+                                      <svg className="w-full h-full -rotate-90" viewBox="0 0 120 120">
+                                        <circle cx="60" cy="60" r="50" stroke="#f1f5f9" strokeWidth="14" fill="none" />
+                                        {arcs.map((arc, i) => (
+                                          <circle key={i} cx="60" cy="60" r="50" stroke={arc.color} strokeWidth="14" fill="none"
+                                            strokeDasharray={`${arc.len} ${circ - arc.len}`}
+                                            transform={`rotate(${arc.startDeg} 60 60)`} />
+                                        ))}
+                                      </svg>
+                                      <div className="absolute text-center">
+                                        <p className="text-xl font-bold text-slate-600 leading-none">{unresolved.length}</p>
+                                        <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mt-0.5">actions</p>
                                       </div>
-                                      <span className="text-[10px] font-black text-slate-400 w-5 text-right shrink-0">{count}</span>
                                     </div>
-                                  );
-                                })}
-                              </div>
-                            )
+                                    <div className="space-y-1.5 flex-1 pt-0.5">
+                                      {[
+                                        { label: 'OVERDUE',               count: overdueCount,  bg: 'bg-rose-50',    text: 'text-rose-700',    border: 'border-rose-100' },
+                                        { label: 'UPCOMING / REVIEW DUE', count: upcomingCount, bg: 'bg-amber-50',   text: 'text-amber-700',   border: 'border-amber-100' },
+                                        { label: 'SCHEDULED / REVIEW',    count: ongoingCount,  bg: 'bg-emerald-50', text: 'text-emerald-700', border: 'border-emerald-100' },
+                                      ].filter(r => r.count > 0).map(r => (
+                                        <div key={r.label} className={`flex items-center justify-between text-[10px] font-black tracking-wide px-2.5 py-1.5 rounded-lg border w-full ${r.bg} ${r.text} ${r.border}`}>
+                                          <span>{r.label}</span>
+                                          <span className="text-[10px] font-black ml-2">{r.count}</span>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </div>
+                                );
+                              })()
                           }
                         </div>
                         {hasRiskData && (
                           <div>
                             <div className="group mb-2.5 cursor-default">
-                              <p className="text-[9px] font-black uppercase tracking-widest text-slate-400 flex items-center">Risk Control<InlineTip text="Shows how many actions are on track within each risk level — HIGH, MEDIUM, and LOW — so you can see if your most critical risks are being managed." /></p>
-                              <p className={`text-sm font-black uppercase tracking-wide ${scoreColor(riskScore).text}`}>{riskScore}% on track</p>
+                              <p className="text-[11px] font-black uppercase tracking-widest text-slate-600 flex items-center">Risk Health<InlineTip text="Shows how many actions are on track within each risk level — HIGH, MEDIUM, and LOW — so you can see if your most critical risks are being managed." /></p>
+                              <p className={`text-[11px] font-black uppercase tracking-wide ${scoreColor(riskScore).text}`}>{riskScore}% on track</p>
                             </div>
                             <div className="flex items-start gap-4">
-                            <RiskRing tiers={riskTiers} score={riskScore} size={96} />
-                            <div className="space-y-2.5 w-52">
-                              {riskTiers.map(({ tier, total, onTrack, pct }) => {
-                                const [barCls, trackCls, labelCls] = tier === 'HIGH'
-                                  ? ['bg-rose-500', 'bg-rose-100', 'text-rose-700 bg-rose-50 border-rose-200']
+                            {(() => {
+                              const riskTotal = riskTiers.reduce((s, t) => s + t.total, 0);
+                              const riskCirc = 2 * Math.PI * 50;
+                              const riskSegs = [
+                                { tier: 'HIGH',   color: '#f43f5e' },
+                                { tier: 'MEDIUM', color: '#fb923c' },
+                                { tier: 'LOW',    color: '#10b981' },
+                              ].map(s => ({ ...s, count: riskTiers.find(t => t.tier === s.tier)?.total ?? 0 }))
+                               .filter(s => s.count > 0);
+                              let rCum = 0;
+                              const rArcs = riskSegs.map(s => {
+                                const len = (s.count / riskTotal) * riskCirc;
+                                const startDeg = (rCum / riskCirc) * 360;
+                                rCum += len;
+                                return { ...s, len, startDeg };
+                              });
+                              return (
+                                <div className="relative w-28 h-28 shrink-0 flex items-center justify-center">
+                                  <svg className="w-full h-full -rotate-90" viewBox="0 0 120 120">
+                                    <circle cx="60" cy="60" r="50" stroke="#f1f5f9" strokeWidth="14" fill="none" />
+                                    {rArcs.map((arc, i) => (
+                                      <circle key={i} cx="60" cy="60" r="50" stroke={arc.color} strokeWidth="14" fill="none"
+                                        strokeDasharray={`${arc.len} ${riskCirc - arc.len}`}
+                                        transform={`rotate(${arc.startDeg} 60 60)`} />
+                                    ))}
+                                  </svg>
+                                  {(() => {
+                                    const topTier = riskTiers.find(t => t.total > 0);
+                                    const [tierColor, tierLabel] = topTier?.tier === 'HIGH' ? ['text-rose-500', 'HIGH RISK']
+                                      : topTier?.tier === 'MEDIUM' ? ['text-orange-500', 'MEDIUM RISK']
+                                      : ['text-emerald-600', 'LOW RISK'];
+                                    return (
+                                      <div className="absolute text-center">
+                                        <p className={`text-xl font-black leading-none ${tierColor}`}>{topTier?.total ?? 0}</p>
+                                        <p className={`text-[8px] font-black uppercase tracking-widest mt-0.5 ${tierColor}`}>{tierLabel}</p>
+                                        <p className={`text-[8px] font-black uppercase tracking-widest ${tierColor}`}>hazards</p>
+                                      </div>
+                                    );
+                                  })()}
+                                </div>
+                              );
+                            })()}
+                            <div className="space-y-1.5 flex-1 pt-0.5">
+                              {riskTiers.filter(t => t.total > 0).map(({ tier, total }) => {
+                                const [bg, text, border, label] = tier === 'HIGH'
+                                  ? ['bg-rose-50', 'text-rose-700', 'border-rose-100', 'HIGH RISK']
                                   : tier === 'MEDIUM'
-                                  ? ['bg-orange-400', 'bg-orange-100', 'text-orange-700 bg-orange-50 border-orange-200']
-                                  : ['bg-emerald-500', 'bg-emerald-100', 'text-emerald-700 bg-emerald-50 border-emerald-200'];
+                                  ? ['bg-orange-50', 'text-orange-700', 'border-orange-100', 'MEDIUM RISK']
+                                  : ['bg-emerald-50', 'text-emerald-700', 'border-emerald-100', 'LOW RISK'];
                                 return (
-                                  <div key={tier} className="flex items-center gap-2">
-                                    <span className={`text-[9px] font-black uppercase px-1.5 py-0.5 rounded border shrink-0 ${labelCls}`}>{tier === 'HIGH' ? 'HIGH RISK' : tier === 'MEDIUM' ? 'MEDIUM RISK' : 'LOW RISK'}</span>
-                                    <div className={`flex-1 h-3 rounded-full ${trackCls} overflow-hidden`}>
-                                      {total > 0 && <div className={`h-full rounded-full ${barCls} transition-all duration-700`} style={{ width: `${pct}%` }} />}
-                                    </div>
-                                    <span className="text-[10px] font-black text-slate-400 w-8 text-right shrink-0">{total === 0 ? '—' : `${onTrack}/${total}`}</span>
+                                  <div key={tier} className={`flex items-center justify-between text-[10px] font-black tracking-wide px-2.5 py-1.5 rounded-lg border w-full ${bg} ${text} ${border}`}>
+                                    <span>{label}</span>
+                                    <span className="text-[10px] font-black ml-2">{total}</span>
                                   </div>
                                 );
                               })}
@@ -4508,6 +4656,38 @@ export default function App() {
                             </div>{/* end flex ring+bars */}
                           </div>
                         )}
+                        {hsPerf !== null && (() => {
+                          const hsCirc = 2 * Math.PI * 50;
+                          let hsCum = 0;
+                          const hsArcs = hsPerfComponents.map((comp, i) => {
+                            const len = (comp.w / hsPerfTotalW) * hsCirc;
+                            const startDeg = (hsCum / hsCirc) * 360 + (i > 0 ? 1.5 : 0);
+                            hsCum += len;
+                            return { ...comp, len: len - 3, startDeg, color: scoreHex(comp.val) };
+                          });
+                          return (
+                            <div>
+                              <div className="group mb-2.5 cursor-default">
+                                <p className="text-[11px] font-black uppercase tracking-widest text-slate-600 flex items-center">H&S Performance<InlineTip text="Composite score: Actions Progress (40%), Risk Health (40%), Industry Alignment (20%). Each arc shows how that component is performing." /></p>
+                                <p className={`text-[11px] font-black uppercase tracking-wide ${scoreColor(hsPerf).text}`}>{hsPerf}% overall</p>
+                              </div>
+                              <div className="relative w-28 h-28 shrink-0 flex items-center justify-center">
+                                <svg className="w-full h-full -rotate-90" viewBox="0 0 120 120">
+                                  <circle cx="60" cy="60" r="50" stroke="#f1f5f9" strokeWidth="14" fill="none" />
+                                  {hsArcs.map((arc, i) => (
+                                    <circle key={i} cx="60" cy="60" r="50" stroke={arc.color} strokeWidth="14" fill="none"
+                                      strokeDasharray={`${arc.len} ${hsCirc - arc.len}`}
+                                      transform={`rotate(${arc.startDeg} 60 60)`} />
+                                  ))}
+                                </svg>
+                                <div className="absolute text-center">
+                                  <p className="text-xl font-bold text-slate-600 leading-none">{hsPerf}%</p>
+                                  <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mt-0.5">H&S perf</p>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })()}
                         </div>{/* end columns wrapper */}
                       </div>
                     </div>
