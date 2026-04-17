@@ -294,25 +294,18 @@ const ONGOING_RE = /on.?going|continuous|continual|continued|continuing|rolling|
 const computeActionProgress = (actions: Action[]): number => {
   if (actions.length === 0) return 100;
   const today = new Date().toLocaleDateString('en-CA');
-  const sixMonthsAgo = new Date(Date.now() - 180 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
-  let resolvedPoints = 0, totalPoints = 0;
+  let onTrackPoints = 0, totalPoints = 0;
   for (const a of actions) {
+    const d = a.date ?? null;
     const isResolved = a.status === 'resolved';
-    const date = a.date || null;
-    const isOngoing = !!date && ONGOING_RE.test(date);
-    const hasSpecificDate = !!date && !isOngoing && /^\d{4}-\d{2}-\d{2}$/.test(date);
-    let w = 1;
-    if (hasSpecificDate) {
-      if (date < today) { w = 10; }
-      else { const daysAway = Math.ceil((new Date(date).getTime() - Date.now()) / 86400000); w = daysAway <= 30 ? 5 : 1; }
-    } else {
-      const lastUpdated = a.updatedAt?.slice(0, 10) ?? null;
-      w = (lastUpdated && lastUpdated < sixMonthsAgo) ? 5 : 1;
-    }
-    if (isResolved) resolvedPoints += w;
+    const isOverdue = !isResolved && !!d && !ONGOING_RE.test(d) && /^\d{4}-\d{2}-\d{2}$/.test(d) && d < today;
+    const isUpcoming = !isResolved && !isOverdue && !!d && !ONGOING_RE.test(d) && /^\d{4}-\d{2}-\d{2}$/.test(d)
+      && Math.ceil((new Date(d).getTime() - Date.now()) / 86400000) <= 30;
+    const w = isOverdue ? 10 : isUpcoming ? 5 : 1;
+    if (!isOverdue && !isUpcoming) onTrackPoints += w;
     totalPoints += w;
   }
-  return totalPoints === 0 ? 100 : Math.round((resolvedPoints / totalPoints) * 100);
+  return totalPoints === 0 ? 100 : Math.round((onTrackPoints / totalPoints) * 100);
 };
 
 const scoreColor = (score: number) => {
@@ -321,7 +314,16 @@ const scoreColor = (score: number) => {
   return               { text: 'text-rose-600',       bar: 'bg-rose-500',    ring: '#f43f5e' };
 };
 
-const RiskRing = ({ tiers, score, size = 96 }: { tiers: { tier: string; total: number; resolved: number }[]; score: number; size?: number }) => {
+const InlineTip = ({ text }: { text: string }) => (
+  <span className="relative ml-1 inline-flex items-center">
+    <span className="text-slate-400 text-[8px] font-black cursor-default select-none leading-none">?</span>
+    <span className="pointer-events-none absolute top-full left-0 mt-1.5 w-52 rounded-lg bg-slate-500 text-white text-xs font-normal normal-case tracking-normal leading-snug px-2.5 py-1.5 opacity-0 group-hover:opacity-100 transition-opacity duration-150 z-50 shadow-lg text-left">
+      {text}
+    </span>
+  </span>
+);
+
+const RiskRing = ({ tiers, score, size = 96 }: { tiers: { tier: string; total: number; onTrack: number }[]; score: number; size?: number }) => {
   const r = 20; const circ = 2 * Math.PI * r;
   const total = tiers.reduce((sum, t) => sum + t.total, 0);
   const color = scoreColor(score).ring;
@@ -329,10 +331,10 @@ const RiskRing = ({ tiers, score, size = 96 }: { tiers: { tier: string; total: n
   let acc = 0;
   const segments: { color: string; fraction: number; start: number }[] = [];
   for (const t of tiers) {
-    const unresolved = t.total - t.resolved;
-    if (unresolved > 0 && total > 0) {
-      segments.push({ color: tierColors[t.tier] ?? '#94a3b8', fraction: unresolved / total, start: acc });
-      acc += unresolved / total;
+    const offTrack = t.total - t.onTrack;
+    if (offTrack > 0 && total > 0) {
+      segments.push({ color: tierColors[t.tier] ?? '#94a3b8', fraction: offTrack / total, start: acc });
+      acc += offTrack / total;
     }
   }
   return (
@@ -369,14 +371,18 @@ const ComplianceRing = ({ score, size = 56, percent = false }: { score: number; 
 const ScoreExplanationModal = ({ card, onClose }: { card: 'implementation' | 'iag' | 'documentation'; onClose: () => void }) => {
   const content = {
     implementation: {
-      title: 'Actions Score',
+      title: 'Compliance Score Explanation',
       color: 'bg-indigo-600',
       body: (
         <>
-          <p className="text-sm text-slate-600 leading-relaxed">This measures progress on actions raised during your assessments. Not all actions carry equal weight — an <strong>overdue</strong> action counts for 10 points, <strong>upcoming or review due</strong> for 5, and <strong>scheduled or under review</strong> for 1.</p>
-          <p className="text-sm text-slate-600 leading-relaxed mt-3">Actions that are past their due date carry more weight in the calculation. Completing your most important actions has a much larger impact on your score than clearing minor items.</p>
+          <p className="text-[11px] font-black uppercase tracking-widest text-indigo-600 mb-1">Actions Status</p>
+          <p className="text-sm text-slate-600 leading-relaxed">This measures how well your compliance actions are being managed. The score reflects what percentage of your actions are <strong>on track</strong> — not overdue and not imminently due.</p>
+          <p className="text-sm text-slate-600 leading-relaxed mt-3">Not all actions carry equal weight. <strong>Overdue</strong> actions count 10× against your score, actions <strong>due within 30 days</strong> count 5×, and well-scheduled future actions count 1×. Resolving overdue items has the biggest positive impact.</p>
+          <p className="text-sm text-slate-500 mt-3 font-mono bg-slate-50 px-3 py-2 rounded-xl border border-slate-100">Score = on-track weight ÷ total weight × 100</p>
+          <p className="text-[11px] font-black uppercase tracking-widest text-indigo-600 mt-5 mb-1">Risk Control</p>
+          <p className="text-sm text-slate-600 leading-relaxed">Breaks the score down by risk level — HIGH, MEDIUM, and LOW. It shows how many actions in each category are on track, so you can see at a glance whether your most critical risks are being managed.</p>
           <div className="mt-4 space-y-2">
-            {[{ label: '85% – 100%', color: 'bg-emerald-100 text-emerald-700 border-emerald-200', desc: 'Strong progress — minor items remain.' }, { label: '50% – 84%', color: 'bg-amber-100 text-amber-700 border-amber-200', desc: 'Action required — significant open items.' }, { label: '0% – 49%', color: 'bg-rose-100 text-rose-700 border-rose-200', desc: 'High risk — critical actions outstanding.' }].map(t => (
+            {[{ label: '85% – 100%', color: 'bg-emerald-100 text-emerald-700 border-emerald-200', desc: 'Well managed — actions planned and on schedule.' }, { label: '50% – 84%', color: 'bg-amber-100 text-amber-700 border-amber-200', desc: 'Attention needed — overdue or urgent actions present.' }, { label: '0% – 49%', color: 'bg-rose-100 text-rose-700 border-rose-200', desc: 'High risk — significant overdue actions require immediate attention.' }].map(t => (
               <div key={t.label} className={`flex items-start gap-3 text-xs font-bold px-3 py-2 rounded-xl border ${t.color}`}><span className="shrink-0">{t.label}</span><span className="font-normal">{t.desc}</span></div>
             ))}
           </div>
@@ -389,7 +395,7 @@ const ScoreExplanationModal = ({ card, onClose }: { card: 'implementation' | 'ia
       body: (
         <>
           <p className="text-sm text-slate-600 leading-relaxed">This measures how well the services you have contracted match what is typically required for this type of site. Each service is marked as <strong>Mandatory</strong> (legally required) or <strong>Recommended</strong> (best practice).</p>
-          <p className="text-sm text-slate-600 leading-relaxed mt-3">If any mandatory service is not covered, the card shows Red regardless of the overall percentage — because these carry legal risk.</p>
+          <p className="text-sm text-slate-600 leading-relaxed mt-3">If any mandatory service is not covered, the <strong>Mandatory</strong> badge highlights in red — because these carry legal risk. The overall score still reflects the percentage of all requirements contracted.</p>
           <p className="text-sm text-slate-500 mt-3 font-mono bg-slate-50 px-3 py-2 rounded-xl border border-slate-100">Score = contracted services ÷ total requirements × 100</p>
           <div className="mt-4 space-y-2">
             {[{ label: '85% – 100%', color: 'bg-emerald-100 text-emerald-700 border-emerald-200', desc: 'Strong coverage for your site type.' }, { label: '50% – 84%', color: 'bg-amber-100 text-amber-700 border-amber-200', desc: 'Coverage gaps identified.' }, { label: '0% – 49%', color: 'bg-rose-100 text-rose-700 border-rose-200', desc: 'Significant gaps — review recommended.' }].map(t => (
@@ -1462,7 +1468,7 @@ const UploadModal = ({ site, userId, onClose, onSaved }: {
   const errorCount = items.filter(it => it.status === 'error').length;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-[2px] p-4">
       <div className="bg-white rounded-3xl shadow-2xl w-full max-w-xl overflow-hidden">
         <div className="bg-amber-500 px-6 py-4 flex items-center justify-between">
           <h2 className="font-black text-white text-sm uppercase tracking-widest flex items-center gap-2">
@@ -3570,7 +3576,7 @@ export default function App() {
     for (const ra of toAdd) await handleAddReviewAction(ra.id);
   };
 
-  const EXCLUDED_FOLDERS = ['archive', 'evidence', 'photos', '_doc_converted_tmp', 'client provided documents'];
+  const EXCLUDED_FOLDERS = ['archive', 'evidence', 'photos', '_doc_converted_tmp', 'client provided documents', 'vault', 'z-archive manual'];
   const ROOT_FOLDER_ID = '1239993420';
 
   const fetchAllFiles = async (
@@ -3844,6 +3850,19 @@ export default function App() {
             throw new Error(`AI extraction failed for ${doc.name}: ${errBody.error || aiRes.statusText}`);
           }
           const { actions, documentMeta } = await aiRes.json();
+          if (!documentMeta?.assessmentDate) {
+            setReviewActions(prev => [...prev, {
+              id: `skipped-${doc.id}`, description: '', dueDate: null, dueDateRelative: null,
+              responsiblePerson: null, priority: null, advisorPriority: null,
+              docName: doc.name, docFileId: doc.id,
+              docFolderFileId: doc.parentFolderId, docFolderPath: doc.folderPath ?? '',
+              selected: false, added: false, isError: true,
+              errorMessage: 'No assessment date found — document appears to be an unfilled template and was skipped.',
+              hazardRef: null, hazard: null, existingControls: null,
+              regulation: null, riskRating: null, riskLevel: null, documentMeta: null,
+            }]);
+            return;
+          }
           console.log(`[AI-SYNC] ${doc.name} — Gemini returned ${(actions as ExtractedAction[]).length} actions:`);
           (actions as ExtractedAction[]).forEach((a: ExtractedAction, i: number) => console.log(`  [${i}] hazardRef=${a.hazardRef ?? 'null'} riskRating="${a.riskRating}" riskLevel=${a.riskLevel} | "${a.description}"`));
           // For DOCX: read action plan table to enrich AI actions with hazardRefs + two-way sync
@@ -4407,16 +4426,21 @@ export default function App() {
                   const ongoingCount = unresolved.length - overdueCount - upcomingCount;
                   const riskTiers = (['HIGH', 'MEDIUM', 'LOW'] as const).map(tier => {
                     const forTier = siteActions.filter(a => a.riskLevel === tier);
-                    const resolvedCount = forTier.filter(a => a.status === 'resolved').length;
-                    const pct = forTier.length === 0 ? 0 : Math.round((resolvedCount / forTier.length) * 100);
-                    return { tier, total: forTier.length, resolved: resolvedCount, pct };
+                    const onTrackCount = forTier.filter(a => {
+                      if (a.status === 'resolved') return true;
+                      const d = a.date;
+                      const isOverdue = d && !ONGOING_RE.test(d) && /^\d{4}-\d{2}-\d{2}$/.test(d) && d < today;
+                      return !isOverdue;
+                    }).length;
+                    const pct = forTier.length === 0 ? 0 : Math.round((onTrackCount / forTier.length) * 100);
+                    return { tier, total: forTier.length, onTrack: onTrackCount, pct };
                   });
                   const hasRiskData = riskTiers.some(t => t.total > 0);
-                  const weightedResolved = riskTiers.reduce((sum, t) => sum + t.resolved * (t.tier === 'HIGH' ? 3 : t.tier === 'MEDIUM' ? 2 : 1), 0);
-                  const weightedTotal    = riskTiers.reduce((sum, t) => sum + t.total    * (t.tier === 'HIGH' ? 3 : t.tier === 'MEDIUM' ? 2 : 1), 0);
-                  const riskScore = weightedTotal === 0 ? 100 : Math.round((weightedResolved / weightedTotal) * 100);
+                  const weightedOnTrack = riskTiers.reduce((sum, t) => sum + t.onTrack * (t.tier === 'HIGH' ? 3 : t.tier === 'MEDIUM' ? 2 : 1), 0);
+                  const weightedTotal   = riskTiers.reduce((sum, t) => sum + t.total   * (t.tier === 'HIGH' ? 3 : t.tier === 'MEDIUM' ? 2 : 1), 0);
+                  const riskScore = weightedTotal === 0 ? 100 : Math.round((weightedOnTrack / weightedTotal) * 100);
                   return (
-                    <div className="col-span-3 bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden cursor-pointer hover:border-indigo-300 hover:shadow-md transition-all" onClick={() => setSiteTab('actions')}>
+                    <div className="col-span-3 bg-white rounded-2xl border border-slate-200 shadow-sm cursor-pointer hover:border-indigo-300 hover:shadow-md transition-all" onClick={() => setSiteTab('actions')}>
                       {/* Card header */}
                       <div className="px-5 py-2.5 border-b border-slate-100 flex items-center justify-between">
                         <p className="text-[11px] font-black uppercase tracking-widest text-slate-500">Compliance Score</p>
@@ -4427,9 +4451,9 @@ export default function App() {
                         <ComplianceRing score={s} size={96} percent />
                         <div className="flex gap-8 items-start">
                         <div className="min-w-0">
-                          <div className="flex items-baseline gap-2 mb-2.5">
-                            <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Actions Status</p>
-                            <p className={`text-[9px] font-black uppercase tracking-widest ${c.text}`}>{s}% completed</p>
+                          <div className="group mb-2.5 cursor-default">
+                            <p className="text-[9px] font-black uppercase tracking-widest text-slate-400 flex items-center">Actions Status<InlineTip text="% of actions that are not overdue and not due within 30 days. Overdue actions are weighted more heavily." /></p>
+                            <p className={`text-sm font-black uppercase tracking-wide ${c.text}`}>{s}% on track</p>
                           </div>
                           {unresolved.length === 0
                             ? <p className="text-[10px] font-black text-emerald-600 uppercase tracking-wider">all actions resolved</p>
@@ -4444,7 +4468,7 @@ export default function App() {
                                   return (
                                     <div key={label} className="flex items-center gap-2">
                                       <span className={`text-[9px] font-black uppercase px-1.5 py-0.5 rounded border shrink-0 ${labelCls}`}>{label}</span>
-                                      <div className={`flex-1 h-2 rounded-full ${trackCls} overflow-hidden`}>
+                                      <div className={`flex-1 h-3 rounded-full ${trackCls} overflow-hidden`}>
                                         {count > 0 && <div className={`h-full rounded-full ${barCls} transition-all duration-700`} style={{ width: `${pct}%` }} />}
                                       </div>
                                       <span className="text-[10px] font-black text-slate-400 w-5 text-right shrink-0">{count}</span>
@@ -4457,11 +4481,14 @@ export default function App() {
                         </div>
                         {hasRiskData && (
                           <div>
-                            <p className="text-[9px] font-black uppercase tracking-widest text-slate-400 mb-2.5">Risk Rating</p>
+                            <div className="group mb-2.5 cursor-default">
+                              <p className="text-[9px] font-black uppercase tracking-widest text-slate-400 flex items-center">Risk Control<InlineTip text="Shows how many actions are on track within each risk level — HIGH, MEDIUM, and LOW — so you can see if your most critical risks are being managed." /></p>
+                              <p className={`text-sm font-black uppercase tracking-wide ${scoreColor(riskScore).text}`}>{riskScore}% on track</p>
+                            </div>
                             <div className="flex items-start gap-4">
                             <RiskRing tiers={riskTiers} score={riskScore} size={96} />
                             <div className="space-y-2.5 w-52">
-                              {riskTiers.map(({ tier, total, resolved, pct }) => {
+                              {riskTiers.map(({ tier, total, onTrack, pct }) => {
                                 const [barCls, trackCls, labelCls] = tier === 'HIGH'
                                   ? ['bg-rose-500', 'bg-rose-100', 'text-rose-700 bg-rose-50 border-rose-200']
                                   : tier === 'MEDIUM'
@@ -4470,10 +4497,10 @@ export default function App() {
                                 return (
                                   <div key={tier} className="flex items-center gap-2">
                                     <span className={`text-[9px] font-black uppercase px-1.5 py-0.5 rounded border shrink-0 ${labelCls}`}>{tier === 'HIGH' ? 'HIGH RISK' : tier === 'MEDIUM' ? 'MEDIUM RISK' : 'LOW RISK'}</span>
-                                    <div className={`flex-1 h-2 rounded-full ${trackCls} overflow-hidden`}>
+                                    <div className={`flex-1 h-3 rounded-full ${trackCls} overflow-hidden`}>
                                       {total > 0 && <div className={`h-full rounded-full ${barCls} transition-all duration-700`} style={{ width: `${pct}%` }} />}
                                     </div>
-                                    <span className="text-[10px] font-black text-slate-400 w-8 text-right shrink-0">{total === 0 ? '—' : `${resolved}/${total}`}</span>
+                                    <span className="text-[10px] font-black text-slate-400 w-8 text-right shrink-0">{total === 0 ? '—' : `${onTrack}/${total}`}</span>
                                   </div>
                                 );
                               })}
@@ -4488,23 +4515,26 @@ export default function App() {
                 })()}
                   {/* Industry Alignment — col-span-1, fills height of compliance card */}
                   {(() => {
-                    const raw = selectedSite.iagScore;
-                    const s = raw ?? 0;
-                    const c = scoreColor(s);
                     const iagMandatory = iagServices.filter(sv => sv.is_mandatory);
                     const iagMandatoryContracted = iagMandatory.filter(sv => sv.purchased).length;
                     const iagMandatoryTotal = iagMandatory.length;
                     const iagAllContracted = iagServices.filter(sv => sv.purchased).length;
                     const iagAllTotal = iagServices.length;
                     const iagMandatoryGap = iagMandatoryTotal > 0 && iagMandatoryContracted < iagMandatoryTotal;
+                    const s = iagAllTotal > 0 ? Math.round((iagAllContracted / iagAllTotal) * 100) : (selectedSite.iagScore ?? 0);
+                    const hasScore = iagAllTotal > 0 || selectedSite.iagScore !== null;
+                    const c = scoreColor(s);
                     return (
-                      <div className="col-span-1 bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden relative cursor-pointer hover:border-violet-300 hover:shadow-md transition-all flex flex-col" onClick={() => { setSiteTab('iag'); loadIagServices(selectedSite.id); }}>
+                      <div className="col-span-1 bg-white rounded-2xl border border-slate-200 shadow-sm relative cursor-pointer hover:border-violet-300 hover:shadow-md transition-all flex flex-col" onClick={() => { setSiteTab('iag'); loadIagServices(selectedSite.id); }}>
                         <div className="px-5 py-2.5 border-b border-slate-100 flex items-center justify-between">
-                          <p className="text-[11px] font-black uppercase tracking-widest text-slate-500">Industry Alignment</p>
+                          <div className="group flex items-center cursor-default">
+                            <p className="text-[11px] font-black uppercase tracking-widest text-slate-500">Industry Alignment</p>
+                            <InlineTip text="How many of your site's recommended and mandatory services are contracted, based on your industry type." />
+                          </div>
                           <button onClick={e => { e.stopPropagation(); setScoreExplanationCard('iag'); }} className="flex items-center gap-1 text-slate-300 hover:text-violet-500 transition-colors" title="How is this calculated?"><AlertCircle size={14} /><span className="text-[9px] font-black uppercase tracking-wider">Help</span></button>
                         </div>
                         <div className="flex-1 flex flex-col items-center justify-center px-5 py-4 gap-3">
-                          {raw !== null
+                          {hasScore
                             ? <ComplianceRing score={s} size={56} percent />
                             : <div className="w-14 h-14 rounded-full border-4 border-slate-100 flex items-center justify-center"><span className="text-slate-300 text-sm font-black">—</span></div>
                           }
@@ -4524,12 +4554,17 @@ export default function App() {
                 </div>{/* end 4-col grid */}
                 {/* Row 2 — Documentation Health (advisor/superadmin only, full width) */}
                 {profile?.role !== 'client' && (() => { const s = selectedSite.compliance; const c = scoreColor(s); return (
-                  <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm text-center relative cursor-pointer hover:border-amber-300 hover:shadow-md transition-all" onClick={() => setSiteTab('dochealth')}>
-                    <button onClick={e => { e.stopPropagation(); setScoreExplanationCard('documentation'); }} className="absolute top-3 right-3 flex items-center gap-1 text-slate-300 hover:text-amber-500 transition-colors" title="How is this calculated?"><AlertCircle size={14} /><span className="text-[9px] font-black uppercase tracking-wider">Help</span></button>
-                    <div className="flex items-center justify-center gap-4">
+                  <div className="bg-white rounded-2xl border border-slate-200 shadow-sm cursor-pointer hover:border-amber-300 hover:shadow-md transition-all" onClick={() => setSiteTab('dochealth')}>
+                    <div className="px-5 py-2.5 border-b border-slate-100 flex items-center justify-between">
+                      <div className="group flex items-center cursor-default">
+                        <p className="text-[11px] font-black uppercase tracking-widest text-slate-500">Documentation Health</p>
+                        <InlineTip text="Percentage of required documents that are present and up to date. Managed by your advisor based on what's uploaded in the H&S documents folder." />
+                      </div>
+                      <button onClick={e => { e.stopPropagation(); setScoreExplanationCard('documentation'); }} className="flex items-center gap-1 text-slate-300 hover:text-amber-500 transition-colors" title="How is this calculated?"><AlertCircle size={14} /><span className="text-[9px] font-black uppercase tracking-wider">Help</span></button>
+                    </div>
+                    <div className="p-5 flex items-center justify-center gap-4">
                       <ComplianceRing score={s} size={64} />
                       <div className="text-center">
-                        <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1">Documentation Health</p>
                         <p className={`text-3xl font-black ${c.text}`}>{s}%</p>
                         <p className="text-[10px] text-slate-400 font-medium mt-1">advisor managed</p>
                       </div>
@@ -4841,7 +4876,7 @@ export default function App() {
                 const rootItems = rootEntry ? [...rootEntry.items].sort((a, b) =>
                   a.type === b.type ? a.name.localeCompare(b.name) : a.type === 'folder' ? -1 : 1
                 ) : [];
-                const rootFolders = rootItems.filter(i => i.type === 'folder');
+                const rootFolders = rootItems.filter(i => i.type === 'folder' && !(role === 'client' && /^vault$/i.test(i.name)));
                 const rootFiles = rootItems.filter(i => i.type === 'file');
 
                 const handleSearchChange = async (q: string) => {

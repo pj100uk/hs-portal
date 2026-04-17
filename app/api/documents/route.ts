@@ -17,11 +17,13 @@ function clientDocPath(siteFolderPath: string, fileName: string) {
   return path.join(DATTO_DRIVE_ROOT, ...siteFolderPath.split('/'), 'Client Provided Documents', fileName);
 }
 
-/** Resolve the W: drive path for the Archive folder (sibling of H&S Manual) */
-function archiveFolderPath(siteFolderPath: string) {
+/** Resolve the W: drive path for Vault/[Site Name]/ (sibling of H&S Manual at org level) */
+function vaultFolderPath(siteFolderPath: string) {
   const parts = siteFolderPath.split('/');
-  const parentParts = parts.slice(0, -1); // strip the H&S Manual segment
-  return path.join(DATTO_DRIVE_ROOT, ...parentParts, 'Archive');
+  const manualName = parts[parts.length - 1]; // e.g. "Geveko Markings - Byfleet H&S Manual"
+  const siteName = manualName.replace(/\s*H&S Manual\s*$/i, '').trim();
+  const parentParts = parts.slice(0, -1);
+  return path.join(DATTO_DRIVE_ROOT, ...parentParts, 'Vault', siteName);
 }
 
 // GET /api/documents?siteId=xxx[&clientProvided=true|false]
@@ -109,9 +111,9 @@ export async function PATCH(request: NextRequest) {
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
   // Rename client-provided file on W: drive:
-  // 1. Copy old version → Archive/{originalName} v1 dd-mm-yy.ext
+  // 1. Copy old version → Vault/{originalName} v1 dd-mm-yy.ext
   // 2. Rename current file in Client Provided Documents → newName.ext
-  if (document_name && data.datto_file_id && data.client_provided) {
+  if (document_name && data.client_provided) {
     try {
       const { data: site } = await supabase
         .from('sites')
@@ -133,7 +135,7 @@ export async function PATCH(request: NextRequest) {
           const mm = String(now.getMonth() + 1).padStart(2, '0');
           const yy = String(now.getFullYear()).slice(2);
           const baseName = dotIndex !== -1 ? originalName.slice(0, dotIndex) : originalName;
-          const archiveDir = archiveFolderPath(site.datto_folder_path);
+          const archiveDir = vaultFolderPath(site.datto_folder_path);
           fs.mkdirSync(archiveDir, { recursive: true });
           // Find next version number by scanning Archive for existing versions of this file
           let versionNum = 1;
@@ -148,7 +150,7 @@ export async function PATCH(request: NextRequest) {
           } catch { /* default to v1 */ }
           const archivedName = `${baseName} v${versionNum} ${dd}-${mm}-${yy}${ext}`;
           fs.copyFileSync(srcPath, path.join(archiveDir, archivedName));
-          console.log('[documents] archived old version → Archive/', archivedName);
+          console.log('[documents] archived old version → Vault/', archivedName);
 
           // Step 2 — rename in place
           const newPath = clientDocPath(site.datto_folder_path, newFileName);
@@ -239,13 +241,13 @@ export async function DELETE(request: NextRequest) {
           : `${originalName} v1 ${dd}-${mm}-${yy}`;
 
         const srcPath = clientDocPath(siteData.datto_folder_path, originalName);
-        const archiveDir = archiveFolderPath(siteData.datto_folder_path);
+        const archiveDir = vaultFolderPath(siteData.datto_folder_path);
         const destPath = path.join(archiveDir, archivedName);
 
         if (fs.existsSync(srcPath)) {
           fs.mkdirSync(archiveDir, { recursive: true });
           fs.renameSync(srcPath, destPath);
-          console.log('[documents] archived on W: drive:', originalName, '→ Archive/', archivedName);
+          console.log('[documents] archived on W: drive:', originalName, '→ Vault/', archivedName);
         } else {
           console.warn('[documents] file not found on W: drive for archive:', srcPath);
         }
