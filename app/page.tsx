@@ -324,34 +324,7 @@ const InlineTip = ({ text }: { text: string }) => (
   </span>
 );
 
-const RiskRing = ({ tiers, score, size = 96 }: { tiers: { tier: string; total: number; onTrack: number }[]; score: number; size?: number }) => {
-  const r = 20; const circ = 2 * Math.PI * r;
-  const total = tiers.reduce((sum, t) => sum + t.total, 0);
-  const color = scoreColor(score).ring;
-  const tierColors: Record<string, string> = { HIGH: '#f43f5e', MEDIUM: '#fb923c', LOW: '#10b981' };
-  let acc = 0;
-  const segments: { color: string; fraction: number; start: number }[] = [];
-  for (const t of tiers) {
-    const offTrack = t.total - t.onTrack;
-    if (offTrack > 0 && total > 0) {
-      segments.push({ color: tierColors[t.tier] ?? '#94a3b8', fraction: offTrack / total, start: acc });
-      acc += offTrack / total;
-    }
-  }
-  return (
-    <svg width={size} height={size} viewBox="0 0 48 48">
-      <circle cx="24" cy="24" r={r} stroke="#f1f5f9" strokeWidth="5" fill="none" />
-      {segments.map((seg, i) => (
-        <circle key={i} cx="24" cy="24" r={r} stroke={seg.color} strokeWidth="5" fill="none"
-          strokeDasharray={`${seg.fraction * circ} ${circ}`}
-          transform={`rotate(${seg.start * 360 - 90} 24 24)`}
-          strokeLinecap="butt"
-          style={{ transition: 'all 0.7s ease' }} />
-      ))}
-      <text x="24" y="29" textAnchor="middle" fontWeight="900" fill={color}><tspan fontSize="12">{score}</tspan><tspan fontSize="8" dy="-1">%</tspan></text>
-    </svg>
-  );
-};
+
 
 const ComplianceRing = ({ score, size = 56, percent = false }: { score: number; size?: number; percent?: boolean }) => {
   const r = 20; const circ = 2 * Math.PI * r; const offset = circ - (score / 100) * circ;
@@ -4283,7 +4256,7 @@ export default function App() {
                             <div className="flex items-center gap-3"><div className="w-7 h-7 bg-slate-50 rounded-lg flex items-center justify-center text-slate-400 group-hover:bg-indigo-600 group-hover:text-white transition-all text-xs">{getSiteIcon(site.type, 14)}</div><span className="text-sm font-bold text-slate-700 group-hover:text-indigo-700">{site.name}</span></div>
                             <span className={`font-black text-sm ${scoreColor(onTrack).text}`}>{onTrack}% on track</span>
                           </div>
-                          <div className="w-full bg-slate-100 h-3 rounded-full overflow-hidden shadow-inner"><div className={`h-full rounded-full transition-all duration-1000 ${scoreColor(onTrack).bar}`} style={{ width: `${onTrack}%` }} /></div>
+                          <div className="w-full bg-slate-100 h-4 rounded-full overflow-hidden shadow-inner"><div className={`h-full rounded-full transition-all duration-1000 ${scoreColor(onTrack).bar}`} style={{ width: `${onTrack}%` }} /></div>
                         </div>
                         );
                       })}
@@ -4523,7 +4496,7 @@ export default function App() {
                   const hsPerfTotalW = hsPerfComponents.reduce((sum, comp) => sum + comp.w, 0);
                   const hsPerf = hsPerfComponents.length === 0 ? null
                     : Math.round(hsPerfComponents.reduce((sum, comp) => sum + comp.val * comp.w, 0) / hsPerfTotalW);
-                  const scoreHex = (v: number) => v >= 80 ? '#10b981' : v >= 60 ? '#fbbf24' : '#f43f5e';
+
 
                   return (
                     <div className="col-span-3 bg-white rounded-2xl border border-slate-200 shadow-sm cursor-pointer hover:border-indigo-300 hover:shadow-md transition-all" onClick={() => setSiteTab('actions')}>
@@ -4533,161 +4506,101 @@ export default function App() {
                         <button onClick={e => { e.stopPropagation(); setScoreExplanationCard('implementation'); }} className="flex items-center gap-1 text-slate-300 hover:text-indigo-500 transition-colors" title="How is this calculated?"><AlertCircle size={14} /><span className="text-[9px] font-black uppercase tracking-wider">Help</span></button>
                       </div>
                       {/* Body */}
-                      <div className="px-5 py-4 flex items-start gap-8">
-                        <div className="flex gap-8 items-start">
-                        <div className="min-w-0">
+                      <div className="px-5 py-4 flex items-start gap-6">
+                        <div className="flex items-start flex-1 divide-x divide-slate-100">
+                        <div className="flex-1 min-w-0 pr-6">
                           <div className="group mb-2.5 cursor-default">
                             <p className="text-[11px] font-black uppercase tracking-widest text-slate-600 flex items-center">Actions Progress<InlineTip text="% of actions that are not overdue and not due within 30 days. Overdue actions are weighted more heavily." /></p>
                             <p className={`text-[11px] font-black uppercase tracking-wide ${c.text}`}>{s}% on track</p>
                           </div>
                           {unresolved.length === 0
                             ? <p className="text-[10px] font-black text-emerald-600 uppercase tracking-wider">all actions resolved</p>
-                            : (() => {
-                                const circ = 2 * Math.PI * 50;
-                                const segs = [
-                                  { count: overdueCount,  color: '#f43f5e' },
-                                  { count: upcomingCount, color: '#fbbf24' },
-                                  { count: ongoingCount,  color: '#10b981' },
-                                ].filter(s => s.count > 0);
-                                let cum = 0;
-                                const arcs = segs.map(s => {
-                                  const len = (s.count / unresolved.length) * circ;
-                                  const startDeg = (cum / circ) * 360;
-                                  cum += len;
-                                  return { ...s, len, startDeg };
-                                });
-                                return (
-                                  <div className="flex items-start gap-3">
-                                    <div className="relative w-28 h-28 shrink-0 flex items-center justify-center">
-                                      <svg className="w-full h-full -rotate-90" viewBox="0 0 120 120">
-                                        <circle cx="60" cy="60" r="50" stroke="#f1f5f9" strokeWidth="14" fill="none" />
-                                        {arcs.map((arc, i) => (
-                                          <circle key={i} cx="60" cy="60" r="50" stroke={arc.color} strokeWidth="14" fill="none"
-                                            strokeDasharray={`${arc.len} ${circ - arc.len}`}
-                                            transform={`rotate(${arc.startDeg} 60 60)`} />
-                                        ))}
-                                      </svg>
-                                      <div className="absolute text-center">
-                                        <p className="text-xl font-bold text-slate-600 leading-none">{unresolved.length}</p>
-                                        <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mt-0.5">actions</p>
+                            : (
+                              <div className="space-y-3 w-full">
+                                {([
+                                  { label: 'Overdue',   count: overdueCount,  bar: 'bg-rose-500',    text: 'text-rose-600' },
+                                  { label: 'Upcoming',  count: upcomingCount, bar: 'bg-amber-400',   text: 'text-amber-600' },
+                                  { label: 'Scheduled', count: ongoingCount,  bar: 'bg-emerald-500', text: 'text-emerald-600' },
+                                ] as { label: string; count: number; bar: string; text: string }[]).map(row => {
+                                  const pct = Math.round((row.count / unresolved.length) * 100);
+                                  return (
+                                    <div key={row.label}>
+                                      <p className="text-[10px] font-black uppercase tracking-wider text-slate-500 mb-1">{row.label}</p>
+                                      <div className="flex items-center gap-2">
+                                        <div className="flex-1 bg-slate-100 h-4 rounded-full overflow-hidden">
+                                          <div className={`h-full rounded-full ${row.bar}`} style={{ width: `${pct}%` }} />
+                                        </div>
+                                        <span className={`text-[10px] font-black w-5 text-right shrink-0 ${row.text}`}>{row.count}</span>
                                       </div>
                                     </div>
-                                    <div className="space-y-1.5 flex-1 pt-0.5">
-                                      {[
-                                        { label: 'OVERDUE',               count: overdueCount,  bg: 'bg-rose-50',    text: 'text-rose-700',    border: 'border-rose-100' },
-                                        { label: 'UPCOMING / REVIEW DUE', count: upcomingCount, bg: 'bg-amber-50',   text: 'text-amber-700',   border: 'border-amber-100' },
-                                        { label: 'SCHEDULED / REVIEW',    count: ongoingCount,  bg: 'bg-emerald-50', text: 'text-emerald-700', border: 'border-emerald-100' },
-                                      ].filter(r => r.count > 0).map(r => (
-                                        <div key={r.label} className={`flex items-center justify-between text-[10px] font-black tracking-wide px-2.5 py-1.5 rounded-lg border w-full ${r.bg} ${r.text} ${r.border}`}>
-                                          <span>{r.label}</span>
-                                          <span className="text-[10px] font-black ml-2">{r.count}</span>
-                                        </div>
-                                      ))}
-                                    </div>
-                                  </div>
-                                );
-                              })()
+                                  );
+                                })}
+                              </div>
+                            )
                           }
                         </div>
                         {hasRiskData && (
-                          <div>
+                          <div className="flex-1 min-w-0 px-6">
                             <div className="group mb-2.5 cursor-default">
                               <p className="text-[11px] font-black uppercase tracking-widest text-slate-600 flex items-center">Risk Health<InlineTip text="Shows how many actions are on track within each risk level — HIGH, MEDIUM, and LOW — so you can see if your most critical risks are being managed." /></p>
                               <p className={`text-[11px] font-black uppercase tracking-wide ${scoreColor(riskScore).text}`}>{riskScore}% on track</p>
                             </div>
-                            <div className="flex items-start gap-4">
                             {(() => {
                               const riskTotal = riskTiers.reduce((s, t) => s + t.total, 0);
-                              const riskCirc = 2 * Math.PI * 50;
-                              const riskSegs = [
-                                { tier: 'HIGH',   color: '#f43f5e' },
-                                { tier: 'MEDIUM', color: '#fb923c' },
-                                { tier: 'LOW',    color: '#10b981' },
-                              ].map(s => ({ ...s, count: riskTiers.find(t => t.tier === s.tier)?.total ?? 0 }))
-                               .filter(s => s.count > 0);
-                              let rCum = 0;
-                              const rArcs = riskSegs.map(s => {
-                                const len = (s.count / riskTotal) * riskCirc;
-                                const startDeg = (rCum / riskCirc) * 360;
-                                rCum += len;
-                                return { ...s, len, startDeg };
-                              });
                               return (
-                                <div className="relative w-28 h-28 shrink-0 flex items-center justify-center">
-                                  <svg className="w-full h-full -rotate-90" viewBox="0 0 120 120">
-                                    <circle cx="60" cy="60" r="50" stroke="#f1f5f9" strokeWidth="14" fill="none" />
-                                    {rArcs.map((arc, i) => (
-                                      <circle key={i} cx="60" cy="60" r="50" stroke={arc.color} strokeWidth="14" fill="none"
-                                        strokeDasharray={`${arc.len} ${riskCirc - arc.len}`}
-                                        transform={`rotate(${arc.startDeg} 60 60)`} />
-                                    ))}
-                                  </svg>
-                                  {(() => {
-                                    const topTier = riskTiers.find(t => t.total > 0);
-                                    const [tierColor, tierLabel] = topTier?.tier === 'HIGH' ? ['text-rose-500', 'HIGH RISK']
-                                      : topTier?.tier === 'MEDIUM' ? ['text-orange-500', 'MEDIUM RISK']
-                                      : ['text-emerald-600', 'LOW RISK'];
+                                <div className="space-y-3 w-full">
+                                  {([
+                                    { tier: 'HIGH',   label: 'High Risk',   bar: 'bg-rose-500',    text: 'text-rose-600' },
+                                    { tier: 'MEDIUM', label: 'Medium Risk', bar: 'bg-orange-400',  text: 'text-orange-600' },
+                                    { tier: 'LOW',    label: 'Low Risk',    bar: 'bg-emerald-500', text: 'text-emerald-600' },
+                                  ] as { tier: string; label: string; bar: string; text: string }[]).map(row => {
+                                    const total = riskTiers.find(t => t.tier === row.tier)?.total ?? 0;
+                                    const pct = riskTotal === 0 ? 0 : Math.round((total / riskTotal) * 100);
                                     return (
-                                      <div className="absolute text-center">
-                                        <p className={`text-xl font-black leading-none ${tierColor}`}>{topTier?.total ?? 0}</p>
-                                        <p className={`text-[8px] font-black uppercase tracking-widest mt-0.5 ${tierColor}`}>{tierLabel}</p>
-                                        <p className={`text-[8px] font-black uppercase tracking-widest ${tierColor}`}>hazards</p>
+                                      <div key={row.tier}>
+                                        <p className="text-[10px] font-black uppercase tracking-wider text-slate-500 mb-1">{row.label}</p>
+                                        <div className="flex items-center gap-2">
+                                          <div className="flex-1 bg-slate-100 h-4 rounded-full overflow-hidden">
+                                            <div className={`h-full rounded-full ${row.bar}`} style={{ width: `${pct}%` }} />
+                                          </div>
+                                          <span className={`text-[10px] font-black w-5 text-right shrink-0 ${row.text}`}>{total}</span>
+                                        </div>
                                       </div>
                                     );
-                                  })()}
+                                  })}
                                 </div>
                               );
                             })()}
-                            <div className="space-y-1.5 flex-1 pt-0.5">
-                              {riskTiers.filter(t => t.total > 0).map(({ tier, total }) => {
-                                const [bg, text, border, label] = tier === 'HIGH'
-                                  ? ['bg-rose-50', 'text-rose-700', 'border-rose-100', 'HIGH RISK']
-                                  : tier === 'MEDIUM'
-                                  ? ['bg-orange-50', 'text-orange-700', 'border-orange-100', 'MEDIUM RISK']
-                                  : ['bg-emerald-50', 'text-emerald-700', 'border-emerald-100', 'LOW RISK'];
+                          </div>
+                        )}
+                        {hsPerf !== null && (
+                          <div className="flex-1 min-w-0 pl-6">
+                            <div className="group mb-2.5 cursor-default">
+                              <p className="text-[11px] font-black uppercase tracking-widest text-slate-600 flex items-center">H&S Performance<InlineTip text="Composite score: Actions Progress (40%), Risk Health (40%), Industry Alignment (20%)." /></p>
+                              <p className={`text-[11px] font-black uppercase tracking-wide ${scoreColor(hsPerf).text}`}>{hsPerf}% overall</p>
+                            </div>
+                            <div className="space-y-3 w-full">
+                              {([
+                                { label: 'Actions', val: hsPerfComponents.find(c => c.label === 'ACTIONS')?.val ?? null },
+                                { label: 'Risk Health', val: hsPerfComponents.find(c => c.label === 'RISK')?.val ?? null },
+                                { label: 'Service Cover', val: hsPerfComponents.find(c => c.label === 'IAG')?.val ?? null },
+                              ] as { label: string; val: number | null }[]).filter(r => r.val !== null).map(row => {
+                                const c = scoreColor(row.val!);
                                 return (
-                                  <div key={tier} className={`flex items-center justify-between text-[10px] font-black tracking-wide px-2.5 py-1.5 rounded-lg border w-full ${bg} ${text} ${border}`}>
-                                    <span>{label}</span>
-                                    <span className="text-[10px] font-black ml-2">{total}</span>
+                                  <div key={row.label}>
+                                    <p className="text-[10px] font-black uppercase tracking-wider text-slate-500 mb-1">{row.label}</p>
+                                    <div className="flex items-center gap-2">
+                                      <div className="flex-1 bg-slate-100 h-4 rounded-full overflow-hidden">
+                                        <div className={`h-full rounded-full ${c.bar}`} style={{ width: `${row.val}%` }} />
+                                      </div>
+                                      <span className={`text-[10px] font-black w-7 text-right shrink-0 ${c.text}`}>{row.val}%</span>
+                                    </div>
                                   </div>
                                 );
                               })}
                             </div>
-                            </div>{/* end flex ring+bars */}
                           </div>
                         )}
-                        {hsPerf !== null && (() => {
-                          const hsCirc = 2 * Math.PI * 50;
-                          let hsCum = 0;
-                          const hsArcs = hsPerfComponents.map((comp, i) => {
-                            const len = (comp.w / hsPerfTotalW) * hsCirc;
-                            const startDeg = (hsCum / hsCirc) * 360 + (i > 0 ? 1.5 : 0);
-                            hsCum += len;
-                            return { ...comp, len: len - 3, startDeg, color: scoreHex(comp.val) };
-                          });
-                          return (
-                            <div>
-                              <div className="group mb-2.5 cursor-default">
-                                <p className="text-[11px] font-black uppercase tracking-widest text-slate-600 flex items-center">H&S Performance<InlineTip text="Composite score: Actions Progress (40%), Risk Health (40%), Industry Alignment (20%). Each arc shows how that component is performing." /></p>
-                                <p className={`text-[11px] font-black uppercase tracking-wide ${scoreColor(hsPerf).text}`}>{hsPerf}% overall</p>
-                              </div>
-                              <div className="relative w-28 h-28 shrink-0 flex items-center justify-center">
-                                <svg className="w-full h-full -rotate-90" viewBox="0 0 120 120">
-                                  <circle cx="60" cy="60" r="50" stroke="#f1f5f9" strokeWidth="14" fill="none" />
-                                  {hsArcs.map((arc, i) => (
-                                    <circle key={i} cx="60" cy="60" r="50" stroke={arc.color} strokeWidth="14" fill="none"
-                                      strokeDasharray={`${arc.len} ${hsCirc - arc.len}`}
-                                      transform={`rotate(${arc.startDeg} 60 60)`} />
-                                  ))}
-                                </svg>
-                                <div className="absolute text-center">
-                                  <p className="text-xl font-bold text-slate-600 leading-none">{hsPerf}%</p>
-                                  <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mt-0.5">H&S perf</p>
-                                </div>
-                              </div>
-                            </div>
-                          );
-                        })()}
                         </div>{/* end columns wrapper */}
                       </div>
                     </div>

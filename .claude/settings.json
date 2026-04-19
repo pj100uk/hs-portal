@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cd E:/hs-portal && npx tsc --noEmit *)",
+      "Bash(cd \"E:/hs-portal\" && npx tsc --noEmit *)",
+      "Bash(npx tsc --noEmit *)"
+    ]
+  }
+}
