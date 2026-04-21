@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
+import { createClient } from '@supabase/supabase-js';
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
+const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
 
 function sizeBand(employeeCount?: number | null): string {
   if (!employeeCount) return 'an unknown number of';
@@ -44,6 +46,15 @@ Return ONLY a valid JSON array with no additional text or markdown:
       max_tokens: 4096,
       messages: [{ role: 'user', content: prompt }],
     });
+
+    const inputTokens = message.usage.input_tokens;
+    const outputTokens = message.usage.output_tokens;
+    const costUsd = (inputTokens / 1_000_000 * 3.00) + (outputTokens / 1_000_000 * 15.00);
+    supabase.from('ai_usage_log').insert({
+      service: 'claude', model: 'claude-sonnet-4-6', operation: 'requirements-generate',
+      input_tokens: inputTokens, output_tokens: outputTokens, cost_usd: costUsd,
+      metadata: { siteType: body.siteType },
+    }).then(() => {});
 
     const text = message.content.find(b => b.type === 'text')?.text ?? '';
     // Strip any markdown fences if present

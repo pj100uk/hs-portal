@@ -1,11 +1,28 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { GoogleGenerativeAI } from '@google/generative-ai'
+import { createClient } from '@supabase/supabase-js'
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!)
+const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!)
 const model = genAI.getGenerativeModel({
   model: 'gemini-2.5-flash',
   generationConfig: { responseMimeType: 'application/json', temperature: 0 } as any,
 })
+
+async function generateWithRetry(content: Parameters<typeof model.generateContent>[0], maxRetries = 2) {
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await model.generateContent(content);
+    } catch (err: any) {
+      const is429 = err.message?.includes('429') || err.status === 429;
+      if (!is429 || attempt === maxRetries) throw err;
+      const delayMatch = err.message?.match(/retry.*?(\d+(?:\.\d+)?)s/i);
+      const waitMs = delayMatch ? Math.min(parseFloat(delayMatch[1]) * 1000 + 1000, 70_000) : (attempt + 1) * 15_000;
+      await new Promise(r => setTimeout(r, waitMs));
+    }
+  }
+  throw new Error('generateWithRetry: exhausted retries');
+}
 
 const PROMPT_SUFFIX = `You are an expert H&S (Health & Safety) compliance assistant.
 
@@ -37,7 +54,7 @@ export async function POST(request: NextRequest) {
   const body = await request.json().catch(() => null)
   if (!body) return NextResponse.json({ error: 'Invalid request body' }, { status: 400 })
 
-  const { text, html, fileBase64, mimeType, docName } = body
+  const { text, html, fileBase64, mimeType, docName, siteId, organisationId } = body
   const syncId = Date.now()
 
   try {
@@ -45,23 +62,34 @@ export async function POST(request: NextRequest) {
 
     if (fileBase64 && mimeType) {
       // PDF or other binary — send as inline data to Gemini
-      result = await model.generateContent([
+      result = await generateWithRetry([
         { inlineData: { data: fileBase64, mimeType } },
         `${PROMPT_SUFFIX}\n\nDocument name: ${docName}\nSync-ID: ${syncId}`,
       ])
     } else if (html?.trim()) {
       // HTML from DOCX via mammoth — preserves table structure for accurate extraction
-      result = await model.generateContent(
+      result = await generateWithRetry(
         `${PROMPT_SUFFIX}\n\nDocument name: ${docName}\nSync-ID: ${syncId}\nDocument content (HTML format — use table structure to identify rows and columns accurately):\n${html}`
       )
     } else if (text?.trim()) {
       // Plain text fallback (xlsx, csv, etc.)
-      result = await model.generateContent(
+      result = await generateWithRetry(
         `${PROMPT_SUFFIX}\n\nDocument name: ${docName}\nSync-ID: ${syncId}\nDocument text:\n${text}`
       )
     } else {
       return NextResponse.json({ error: 'Provide either text or fileBase64+mimeType' }, { status: 400 })
     }
+
+    const usage = result.response.usageMetadata
+    const inputTokens = usage?.promptTokenCount ?? 0
+    const outputTokens = usage?.candidatesTokenCount ?? 0
+    const costUsd = (inputTokens / 1_000_000 * 0.15) + (outputTokens / 1_000_000 * 0.60)
+    supabase.from('ai_usage_log').insert({
+      service: 'gemini', model: 'gemini-2.5-flash', operation: 'ai-extract',
+      site_id: siteId || null, organisation_id: organisationId || null,
+      input_tokens: inputTokens, output_tokens: outputTokens, cost_usd: costUsd,
+      metadata: { docName },
+    }).then(() => {})
 
     const parsed = JSON.parse(result.response.text())
     return NextResponse.json({ documentMeta: parsed.documentMeta ?? null, actions: parsed.actions ?? [] })

@@ -179,6 +179,11 @@ export async function GET(req: NextRequest) {
     }
 
     // ── 6. Return PDF ──
+    supabase.from('ai_usage_log').insert({
+      service: 'cloudconvert', operation: 'pdf-convert',
+      site_id: null, cost_usd: null, metadata: { fileId, fileName },
+    }).then(() => {});
+
     const pdfName = fileName.replace(/\.[^/.]+$/, '') + '.pdf';
     return new NextResponse(pdfBuffer, {
       headers: {

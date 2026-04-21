@@ -23,6 +23,13 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'siteId is required' }, { status: 400 });
     }
 
+    if (fileName.toLowerCase().endsWith('.doc')) {
+      return NextResponse.json(
+        { error: `"${fileName}" is a legacy .doc file. Open it in Word and save as .docx (File → Save As → Word Document), then upload again.` },
+        { status: 415 }
+      );
+    }
+
     // Check for existing document with same filename for this site
     const { data: existingArr } = await supabase
       .from('site_documents')

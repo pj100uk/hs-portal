@@ -19,7 +19,7 @@ import { supabase } from './lib/supabase';
 type Priority = 'red' | 'amber' | 'green';
 type ActionStatus = 'open' | 'resolved';
 type AppView = 'portfolio' | 'site' | 'admin';
-type AdminTab = 'organisations' | 'sites' | 'users' | 'requirements';
+type AdminTab = 'organisations' | 'sites' | 'users' | 'requirements' | 'usage';
 
 interface Action {
   id: string; action: string; description: string; date: string; site: string;
@@ -2029,8 +2029,14 @@ const SuperadminPanel = () => {
   const [newReqMandatory, setNewReqMandatory] = useState(false);
   const [newReqLegal, setNewReqLegal] = useState('');
 
+  // Usage & Costs state
+  const [usageData, setUsageData] = useState<any>(null);
+  const [usageLoading, setUsageLoading] = useState(false);
+  const [usageDays, setUsageDays] = useState(30);
+
   useEffect(() => { loadAll(); }, []);
   useEffect(() => { if (activeTab === 'requirements') loadRequirements(reqSiteType); }, [activeTab, reqSiteType]);
+  useEffect(() => { if (activeTab === 'usage') loadUsage(); }, [activeTab, usageDays]);
 
   const loadAll = async () => {
     setLoading(true);
@@ -2042,6 +2048,16 @@ const SuperadminPanel = () => {
   const loadSites = async () => { const { data } = await supabase.from('sites').select('*, organisations(name)').order('name'); if (data) setSites(data); };
   const loadClientSiteAssignments = async () => { const { data } = await supabase.from('client_site_assignments').select('*, sites(name)').order('created_at'); if (data) setClientSiteAssignments(data); };
   const loadAdvisorSiteAssignments = async () => { const { data } = await supabase.from('advisor_site_assignments').select('*, sites(name)').order('created_at'); if (data) setAdvisorSiteAssignments(data); };
+
+  const loadUsage = async () => {
+    setUsageLoading(true);
+    const { data: { session } } = await supabase.auth.getSession();
+    const userId = session?.user?.id;
+    if (!userId) { setUsageLoading(false); return; }
+    const res = await fetch(`/api/admin/usage?userId=${userId}&days=${usageDays}`);
+    if (res.ok) setUsageData(await res.json());
+    setUsageLoading(false);
+  };
 
   const loadRequirements = async (siteType: string) => {
     setReqLoading(true);
@@ -2269,17 +2285,18 @@ const SuperadminPanel = () => {
     { key: 'sites', label: 'Sites', icon: <Factory size={14} /> },
     { key: 'users', label: 'Users', icon: <User size={14} /> },
     { key: 'requirements', label: 'Industry Standards', icon: <Shield size={14} /> },
+    { key: 'usage', label: 'Usage & Costs', icon: <BarChart3 size={14} /> },
   ];
 
   // Reusable folder picker field
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
-      <div className="bg-gradient-to-br from-indigo-900 via-indigo-950 to-slate-900 rounded-3xl p-10 text-white shadow-2xl relative overflow-hidden">
+      <div className="bg-gradient-to-br from-indigo-900 via-indigo-950 to-slate-900 rounded-3xl p-6 md:p-10 text-white shadow-2xl relative overflow-hidden">
         <div className="absolute top-0 right-0 w-96 h-96 bg-indigo-500 rounded-full -mr-32 -mt-32 blur-[100px] opacity-20 pointer-events-none" />
         <div className="relative z-10">
           <span className="text-[10px] font-black uppercase tracking-[0.3em] text-indigo-300">System Administration</span>
-          <h2 className="text-4xl font-black tracking-tighter mt-2">Superadmin Panel</h2>
+          <h2 className="text-2xl md:text-4xl font-black tracking-tighter mt-2">Superadmin Panel</h2>
           <p className="text-indigo-300 mt-2 text-sm">Manage organisations, sites, users and advisor assignments.</p>
         </div>
       </div>
@@ -2287,10 +2304,10 @@ const SuperadminPanel = () => {
       {flashError && <div className="bg-rose-50 border border-rose-200 text-rose-700 text-sm font-bold px-4 py-3 rounded-xl">{flashError}</div>}
       {flashSuccess && <div className="bg-emerald-50 border border-emerald-200 text-emerald-700 text-sm font-bold px-4 py-3 rounded-xl">✓ {flashSuccess}</div>}
 
-      <div className="flex border-b border-slate-200 gap-6">
+      <div className="flex border-b border-slate-200 gap-4 overflow-x-auto">
         {tabs.map(tab => (
           <button key={tab.key} onClick={() => { setActiveTab(tab.key); setEditingOrgId(null); setEditingSiteId(null); setExpandingUserId(null); setShowEditOrgPicker(false); setShowEditSitePicker(false); setOrgAdvisorSearch(''); setOrgClientSearch(''); setSiteAdvisorSearch(''); setSiteClientSearch(''); setUserSiteSearch(''); }}
-            className={`pb-4 px-1 text-[11px] font-black uppercase tracking-widest flex items-center gap-2 border-b-2 transition-all ${activeTab === tab.key ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-slate-400 hover:text-slate-600'}`}>
+            className={`pb-4 px-1 text-[11px] font-black uppercase tracking-widest flex items-center gap-2 border-b-2 transition-all whitespace-nowrap ${activeTab === tab.key ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-slate-400 hover:text-slate-600'}`}>
             {tab.icon}{tab.label}
           </button>
         ))}
@@ -2935,6 +2952,163 @@ const SuperadminPanel = () => {
                 </tbody>
               </table>
             </div>
+          )}
+        </div>
+      )}
+
+      {/* ── USAGE & COSTS TAB ── */}
+      {activeTab === 'usage' && (
+        <div className="space-y-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="text-lg font-black text-slate-800">Usage & Costs</h3>
+              <p className="text-xs text-slate-400 mt-0.5">AI API token usage and estimated spend</p>
+            </div>
+            <div className="flex items-center gap-2">
+              {[7, 30, 90].map(d => (
+                <button key={d} onClick={() => setUsageDays(d)} className={`px-3 py-1.5 rounded-lg text-[11px] font-black uppercase tracking-widest border transition-colors ${usageDays === d ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-slate-500 border-slate-200 hover:border-indigo-300'}`}>{d}d</button>
+              ))}
+              <button onClick={loadUsage} disabled={usageLoading} className="px-3 py-1.5 rounded-lg text-[11px] font-black uppercase tracking-widest border border-slate-200 bg-white text-slate-500 hover:border-indigo-300 disabled:opacity-50">
+                <RefreshCw size={12} className={usageLoading ? 'animate-spin' : ''} />
+              </button>
+            </div>
+          </div>
+
+          {usageLoading && <div className="text-center py-12 text-slate-400 text-sm font-bold">Loading usage data…</div>}
+
+          {!usageLoading && usageData && (() => {
+            const USD_TO_GBP = 0.79; // update as needed
+            const gbp = (usd: number) => `£${(usd * USD_TO_GBP).toFixed(4)}`;
+            const usd = (u: number) => `$${u.toFixed(4)}`;
+            const { totals, daily, orgs, recent, cloudconvertCredits } = usageData;
+            const gemini = totals?.gemini ?? {};
+            const claude = totals?.claude ?? {};
+            const cc = totals?.cloudconvert ?? {};
+            const totalCost = (gemini.costUsd ?? 0) + (claude.costUsd ?? 0);
+            const maxDayCost = daily.length ? Math.max(...daily.map((d: any) => (d.gemini ?? 0) + (d.claude ?? 0)), 0.000001) : 0.000001;
+
+            return (
+              <div className="space-y-6">
+                {/* Summary cards */}
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                  {[
+                    { label: 'Gemini (MTD)', costUsd: gemini.costUsd ?? 0, sub: `${((gemini.inputTokens ?? 0) + (gemini.outputTokens ?? 0)).toLocaleString()} tokens`, color: 'text-indigo-600', isCC: false },
+                    { label: 'Claude (MTD)', costUsd: claude.costUsd ?? 0, sub: `${((claude.inputTokens ?? 0) + (claude.outputTokens ?? 0)).toLocaleString()} tokens`, color: 'text-violet-600', isCC: false },
+                    { label: 'CloudConvert', costUsd: null, sub: `${cc.count ?? 0} conversions`, color: 'text-amber-600', isCC: true },
+                    { label: 'Total AI Cost', costUsd: totalCost, sub: `${(gemini.count ?? 0) + (claude.count ?? 0)} AI calls`, color: 'text-slate-800', isCC: false },
+                  ].map(card => (
+                    <div key={card.label} className="bg-white border border-slate-200 rounded-2xl p-5">
+                      <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">{card.label}</p>
+                      {card.isCC ? (
+                        <p className={`text-xl font-black mt-1 ${card.color}`}>{cloudconvertCredits !== null ? `${cloudconvertCredits} credits` : '—'}</p>
+                      ) : (
+                        <>
+                          <p className={`text-xl font-black mt-1 ${card.color}`}>{usd(card.costUsd!)}</p>
+                          <p className="text-[11px] text-slate-400 font-mono">{gbp(card.costUsd!)} <span className="text-[9px] uppercase tracking-widest">est.</span></p>
+                        </>
+                      )}
+                      <p className="text-[11px] text-slate-400 mt-0.5">{card.sub}</p>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Daily bar chart */}
+                {daily.length > 0 && (
+                  <div className="bg-white border border-slate-200 rounded-2xl p-6">
+                    <h4 className="text-[11px] font-black uppercase tracking-widest text-slate-400 mb-4">Daily cost — last {usageDays} days</h4>
+                    <div className="flex items-end gap-1 h-32">
+                      {daily.map((d: any) => {
+                        const geminiH = Math.round(((d.gemini ?? 0) / maxDayCost) * 100);
+                        const claudeH = Math.round(((d.claude ?? 0) / maxDayCost) * 100);
+                        return (
+                          <div key={d.date} className="flex-1 flex flex-col items-center gap-0 justify-end min-w-0" title={`${d.date}\nGemini: ${gbp(d.gemini ?? 0)} (${usd(d.gemini ?? 0)})\nClaude: ${gbp(d.claude ?? 0)} (${usd(d.claude ?? 0)})`}>
+                            {claudeH > 0 && <div className="w-full bg-violet-400 rounded-t" style={{ height: `${claudeH}%` }} />}
+                            {geminiH > 0 && <div className={`w-full bg-indigo-400 ${claudeH === 0 ? 'rounded-t' : ''}`} style={{ height: `${geminiH}%` }} />}
+                            {geminiH === 0 && claudeH === 0 && <div className="w-full bg-slate-100 rounded-t" style={{ height: '2px' }} />}
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <div className="flex justify-between mt-2">
+                      <span className="text-[10px] text-slate-400">{daily[0]?.date}</span>
+                      <div className="flex items-center gap-3 text-[10px] text-slate-400">
+                        <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-sm bg-indigo-400" />Gemini</span>
+                        <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-sm bg-violet-400" />Claude</span>
+                      </div>
+                      <span className="text-[10px] text-slate-400">{daily[daily.length - 1]?.date}</span>
+                    </div>
+                  </div>
+                )}
+
+                {/* Per-org table */}
+                {orgs.length > 0 && (
+                  <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden">
+                    <div className="px-6 py-4 border-b border-slate-100">
+                      <h4 className="text-[11px] font-black uppercase tracking-widest text-slate-400">Per organisation</h4>
+                    </div>
+                    <table className="w-full text-left">
+                      <thead><tr className="bg-slate-50 text-[10px] uppercase font-black text-slate-400 border-b border-slate-100">
+                        <th className="px-6 py-3">Organisation</th>
+                        <th className="px-6 py-3 text-right">Gemini</th>
+                        <th className="px-6 py-3 text-right">Claude</th>
+                        <th className="px-6 py-3 text-right">CC conv.</th>
+                        <th className="px-6 py-3 text-right">Total</th>
+                      </tr></thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {orgs.map((org: any) => (
+                          <tr key={org.name} className="hover:bg-slate-50">
+                            <td className="px-6 py-3 text-sm font-bold text-slate-700">{org.name}</td>
+                            <td className="px-6 py-3 text-right text-sm font-mono"><span className="text-slate-700">{usd(org.gemini)}</span><span className="text-slate-400 text-[10px] ml-1">{gbp(org.gemini)} est.</span></td>
+                            <td className="px-6 py-3 text-right text-sm font-mono"><span className="text-slate-700">{usd(org.claude)}</span><span className="text-slate-400 text-[10px] ml-1">{gbp(org.claude)} est.</span></td>
+                            <td className="px-6 py-3 text-right text-sm text-slate-500 font-mono">{org.cloudconvert}</td>
+                            <td className="px-6 py-3 text-right text-sm font-black font-mono"><span className="text-slate-800">{usd(org.total)}</span><span className="text-slate-400 text-[10px] ml-1">{gbp(org.total)} est.</span></td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+
+                {/* Recent calls */}
+                {recent.length > 0 && (
+                  <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden">
+                    <div className="px-6 py-4 border-b border-slate-100">
+                      <h4 className="text-[11px] font-black uppercase tracking-widest text-slate-400">Recent calls (last 50)</h4>
+                    </div>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left">
+                        <thead><tr className="bg-slate-50 text-[10px] uppercase font-black text-slate-400 border-b border-slate-100">
+                          <th className="px-4 py-3">Date</th>
+                          <th className="px-4 py-3">Service</th>
+                          <th className="px-4 py-3">Operation</th>
+                          <th className="px-4 py-3">Site</th>
+                          <th className="px-4 py-3 text-right">In</th>
+                          <th className="px-4 py-3 text-right">Out</th>
+                          <th className="px-4 py-3 text-right">Cost</th>
+                        </tr></thead>
+                        <tbody className="divide-y divide-slate-100">
+                          {recent.map((row: any) => (
+                            <tr key={row.id ?? row.created_at} className="hover:bg-slate-50">
+                              <td className="px-4 py-2.5 text-[11px] text-slate-400 font-mono whitespace-nowrap">{row.created_at?.slice(0, 16).replace('T', ' ')}</td>
+                              <td className="px-4 py-2.5"><span className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-full ${row.service === 'gemini' ? 'bg-indigo-100 text-indigo-700' : row.service === 'claude' ? 'bg-violet-100 text-violet-700' : 'bg-amber-100 text-amber-700'}`}>{row.service}</span></td>
+                              <td className="px-4 py-2.5 text-[11px] text-slate-500">{row.operation ?? '—'}</td>
+                              <td className="px-4 py-2.5 text-[11px] text-slate-500 truncate max-w-[140px]">{(row as any).sites?.name ?? row.metadata?.docName ?? '—'}</td>
+                              <td className="px-4 py-2.5 text-right text-[11px] font-mono text-slate-400">{row.input_tokens?.toLocaleString() ?? '—'}</td>
+                              <td className="px-4 py-2.5 text-right text-[11px] font-mono text-slate-400">{row.output_tokens?.toLocaleString() ?? '—'}</td>
+                              <td className="px-4 py-2.5 text-right text-[11px] font-mono">{row.cost_usd ? <><span className="text-slate-700">{usd(parseFloat(row.cost_usd))}</span><span className="text-slate-400 text-[10px] ml-1">{gbp(parseFloat(row.cost_usd))} est.</span></> : '—'}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+
+          {!usageLoading && !usageData && (
+            <div className="text-center py-12 text-slate-400 text-sm">No usage data found.</div>
           )}
         </div>
       )}
@@ -3769,8 +3943,8 @@ export default function App() {
               .replace(/â€¦/g, '…').replace(/â€™/g, '\u2019').replace(/â€œ/g, '\u201C')
               .replace(/â€/g, '\u201D').replace(/Ã©/g, 'é').replace(/Â·/g, '·').replace(/Â /g, ' ');
             if (htmlContent.trim()) {
-              // Truncate if too large for Gemini (~375K token safe ceiling, accounting for HTML tag overhead)
-              const MAX_HTML_CHARS = 1_500_000;
+              // Truncate if too large for Gemini (~200K token safe ceiling, accounting for HTML tag overhead)
+              const MAX_HTML_CHARS = 800_000;
               const finalHtml = htmlContent.length > MAX_HTML_CHARS
                 ? (() => {
                     console.warn(`[AI Sync] ${doc.name} HTML too large (${htmlContent.length} chars), truncating`);
@@ -3795,7 +3969,7 @@ export default function App() {
               aiBody = { fileBase64: fallbackBase64, mimeType: 'application/pdf', docName: doc.name };
             }
           } else if (ext === 'doc') {
-            throw new Error(`.doc format not supported — please open in Word and Save As .docx`);
+            throw new Error(`"${doc.name}" is in legacy .doc format — open it in Word, run the batch conversion macro or go to File → Save As → Word Document (.docx), then re-sync.`);
           } else if (ext === 'xlsx' || ext === 'xls') {
             const workbook = XLSX.read(buffer);
             const text = workbook.SheetNames.map(name =>
@@ -3815,14 +3989,29 @@ export default function App() {
             throw new Error(`Unsupported file type: .${ext}`);
           }
 
-          const aiRes = await fetch('/api/ai-extract', {
+          let aiRes = await fetch('/api/ai-extract', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(aiBody),
+            body: JSON.stringify({ ...aiBody, siteId: site.id, organisationId: site.organisation_id }),
           });
           if (!aiRes.ok) {
             const errBody = await aiRes.json().catch(() => ({}));
-            throw new Error(`AI extraction failed for ${doc.name}: ${errBody.error || aiRes.statusText}`);
+            const errMsg: string = errBody.error || aiRes.statusText;
+            // If token limit exceeded and we sent HTML, retry with stripped plain text
+            if (/token count exceeds|input token/i.test(errMsg) && 'html' in aiBody) {
+              const plainText = (aiBody as any).html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 400_000);
+              aiRes = await fetch('/api/ai-extract', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ text: plainText, docName: doc.name, siteId: site.id, organisationId: site.organisation_id }),
+              });
+              if (!aiRes.ok) {
+                const retryErr = await aiRes.json().catch(() => ({}));
+                throw new Error(`AI extraction failed for ${doc.name}: ${retryErr.error || aiRes.statusText}`);
+              }
+            } else {
+              throw new Error(`AI extraction failed for ${doc.name}: ${errMsg}`);
+            }
           }
           const { actions, documentMeta } = await aiRes.json();
           if (!documentMeta?.assessmentDate) {
@@ -4175,8 +4364,8 @@ export default function App() {
   if (!user) return <LoginScreen onLogin={() => {}} />;
 
   return (
-    <div className="min-h-screen bg-slate-50 font-sans text-slate-900 selection:bg-indigo-100">
-      <aside className="fixed left-0 top-0 h-full w-20 bg-indigo-950 flex flex-col items-center py-8 gap-10 text-indigo-300 z-20">
+    <div className="min-h-screen bg-slate-50 font-sans text-slate-900 selection:bg-indigo-100 overflow-x-hidden">
+      <aside className="hidden lg:flex fixed left-0 top-0 h-full w-20 bg-indigo-950 flex-col items-center py-8 gap-10 text-indigo-300 z-20">
         <div className="w-12 h-12 bg-white rounded-xl flex items-center justify-center text-indigo-950 shadow-lg font-black text-xl italic hover:scale-105 transition-transform">MB</div>
         <nav className="flex flex-col gap-6">
           {profile?.role === 'superadmin' && <button onClick={() => setView('admin')} className={`p-3 rounded-xl transition-all ${view === 'admin' ? 'bg-indigo-700 text-white shadow-inner' : 'hover:text-white hover:bg-white/5'}`} title="Admin Panel"><Shield size={22} /></button>}
@@ -4191,19 +4380,28 @@ export default function App() {
         </div>
       </aside>
 
-      <main className="pl-20">
-        <header className="bg-white/95 backdrop-blur-sm border-b border-slate-200 px-8 py-4 flex items-center justify-between sticky top-0 z-10">
+      {/* Bottom navigation bar — tablet/mobile only */}
+      <nav className="fixed bottom-0 left-0 right-0 lg:hidden flex items-center justify-around bg-indigo-950 h-16 z-20 border-t border-indigo-900 text-indigo-300">
+        {profile?.role === 'superadmin' && <button onClick={() => setView('admin')} className={`flex flex-col items-center gap-1 p-2 rounded-xl transition-all ${view === 'admin' ? 'text-white' : 'hover:text-white'}`}><Shield size={20} /><span className="text-[9px] font-black uppercase tracking-wide">Admin</span></button>}
+        {(profile?.role === 'advisor' || (profile?.role === 'client' && sites.length > 1)) && <button onClick={() => { setView('portfolio'); setSelectedSite(null); }} className={`flex flex-col items-center gap-1 p-2 rounded-xl transition-all ${view === 'portfolio' ? 'text-white' : 'hover:text-white'}`}><Layout size={20} /><span className="text-[9px] font-black uppercase tracking-wide">Dashboard</span></button>}
+        {(profile?.role === 'advisor' || profile?.role === 'client') && <button onClick={() => { setView('site'); if (sites.length > 0 && !selectedSite) setSelectedSite(sites[0]); }} className={`flex flex-col items-center gap-1 p-2 rounded-xl transition-all ${view === 'site' ? 'text-white' : 'hover:text-white'}`}><ClipboardList size={20} /><span className="text-[9px] font-black uppercase tracking-wide">Actions</span></button>}
+        {(profile?.role === 'advisor' || profile?.role === 'superadmin') && <button onClick={() => setShowSettings(true)} className="flex flex-col items-center gap-1 p-2 rounded-xl hover:text-white"><Settings size={20} /><span className="text-[9px] font-black uppercase tracking-wide">Settings</span></button>}
+        <button onClick={handleLogout} className="flex flex-col items-center gap-1 p-2 rounded-xl hover:text-white"><LogOut size={20} /><span className="text-[9px] font-black uppercase tracking-wide">Sign out</span></button>
+      </nav>
+
+      <main className="lg:pl-20 pb-16 lg:pb-0">
+        <header className="bg-white/95 backdrop-blur-sm border-b border-slate-200 px-4 md:px-8 py-3 md:py-4 flex items-center justify-between sticky top-0 z-10">
           <div className="flex items-center gap-3">
             {view === 'site' && (profile?.role === 'advisor' || (profile?.role === 'client' && sites.length > 1)) && <button onClick={() => { setView('portfolio'); setSelectedSite(null); }} className="p-2 hover:bg-slate-100 rounded-lg text-slate-400"><ArrowLeft size={18} /></button>}
             <div>
-              <h1 className="text-base font-black text-slate-900 tracking-tight leading-none">McCormack Benson Health &amp; Safety</h1>
+              <h1 className="text-base font-black text-slate-900 tracking-tight leading-none truncate max-w-[180px] sm:max-w-none">McCormack Benson Health &amp; Safety</h1>
               <div className="flex items-center gap-2 text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1"><Database size={9} /><span>Portal Sync: {syncLastRun}</span></div>
             </div>
           </div>
           <div className="flex items-center gap-5">
             <div className="text-right hidden sm:block"><p className="text-xs font-black text-slate-800">{user.email}</p><p className="text-[10px] text-indigo-600 font-bold uppercase tracking-widest">● {profile?.role}</p></div>
             {(profile?.role === 'advisor' || (profile?.role === 'client' && sites.length > 1)) && (
-              <div className="hidden lg:flex bg-slate-100 p-1 rounded-xl">
+              <div className="hidden md:flex bg-slate-100 p-1 rounded-xl">
                 <button onClick={() => { setView('portfolio'); setSelectedSite(null); }} className={`px-4 py-1.5 text-[10px] font-black uppercase rounded-lg transition-all ${view === 'portfolio' ? 'bg-white shadow-sm text-indigo-600' : 'text-slate-400 hover:text-slate-600'}`}>Dashboard</button>
                 <button onClick={() => { setView('site'); if (sites.length > 0 && !selectedSite) setSelectedSite(sites[0]); }} className={`px-4 py-1.5 text-[10px] font-black uppercase rounded-lg transition-all ${view === 'site' ? 'bg-white shadow-sm text-indigo-600' : 'text-slate-400 hover:text-slate-600'}`}>Action Plan</button>
               </div>
@@ -4211,19 +4409,19 @@ export default function App() {
           </div>
         </header>
 
-        <div className="p-8 max-w-7xl mx-auto">
+        <div className="p-4 md:p-6 lg:p-8 max-w-7xl mx-auto">
           {view === 'admin' && profile?.role === 'superadmin' && <SuperadminPanel />}
 
           {view === 'portfolio' && (profile?.role === 'advisor' || profile?.role === 'client') && (
             <div className="space-y-8 animate-in fade-in duration-500">
-              <div className="bg-gradient-to-br from-indigo-900 via-indigo-950 to-slate-900 rounded-3xl p-10 text-white flex flex-col lg:flex-row justify-between items-start lg:items-center gap-8 shadow-2xl relative overflow-hidden">
+              <div className="bg-gradient-to-br from-indigo-900 via-indigo-950 to-slate-900 rounded-3xl p-6 md:p-10 text-white flex flex-col lg:flex-row justify-between items-start lg:items-center gap-6 md:gap-8 shadow-2xl relative overflow-hidden">
                 <div className="absolute top-0 right-0 w-96 h-96 bg-indigo-500 rounded-full -mr-32 -mt-32 blur-[100px] opacity-20 pointer-events-none" />
-                <div className="relative z-10"><span className="text-[10px] font-black uppercase tracking-[0.3em] text-indigo-300">Executive Summary</span><h2 className="text-4xl font-black tracking-tighter mt-2">Divisional Compliance</h2><p className="text-indigo-300 mt-2 max-w-md text-sm">Real-time H&S status across all sites.</p></div>
-                <div className="flex gap-4 relative z-10">
+                <div className="relative z-10"><span className="text-[10px] font-black uppercase tracking-[0.3em] text-indigo-300">Executive Summary</span><h2 className="text-2xl md:text-4xl font-black tracking-tighter mt-2">Divisional Compliance</h2><p className="text-indigo-300 mt-2 max-w-md text-sm">Real-time H&S status across all sites.</p></div>
+                <div className="flex gap-3 md:gap-4 relative z-10">
                   {[{ label: 'Overdue', value: criticalCount, color: 'text-rose-400', icon: <Zap size={14} /> }, { label: 'Upcoming', value: upcomingCount, color: 'text-amber-400', icon: <Clock size={14} /> }, { label: 'Sites', value: viewSites.length, color: 'text-indigo-300', icon: <Building2 size={14} /> }].map(stat => (
-                    <div key={stat.label} className="bg-white/5 backdrop-blur-md rounded-2xl p-5 border border-white/10 text-center min-w-[90px]">
+                    <div key={stat.label} className="bg-white/5 backdrop-blur-md rounded-2xl p-3 md:p-5 border border-white/10 text-center min-w-[72px] md:min-w-[90px]">
                       <div className={`flex items-center justify-center gap-1 text-[10px] font-black uppercase tracking-widest opacity-70 mb-1.5 ${stat.color}`}>{stat.icon}{stat.label}</div>
-                      <p className={`text-4xl font-black ${stat.color}`}>{stat.value}</p>
+                      <p className={`text-2xl md:text-4xl font-black ${stat.color}`}>{stat.value}</p>
                     </div>
                   ))}
                 </div>
@@ -4245,7 +4443,7 @@ export default function App() {
               </div>
               {dashboardTab === 'analytics' && (
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                  <div className="lg:col-span-2 bg-white rounded-3xl border border-slate-200 p-8 shadow-sm">
+                  <div className="lg:col-span-2 bg-white rounded-3xl border border-slate-200 p-4 md:p-8 shadow-sm">
                     <h3 className="font-black text-slate-900 text-lg tracking-tight uppercase mb-8">Compliance Benchmarking</h3>
                     <div className="space-y-6">
                       {viewSites.map(site => {
@@ -4263,7 +4461,7 @@ export default function App() {
                       {viewSites.length === 0 && <p className="text-sm text-slate-400 text-center py-8">No sites assigned yet.</p>}
                     </div>
                   </div>
-                  <div className="bg-white rounded-3xl border border-slate-200 p-8 shadow-sm flex flex-col">
+                  <div className="bg-white rounded-3xl border border-slate-200 p-4 md:p-8 shadow-sm flex flex-col">
                     <h3 className="font-black text-slate-900 text-lg tracking-tight uppercase mb-6">Action Summary</h3>
                     <div className="flex-1 flex flex-col justify-center items-center">
                       {(() => {
@@ -4308,7 +4506,7 @@ export default function App() {
                       </div>
                     </div>
                   </div>
-                  <div className="lg:col-span-3 grid grid-cols-2 md:grid-cols-4 gap-4">
+                  <div className="lg:col-span-3 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
                     {viewSites.map(site => {
                       const siteActions = allActions.filter(a => a.site === site.name);
                       const actionsScore = computeActionProgress(siteActions);
@@ -4386,12 +4584,12 @@ export default function App() {
 
           {view === 'site' && selectedSite && (
             <div className="space-y-6 animate-in slide-in-from-right-8 duration-400">
-              <div className="bg-white border border-slate-200 p-8 rounded-3xl shadow-sm relative overflow-hidden border-l-[8px] border-l-indigo-600">
+              <div className="bg-white border border-slate-200 p-4 md:p-8 rounded-3xl shadow-sm relative overflow-hidden border-l-[8px] border-l-indigo-600">
                 <div className="absolute inset-0 bg-gradient-to-r from-indigo-50/40 to-transparent pointer-events-none" />
                 <div className="relative flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
                   <div className="flex items-center gap-6">
                     <div className="w-16 h-16 bg-slate-900 rounded-2xl flex items-center justify-center text-white shadow-xl">{getSiteIcon(selectedSite.type, 28)}</div>
-                    <div><h2 className="text-2xl font-black text-slate-900 tracking-tight">{selectedSite.name}</h2><p className="text-slate-500 text-sm mt-1">Last audit: {selectedSite.lastReview} · {selectedSite.type}</p></div>
+                    <div><h2 className="text-lg md:text-2xl font-black text-slate-900 tracking-tight">{selectedSite.name}</h2><p className="text-slate-500 text-xs md:text-sm mt-1">Last audit: {selectedSite.lastReview} · {selectedSite.type}</p></div>
                   </div>
                   <div className="flex gap-3 flex-wrap">
                     <button className="bg-slate-100 text-slate-600 px-6 py-2.5 rounded-xl text-[11px] font-black uppercase tracking-widest hover:bg-slate-200">Audit Archive</button>
@@ -4449,7 +4647,7 @@ export default function App() {
               {/* ── Score cards ── */}
               <div className="space-y-4">
                 {/* Row 1 — Compliance Score (3/4) + Industry Alignment (1/4) */}
-                <div className="grid grid-cols-4 gap-4 items-stretch">
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 items-stretch">
                 {/* Compliance Score */}
                 {(() => {
                   const siteActions = allActions.filter(a => a.site === selectedSite.name);
@@ -4499,7 +4697,7 @@ export default function App() {
 
 
                   return (
-                    <div className="col-span-3 bg-white rounded-2xl border border-slate-200 shadow-sm cursor-pointer hover:border-indigo-300 hover:shadow-md transition-all" onClick={() => setSiteTab('actions')}>
+                    <div className="col-span-2 lg:col-span-3 bg-white rounded-2xl border border-slate-200 shadow-sm cursor-pointer hover:border-indigo-300 hover:shadow-md transition-all" onClick={() => setSiteTab('actions')}>
                       {/* Card header */}
                       <div className="px-5 py-2.5 border-b border-slate-100 flex items-center justify-between">
                         <p className="text-[11px] font-black uppercase tracking-widest text-slate-500">Compliance Score</p>
@@ -4507,8 +4705,8 @@ export default function App() {
                       </div>
                       {/* Body */}
                       <div className="px-5 py-4 flex items-start gap-6">
-                        <div className="flex items-start flex-1 divide-x divide-slate-100">
-                        <div className="flex-1 min-w-0 pr-6">
+                        <div className="flex flex-col md:flex-row items-start flex-1 md:divide-x divide-slate-100">
+                        <div className="flex-1 min-w-0 pb-4 md:pb-0 md:pr-6 border-b border-slate-100 md:border-b-0">
                           <div className="group mb-2.5 cursor-default">
                             <p className="text-[11px] font-black uppercase tracking-widest text-slate-600 flex items-center">Actions Progress<InlineTip text="% of actions that are not overdue and not due within 30 days. Overdue actions are weighted more heavily." /></p>
                             <p className={`text-[11px] font-black uppercase tracking-wide ${c.text}`}>{s}% on track</p>
@@ -4540,7 +4738,7 @@ export default function App() {
                           }
                         </div>
                         {hasRiskData && (
-                          <div className="flex-1 min-w-0 px-6">
+                          <div className="flex-1 min-w-0 py-4 md:py-0 md:px-6 border-b border-slate-100 md:border-b-0">
                             <div className="group mb-2.5 cursor-default">
                               <p className="text-[11px] font-black uppercase tracking-widest text-slate-600 flex items-center">Risk Health<InlineTip text="Shows how many actions are on track within each risk level — HIGH, MEDIUM, and LOW — so you can see if your most critical risks are being managed." /></p>
                               <p className={`text-[11px] font-black uppercase tracking-wide ${scoreColor(riskScore).text}`}>{riskScore}% on track</p>
@@ -4574,7 +4772,7 @@ export default function App() {
                           </div>
                         )}
                         {hsPerf !== null && (
-                          <div className="flex-1 min-w-0 pl-6">
+                          <div className="flex-1 min-w-0 pt-4 md:pt-0 md:pl-6">
                             <div className="group mb-2.5 cursor-default">
                               <p className="text-[11px] font-black uppercase tracking-widest text-slate-600 flex items-center">H&S Performance<InlineTip text="Composite score: Actions Progress (40%), Risk Health (40%), Industry Alignment (20%)." /></p>
                               <p className={`text-[11px] font-black uppercase tracking-wide ${scoreColor(hsPerf).text}`}>{hsPerf}% overall</p>
@@ -4618,7 +4816,7 @@ export default function App() {
                     const hasScore = iagAllTotal > 0 || selectedSite.iagScore !== null;
                     const c = scoreColor(s);
                     return (
-                      <div className="col-span-1 bg-white rounded-2xl border border-slate-200 shadow-sm relative cursor-pointer hover:border-violet-300 hover:shadow-md transition-all flex flex-col" onClick={() => { setSiteTab('iag'); loadIagServices(selectedSite.id); }}>
+                      <div className="col-span-2 lg:col-span-1 bg-white rounded-2xl border border-slate-200 shadow-sm relative cursor-pointer hover:border-violet-300 hover:shadow-md transition-all flex flex-col" onClick={() => { setSiteTab('iag'); loadIagServices(selectedSite.id); }}>
                         <div className="px-5 py-2.5 border-b border-slate-100 flex items-center justify-between">
                           <div className="group flex items-center cursor-default">
                             <p className="text-[11px] font-black uppercase tracking-widest text-slate-500">Industry Alignment</p>
@@ -4658,7 +4856,7 @@ export default function App() {
                     <div className="p-5 flex items-center justify-center gap-4">
                       <ComplianceRing score={s} size={64} />
                       <div className="text-center">
-                        <p className={`text-3xl font-black ${c.text}`}>{s}%</p>
+                        <p className={`text-2xl md:text-3xl font-black ${c.text}`}>{s}%</p>
                         <p className="text-[10px] text-slate-400 font-medium mt-1">advisor managed</p>
                       </div>
                     </div>
@@ -4667,12 +4865,12 @@ export default function App() {
               </div>
               {scoreExplanationCard && <ScoreExplanationModal card={scoreExplanationCard} onClose={() => setScoreExplanationCard(null)} />}
               {/* Site tab toggle */}
-              <div className="flex bg-slate-100 p-1 rounded-xl w-fit flex-wrap gap-0.5">
-                <button onClick={() => setSiteTab('actions')} className={`px-5 py-2 text-[11px] font-black uppercase tracking-widest rounded-lg transition-all ${siteTab === 'actions' ? 'bg-white shadow-sm text-indigo-600' : 'text-slate-400 hover:text-slate-600'}`}>Assigned Actions</button>
-                {selectedSite.datto_folder_id && <button onClick={() => setSiteTab('files')} className={`px-5 py-2 text-[11px] font-black uppercase tracking-widest rounded-lg transition-all ${siteTab === 'files' ? 'bg-white shadow-sm text-sky-600' : 'text-slate-400 hover:text-slate-600'}`}>H&S Documents</button>}
-                <button onClick={() => setSiteTab('documents')} className={`px-5 py-2 text-[11px] font-black uppercase tracking-widest rounded-lg transition-all ${siteTab === 'documents' ? 'bg-white shadow-sm text-amber-600' : 'text-slate-400 hover:text-slate-600'}`}>Client Documents</button>
-                <button onClick={() => { setSiteTab('iag'); loadIagServices(selectedSite.id); }} className={`px-5 py-2 text-[11px] font-black uppercase tracking-widest rounded-lg transition-all ${siteTab === 'iag' ? 'bg-white shadow-sm text-violet-600' : 'text-slate-400 hover:text-slate-600'}`}>Industry Alignment</button>
-                {profile?.role !== 'client' && <button onClick={() => setSiteTab('dochealth')} className={`px-5 py-2 text-[11px] font-black uppercase tracking-widest rounded-lg transition-all ${siteTab === 'dochealth' ? 'bg-white shadow-sm text-amber-600' : 'text-slate-400 hover:text-slate-600'}`}>Advisor Actions</button>}
+              <div className="flex bg-slate-100 p-1 rounded-xl overflow-x-auto gap-0.5 w-full md:w-fit">
+                <button onClick={() => setSiteTab('actions')} className={`px-4 py-2 text-[11px] font-black uppercase tracking-widest rounded-lg transition-all whitespace-nowrap ${siteTab === 'actions' ? 'bg-white shadow-sm text-indigo-600' : 'text-slate-400 hover:text-slate-600'}`}>Assigned Actions</button>
+                {selectedSite.datto_folder_id && <button onClick={() => setSiteTab('files')} className={`px-4 py-2 text-[11px] font-black uppercase tracking-widest rounded-lg transition-all whitespace-nowrap ${siteTab === 'files' ? 'bg-white shadow-sm text-sky-600' : 'text-slate-400 hover:text-slate-600'}`}>H&S Documents</button>}
+                <button onClick={() => setSiteTab('documents')} className={`px-4 py-2 text-[11px] font-black uppercase tracking-widest rounded-lg transition-all whitespace-nowrap ${siteTab === 'documents' ? 'bg-white shadow-sm text-amber-600' : 'text-slate-400 hover:text-slate-600'}`}>Client Documents</button>
+                <button onClick={() => { setSiteTab('iag'); loadIagServices(selectedSite.id); }} className={`px-4 py-2 text-[11px] font-black uppercase tracking-widest rounded-lg transition-all whitespace-nowrap ${siteTab === 'iag' ? 'bg-white shadow-sm text-violet-600' : 'text-slate-400 hover:text-slate-600'}`}>Industry Alignment</button>
+                {profile?.role !== 'client' && <button onClick={() => setSiteTab('dochealth')} className={`px-4 py-2 text-[11px] font-black uppercase tracking-widest rounded-lg transition-all whitespace-nowrap ${siteTab === 'dochealth' ? 'bg-white shadow-sm text-amber-600' : 'text-slate-400 hover:text-slate-600'}`}>Advisor Actions</button>}
               </div>
 
               {siteTab === 'actions' && (<>

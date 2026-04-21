@@ -1,4 +1,4 @@
--- Schema dumped at 2026-04-17T14:20:11.417Z
+-- Schema dumped at 2026-04-21T17:19:00.147Z
 
 TABLE: actions
   id uuid NOT NULL DEFAULT gen_random_uuid()
@@ -37,6 +37,19 @@ TABLE: advisor_site_assignments
   advisor_id uuid NOT NULL
   site_id uuid NOT NULL
   created_at timestamptz DEFAULT now()
+
+TABLE: ai_usage_log
+  id uuid NOT NULL DEFAULT gen_random_uuid()
+  created_at timestamptz NOT NULL DEFAULT now()
+  service text NOT NULL
+  model text
+  operation text
+  site_id uuid
+  organisation_id uuid
+  input_tokens int4
+  output_tokens int4
+  cost_usd numeric
+  metadata jsonb
 
 TABLE: client_site_assignments
   id uuid NOT NULL DEFAULT gen_random_uuid()
