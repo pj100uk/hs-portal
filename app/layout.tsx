@@ -4,6 +4,7 @@ import type { Metadata, Viewport } from 'next'
 export const metadata: Metadata = {
   title: 'McCormack Benson Health & Safety',
   description: 'McCormack Benson Health & Safety — Compliance Portal',
+  icons: { icon: '/favicon.svg', shortcut: '/favicon.svg' },
 }
 
 export const viewport: Viewport = {

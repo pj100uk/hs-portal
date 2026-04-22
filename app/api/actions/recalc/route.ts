@@ -38,14 +38,14 @@ export async function POST(request: NextRequest) {
     let w = 1;
     if (hasSpecificDate) {
       if (date! < today) {
-        w = 10; // overdue
+        w = 2; // overdue
       } else {
         const daysAway = Math.ceil((new Date(date!).getTime() - Date.now()) / 86400000);
-        w = daysAway <= 30 ? 5 : 1;
+        w = daysAway <= 30 ? 1 : 1;
       }
     } else {
       const lastUpdated = (a.updated_at as string | null)?.slice(0, 10) ?? null;
-      w = (lastUpdated && lastUpdated < sixMonthsAgo) ? 5 : 1;
+      w = (lastUpdated && lastUpdated < sixMonthsAgo) ? 1 : 1;
     }
 
     if (isResolved) {

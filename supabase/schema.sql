@@ -1,4 +1,4 @@
--- Schema dumped at 2026-04-21T17:19:00.147Z
+-- Schema dumped at 2026-04-22T17:09:53.216Z
 
 TABLE: actions
   id uuid NOT NULL DEFAULT gen_random_uuid()
@@ -70,6 +70,7 @@ TABLE: organisations
   datto_folder_id text
   created_at timestamptz DEFAULT now()
   datto_folder_name text
+  logo_url text
 
 TABLE: profiles
   id uuid NOT NULL
@@ -78,6 +79,7 @@ TABLE: profiles
   organisation_id uuid
   datto_workplace_user text
   datto_base_path text
+  view_only bool NOT NULL DEFAULT false
 
 TABLE: site_documents
   id uuid NOT NULL DEFAULT gen_random_uuid()

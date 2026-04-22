@@ -55,13 +55,23 @@ export async function POST(request: NextRequest) {
   return NextResponse.json({ user: userData.user });
 }
 
-// PATCH — update a user's profile (organisation_id, datto_base_path)
+// PATCH — update a user's profile (organisation_id, datto_base_path) or set password
 export async function PATCH(request: NextRequest) {
-  const { userId, organisation_id, datto_base_path } = await request.json();
+  const { userId, organisation_id, datto_base_path, view_only, newPassword } = await request.json();
   if (!userId) return NextResponse.json({ error: 'userId is required' }, { status: 400 });
 
-  const updates: Record<string, unknown> = { organisation_id: organisation_id ?? null };
+  // Admin password set — no profile update needed
+  if (newPassword) {
+    const { error } = await supabaseAdmin.auth.admin.updateUserById(userId, { password: newPassword });
+    if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+    return NextResponse.json({ success: true });
+  }
+
+  const updates: Record<string, unknown> = {};
+  if (organisation_id !== undefined) updates.organisation_id = organisation_id ?? null;
   if (datto_base_path !== undefined) updates.datto_base_path = datto_base_path || null;
+  if (view_only !== undefined) updates.view_only = view_only;
+  if (Object.keys(updates).length === 0) return NextResponse.json({ error: 'Nothing to update' }, { status: 400 });
 
   const { error } = await supabaseAdmin
     .from('profiles')
@@ -69,6 +79,12 @@ export async function PATCH(request: NextRequest) {
     .eq('id', userId);
 
   if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+
+  // If assigning to an org, clear any site-level assignments — org access takes over
+  if (organisation_id) {
+    await supabaseAdmin.from('client_site_assignments').delete().eq('client_user_id', userId);
+  }
+
   return NextResponse.json({ success: true });
 }
 

@@ -1,7 +1,7 @@
 "use client";
 import React, { useState, useEffect } from 'react';
 import {
-  ChevronRight, Building2, ClipboardList,
+  ChevronRight, Building2,
   CheckCircle2, FileText, ArrowLeft, User, Layout,
   Clock, Factory, Wrench, RefreshCw, Database, ExternalLink,
   CheckCircle, Settings, Truck, PenTool, BarChart3, TrendingUp,
@@ -9,7 +9,7 @@ import {
   Zap, Shield, ArrowUpRight, X, Plus, LogOut, Lock, Mail,
   Folder, FolderOpen, File, Pencil, GraduationCap, Heart,
   Warehouse, ShoppingBag, Home, Sparkles, AlertCircle,
-  Upload, FileCheck, Trash2, Users, Search
+  Upload, FileCheck, Trash2, Users, Search, KeyRound
 } from 'lucide-react';
 import mammoth from 'mammoth';
 import * as XLSX from 'xlsx';
@@ -76,8 +76,8 @@ interface ReviewAction extends ExtractedAction {
   errorMessage?: string;
   advisorPriority: string | null;
 }
-interface Organisation { id: string; name: string; datto_folder_id: string | null; datto_folder_name: string | null; }
-interface Profile { role: 'superadmin' | 'advisor' | 'client'; site_id: string | null; organisation_id: string | null; datto_base_path: string | null; }
+interface Organisation { id: string; name: string; datto_folder_id: string | null; datto_folder_name: string | null; logo_url: string | null; }
+interface Profile { role: 'superadmin' | 'advisor' | 'client'; site_id: string | null; organisation_id: string | null; datto_base_path: string | null; view_only: boolean; }
 interface SiteDocument {
   id: string; site_id: string; uploaded_by: string | null; uploaded_at: string;
   file_name: string; datto_file_id: string | null; datto_folder_id: string | null;
@@ -302,7 +302,7 @@ const computeActionProgress = (actions: Action[]): number => {
     const isOverdue = !isResolved && !!d && !ONGOING_RE.test(d) && /^\d{4}-\d{2}-\d{2}$/.test(d) && d < today;
     const isUpcoming = !isResolved && !isOverdue && !!d && !ONGOING_RE.test(d) && /^\d{4}-\d{2}-\d{2}$/.test(d)
       && Math.ceil((new Date(d).getTime() - Date.now()) / 86400000) <= 30;
-    const w = isOverdue ? 10 : isUpcoming ? 5 : 1;
+    const w = isOverdue ? 2 : isUpcoming ? 1 : 1;
     if (!isOverdue && !isUpcoming) onTrackPoints += w;
     totalPoints += w;
   }
@@ -351,7 +351,7 @@ const ScoreExplanationModal = ({ card, onClose }: { card: 'implementation' | 'ia
         <>
           <p className="text-[11px] font-black uppercase tracking-widest text-indigo-600 mb-1">Actions Progress</p>
           <p className="text-sm text-slate-600 leading-relaxed">This measures how well your compliance actions are being managed. The score reflects what percentage of your actions are <strong>on track</strong> — not overdue and not imminently due.</p>
-          <p className="text-sm text-slate-600 leading-relaxed mt-3">Not all actions carry equal weight. <strong>Overdue</strong> actions count 10× against your score, actions <strong>due within 30 days</strong> count 5×, and well-scheduled future actions count 1×. Resolving overdue items has the biggest positive impact.</p>
+          <p className="text-sm text-slate-600 leading-relaxed mt-3">Not all actions carry equal weight. <strong>Overdue</strong> actions count 2× against your score, while upcoming and scheduled actions count equally. Resolving overdue items has the biggest positive impact.</p>
           <p className="text-sm text-slate-500 mt-3 font-mono bg-slate-50 px-3 py-2 rounded-xl border border-slate-100">Score = on-track weight ÷ total weight × 100</p>
           <p className="text-[11px] font-black uppercase tracking-widest text-indigo-600 mt-5 mb-1">Risk Health</p>
           <p className="text-sm text-slate-600 leading-relaxed">Breaks the score down by risk level — HIGH, MEDIUM, and LOW. It shows how many actions in each category are on track, so you can see at a glance whether your most critical risks are being managed.</p>
@@ -399,7 +399,7 @@ const ScoreExplanationModal = ({ card, onClose }: { card: 'implementation' | 'ia
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4" onClick={onClose}>
-      <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden" onClick={e => e.stopPropagation()}>
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-md overflow-hidden" onClick={e => e.stopPropagation()}>
         <div className={`${content.color} px-6 py-4 flex items-center justify-between`}>
           <h2 className="font-black text-white text-sm uppercase tracking-widest">{content.title}</h2>
           <button onClick={onClose} className="text-white/70 hover:text-white"><X size={18} /></button>
@@ -526,7 +526,7 @@ const ActionCard = ({ action, isResolved, onToggleResolve, onAddNote, onDelete, 
     }
   };
   return (
-    <div className={`rounded-2xl border transition-all duration-300 overflow-hidden ${isResolved ? 'bg-slate-50/60 border-slate-100 opacity-60' : `${cfg.bg} ${cfg.border}`}`}>
+    <div className={`rounded-lg border transition-all duration-300 overflow-hidden ${isResolved ? 'bg-slate-50/60 border-slate-100 opacity-60' : `${cfg.bg} ${cfg.border}`}`}>
       <div className="px-4 py-3 flex flex-col md:flex-row md:items-center gap-3 cursor-pointer" onClick={onExpand}>
         <div className={`w-1.5 rounded-full self-stretch hidden md:block flex-shrink-0 ${isResolved ? 'bg-slate-300' : cfg.bar}`} />
         <div className="flex-1 min-w-0">
@@ -771,7 +771,7 @@ const DattoFileBrowser = ({ rootFolderId, siteName, onSelect, onClose }: {
   }, [current.id]);
 
   const folders = items.filter(i => i.type === 'folder');
-  const files = items.filter(i => i.type === 'file');
+  const files = items.filter(i => i.type === 'file' && !i.name.toLowerCase().includes('draft'));
 
   return (
     <div className="border border-indigo-200 rounded-xl overflow-hidden bg-white shadow-sm">
@@ -1031,7 +1031,7 @@ const AddActionForm = ({ site, onSave, onCancel }: { site: Site; onSave: (action
   const labelClass = 'text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1.5 block';
 
   return (
-    <div className="bg-white rounded-2xl border border-indigo-200 shadow-lg overflow-hidden">
+    <div className="bg-white rounded-lg border border-indigo-200 shadow-lg overflow-hidden">
       <div className="bg-indigo-600 px-6 py-4 flex items-center justify-between">
         <h3 className="font-black text-white uppercase tracking-widest text-sm">Add New Action</h3>
         <button onClick={onCancel} className="text-indigo-200 hover:text-white"><X size={18} /></button>
@@ -1143,7 +1143,7 @@ const DocumentCard = ({ doc, role, userId, actions, onDelete, onRename, onToggle
                 : 'bg-slate-300';
 
   return (
-    <div className={`rounded-2xl border transition-all duration-300 overflow-hidden ${cardCls}`}>
+    <div className={`rounded-lg border transition-all duration-300 overflow-hidden ${cardCls}`}>
       {/* ── Header row ── */}
       <div className="px-4 py-3 flex flex-col md:flex-row md:items-center gap-3 cursor-pointer" onClick={() => { if (!editingName) onExpand(); }}>
         <div className={`w-1.5 rounded-full self-stretch hidden md:block flex-shrink-0 ${barCls}`} />
@@ -1443,7 +1443,7 @@ const UploadModal = ({ site, userId, onClose, onSaved }: {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-[2px] p-4">
-      <div className="bg-white rounded-3xl shadow-2xl w-full max-w-xl overflow-hidden">
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-xl overflow-hidden">
         <div className="bg-amber-500 px-6 py-4 flex items-center justify-between">
           <h2 className="font-black text-white text-sm uppercase tracking-widest flex items-center gap-2">
             <Upload size={14} />Upload Documents
@@ -1453,7 +1453,7 @@ const UploadModal = ({ site, userId, onClose, onSaved }: {
 
         <div className="px-6 py-5 space-y-5 max-h-[75vh] overflow-y-auto">
           {step === 'select' && (
-            <label className="flex flex-col items-center justify-center gap-3 border-2 border-dashed border-slate-200 rounded-2xl py-14 cursor-pointer hover:border-amber-300 hover:bg-amber-50 transition-colors">
+            <label className="flex flex-col items-center justify-center gap-3 border-2 border-dashed border-slate-200 rounded-lg py-14 cursor-pointer hover:border-amber-300 hover:bg-amber-50 transition-colors">
               <Upload size={28} className="text-slate-300" />
               <span className="text-sm font-black text-slate-500">Click to select files</span>
               <span className="text-[11px] text-slate-400">PDF, DOCX, XLSX, JPG, PNG — multiple files supported</span>
@@ -1489,7 +1489,7 @@ const UploadModal = ({ site, userId, onClose, onSaved }: {
             <div className="space-y-3">
               {errorCount > 0 && <div className="px-4 py-2.5 bg-rose-50 border border-rose-200 rounded-xl text-[11px] font-bold text-rose-700">⚠ {errorCount} file{errorCount !== 1 ? 's' : ''} failed to upload and will be skipped.</div>}
               {items.map((it, idx) => (
-                <div key={idx} className={`border rounded-2xl overflow-hidden ${it.status === 'error' ? 'border-rose-200 opacity-50' : 'border-slate-200'}`}>
+                <div key={idx} className={`border rounded-lg overflow-hidden ${it.status === 'error' ? 'border-rose-200 opacity-50' : 'border-slate-200'}`}>
                   <button
                     onClick={() => setExpandedIdx(prev => prev === idx ? null : idx)}
                     className="w-full flex items-center gap-3 px-4 py-3 bg-slate-50 hover:bg-slate-100 transition-colors text-left"
@@ -1673,7 +1673,7 @@ const SiteDocumentsTab = ({ site, profile, userId, onComplianceUpdate, onActions
 
   return (
     <div className="space-y-4">
-      <div className="bg-amber-50 border border-amber-200 rounded-2xl px-5 py-4 space-y-1">
+      <div className="bg-amber-50 border border-amber-200 rounded-lg px-5 py-4 space-y-1">
         <p className="text-[10px] font-black uppercase tracking-widest text-amber-600 mb-1.5">Client Managed Documents</p>
         <p className="text-xs text-amber-800">Upload your compliance documents here — certificates, inspection reports, training records, insurance, and any other evidence relevant to your site. Uploaded documents are stored securely and our AI will automatically identify key dates and any actions required.</p>
         <p className="text-xs text-amber-800 mt-1">These documents are supplied and monitored by the client and remain their sole responsibility to keep current and accurate.</p>
@@ -1686,7 +1686,7 @@ const SiteDocumentsTab = ({ site, profile, userId, onComplianceUpdate, onActions
       {loading ? (
         <div className="text-center py-12 text-slate-400 text-sm font-bold animate-pulse">Loading documents…</div>
       ) : documents.length === 0 ? (
-        <div className="bg-white rounded-2xl border border-slate-200 p-12 text-center"><FileCheck size={32} className="text-slate-300 mx-auto mb-3" /><p className="font-black text-slate-700">No documents uploaded yet</p><p className="text-sm text-slate-400 mt-1">Upload certificates, training records, and compliance evidence.</p></div>
+        <div className="bg-white rounded-lg border border-slate-200 p-12 text-center"><FileCheck size={32} className="text-slate-300 mx-auto mb-3" /><p className="font-black text-slate-700">No documents uploaded yet</p><p className="text-sm text-slate-400 mt-1">Upload certificates, training records, and compliance evidence.</p></div>
       ) : (
         <div className="space-y-2">{documents.map(doc => <DocumentCard key={doc.id} doc={doc} role={profile.role} userId={userId} actions={docActions.filter(a => (a as any)._siteDocumentId === doc.id)} onDelete={handleDelete} onRename={handleRename} onToggleAction={handleToggleAction} expanded={expandedDocId === doc.id} onExpand={() => setExpandedDocId(prev => prev === doc.id ? null : doc.id)} />)}</div>
       )}
@@ -1831,7 +1831,7 @@ const DocHealthTab = ({ siteId, onComplianceUpdate }: { siteId: string; onCompli
   return (
     <div className="space-y-3">
       {/* Helper text */}
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+      <div className="bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden">
         <button onClick={() => setShowHelper(h => !h)} className="w-full px-5 py-3.5 flex items-center justify-between text-left hover:bg-slate-50 transition-colors">
           <span className="text-[11px] font-black uppercase tracking-widest text-slate-500 flex items-center gap-2"><AlertCircle size={13} className="text-slate-400" />How document health is calculated</span>
           <ChevronDown size={14} className={`text-slate-400 transition-transform ${showHelper ? 'rotate-180' : ''}`} />
@@ -1852,7 +1852,7 @@ const DocHealthTab = ({ siteId, onComplianceUpdate }: { siteId: string; onCompli
       </div>
 
       {/* Table */}
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+      <div className="bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden">
         <div className="bg-amber-500 px-6 py-4 flex items-center justify-between">
           <h3 className="font-black text-white uppercase tracking-widest text-sm flex items-center gap-2"><FileCheck size={14} />Document Health — {rows.length} assessed document{rows.length !== 1 ? 's' : ''}</h3>
           <div className="flex items-center gap-3 text-[11px] font-bold">
@@ -1939,6 +1939,8 @@ const SuperadminPanel = () => {
   const [editOrgName, setEditOrgName] = useState('');
   const [editOrgFolderId, setEditOrgFolderId] = useState('');
   const [editOrgFolderName, setEditOrgFolderName] = useState('');
+  const [editOrgLogoUrl, setEditOrgLogoUrl] = useState('');
+  const [orgLogoUploading, setOrgLogoUploading] = useState(false);
   const [showEditOrgPicker, setShowEditOrgPicker] = useState(false);
 
   // Edit form values — site
@@ -2006,6 +2008,9 @@ const SuperadminPanel = () => {
 
   // User row expansion (client site management)
   const [expandingUserId, setExpandingUserId] = useState<string | null>(null);
+  const [adminSetPwUser, setAdminSetPwUser] = useState<{ id: string; email: string } | null>(null);
+  const [adminSetPwValue, setAdminSetPwValue] = useState('');
+  const [adminSetPwLoading, setAdminSetPwLoading] = useState(false);
   const [userSiteSearch, setUserSiteSearch] = useState('');
 
   // Assignment data
@@ -2177,6 +2182,11 @@ const SuperadminPanel = () => {
     flash('Client removed from organisation'); loadUsers();
   };
 
+  const handleSetViewOnly = async (userId: string, viewOnly: boolean) => {
+    await fetch('/api/admin/users', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userId, view_only: viewOnly }) });
+    loadUsers();
+  };
+
   const handleAddOrgAdvisor = async (orgId: string, advisorId: string) => {
     const { error } = await supabase.from('advisor_organisations').insert({ advisor_id: advisorId, organisation_id: orgId });
     if (error) { flash(error.message, true); return; }
@@ -2224,13 +2234,14 @@ const SuperadminPanel = () => {
     setEditingOrgId(org.id); setEditOrgName(org.name);
     setEditOrgFolderId(org.datto_folder_id || '');
     setEditOrgFolderName(org.datto_folder_name || '');
+    setEditOrgLogoUrl(org.logo_url || '');
     setShowEditOrgPicker(false);
   };
 
   const handleUpdateOrg = async (id: string) => {
     if (!editOrgName.trim()) { flash('Name is required', true); return; }
     const finalId = editOrgFolderId || (showEditOrgPicker ? editOrgFolderId : '');
-    const { error } = await supabase.from('organisations').update({ name: editOrgName.trim(), datto_folder_id: finalId || null, datto_folder_name: editOrgFolderName || null }).eq('id', id);
+    const { error } = await supabase.from('organisations').update({ name: editOrgName.trim(), datto_folder_id: finalId || null, datto_folder_name: editOrgFolderName || null, logo_url: editOrgLogoUrl || null }).eq('id', id);
     if (error) { flash(error.message, true); return; }
     flash('Organisation updated!'); setEditingOrgId(null); setShowEditOrgPicker(false); loadOrgs();
   };
@@ -2292,7 +2303,7 @@ const SuperadminPanel = () => {
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
-      <div className="bg-gradient-to-br from-indigo-900 via-indigo-950 to-slate-900 rounded-3xl p-6 md:p-10 text-white shadow-2xl relative overflow-hidden">
+      <div className="bg-gradient-to-br from-indigo-900 via-indigo-950 to-slate-900 rounded-xl p-6 md:p-10 text-white shadow-2xl relative overflow-hidden">
         <div className="absolute top-0 right-0 w-96 h-96 bg-indigo-500 rounded-full -mr-32 -mt-32 blur-[100px] opacity-20 pointer-events-none" />
         <div className="relative z-10">
           <span className="text-[10px] font-black uppercase tracking-[0.3em] text-indigo-300">System Administration</span>
@@ -2322,7 +2333,7 @@ const SuperadminPanel = () => {
           </div>
 
           {showOrgForm && (
-            <div className="bg-white border border-indigo-200 rounded-2xl p-6 space-y-4">
+            <div className="bg-white border border-indigo-200 rounded-lg p-6 space-y-4">
               <h4 className="font-black text-slate-900 text-sm uppercase tracking-widest">New Organisation</h4>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div><label className={labelClass}>Organisation Name *</label><input value={orgName} onChange={e => setOrgName(e.target.value)} placeholder="e.g. Precision Engineering Ltd" className={inputClass} /></div>
@@ -2349,19 +2360,24 @@ const SuperadminPanel = () => {
 
           {loading ? <div className="py-12 text-center text-slate-400 text-sm font-bold animate-pulse">Loading…</div>
             : organisations.length === 0 ? (
-              <div className="bg-white rounded-2xl border border-slate-200 p-12 text-center">
+              <div className="bg-white rounded-lg border border-slate-200 p-12 text-center">
                 <Building2 size={32} className="text-slate-300 mx-auto mb-3" />
                 <p className="font-black text-slate-700">No organisations yet</p>
                 <p className="text-sm text-slate-400 mt-1">Add your first client organisation above.</p>
               </div>
             ) : (
-              <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
+              <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
                 <table className="w-full text-left">
-                  <thead><tr className="bg-slate-50 text-[10px] uppercase font-black text-slate-400 border-b border-slate-100"><th className="px-6 py-3">Name</th><th className="px-6 py-3">Advisor</th><th className="px-6 py-3">Datto Folder</th><th className="px-6 py-3">Sites</th><th className="px-6 py-3"></th></tr></thead>
+                  <thead><tr className="bg-slate-50 text-[10px] uppercase font-black text-slate-400 border-b border-slate-100"><th className="px-6 py-3">Logo</th><th className="px-6 py-3">Name</th><th className="px-6 py-3">Advisor</th><th className="px-6 py-3">Datto Folder</th><th className="px-6 py-3">Sites</th><th className="px-6 py-3"></th></tr></thead>
                   <tbody className="divide-y divide-slate-100">
                     {organisations.map(org => (
                       <React.Fragment key={org.id}>
-                        <tr className={`cursor-pointer select-none ${editingOrgId === org.id ? 'bg-indigo-50/60' : 'hover:bg-slate-50'}`} onClick={() => editingOrgId === org.id ? (setEditingOrgId(null), setShowEditOrgPicker(false), setOrgAdvisorSearch(''), setOrgClientSearch('')) : startEditOrg(org)}>
+                        <tr className={`cursor-pointer select-none ${editingOrgId === org.id ? 'bg-indigo-50/60' : 'hover:bg-slate-50'}`} onClick={() => editingOrgId === org.id ? (setEditingOrgId(null), setShowEditOrgPicker(false), setOrgAdvisorSearch(''), setOrgClientSearch(''), setExpandingUserId(null)) : (startEditOrg(org), setExpandingUserId(null))}>
+                          <td className="px-6 py-4">
+                            {org.logo_url
+                              ? <div className="bg-white border border-slate-100 rounded-lg p-1 w-16 h-8 flex items-center justify-center"><img src={org.logo_url} alt="" className="max-h-6 max-w-full object-contain" /></div>
+                              : <span className="text-slate-300 text-xs">—</span>}
+                          </td>
                           <td className="px-6 py-4 font-bold text-slate-800"><button onClick={e => { e.stopPropagation(); setSelectedOrgFilter(org.id); setActiveTab('sites'); setEditingOrgId(null); setEditingSiteId(null); setShowEditOrgPicker(false); }} className="hover:text-indigo-600 hover:underline text-left">{org.name}</button></td>
                           <td className="px-6 py-4 text-sm text-slate-600">{(() => { const a = assignments.find((a: any) => a.organisation_id === org.id); return a ? (advisors.find(adv => adv.id === a.advisor_id)?.email || '—') : <span className="text-slate-300">Unassigned</span>; })()}</td>
                           <td className="px-6 py-4 text-xs">{org.datto_folder_id ? (
@@ -2383,6 +2399,39 @@ const SuperadminPanel = () => {
                                 {/* Left: fields + save */}
                                 <div className="space-y-3">
                                   <div><label className={labelClass}>Name</label><input value={editOrgName} onChange={e => setEditOrgName(e.target.value)} className={inputClass} /></div>
+                                  <div>
+                                    <label className={labelClass}>Logo <span className="font-normal text-slate-400 normal-case tracking-normal">PNG/JPG/SVG · max 500KB</span></label>
+                                    <div className="flex items-center gap-3">
+                                      {editOrgLogoUrl && (
+                                        <div className="bg-white border border-slate-200 rounded-xl p-2 flex items-center justify-center h-12 w-32 shrink-0">
+                                          <img src={editOrgLogoUrl} alt="logo" className="max-h-8 max-w-full object-contain" />
+                                        </div>
+                                      )}
+                                      <label className={`cursor-pointer px-3 py-2 bg-white border border-slate-200 rounded-xl text-[11px] font-black uppercase tracking-wider text-slate-500 hover:border-indigo-300 hover:text-indigo-600 ${orgLogoUploading ? 'opacity-50 pointer-events-none' : ''}`}>
+                                        {orgLogoUploading ? 'Uploading…' : editOrgLogoUrl ? 'Replace' : 'Upload Logo'}
+                                        <input type="file" accept="image/png,image/jpeg,image/svg+xml" className="hidden" onChange={async e => {
+                                          const file = e.target.files?.[0];
+                                          if (!file) return;
+                                          if (file.size > 500_000) { flash('Logo must be under 500KB', true); return; }
+                                          setOrgLogoUploading(true);
+                                          const ext = file.name.split('.').pop();
+                                          const path = `${org.id}.${ext}`;
+                                          const { error: upErr } = await supabase.storage.from('org-logos').upload(path, file, { upsert: true });
+                                          if (upErr) { flash(upErr.message, true); setOrgLogoUploading(false); return; }
+                                          const { data: { publicUrl } } = supabase.storage.from('org-logos').getPublicUrl(path);
+                                          setEditOrgLogoUrl(publicUrl);
+                                          setOrgLogoUploading(false);
+                                        }} />
+                                      </label>
+                                      {editOrgLogoUrl && (
+                                        <button onClick={async () => {
+                                          const ext = editOrgLogoUrl.split('/').pop()?.split('?')[0]?.split('.').pop();
+                                          await supabase.storage.from('org-logos').remove([`${org.id}.${ext}`]);
+                                          setEditOrgLogoUrl('');
+                                        }} className="text-rose-400 hover:text-rose-600 text-[11px] font-black uppercase">Remove</button>
+                                      )}
+                                    </div>
+                                  </div>
                                   <div>
                                     <label className={labelClass}>Datto Folder</label>
                                     {showEditOrgPicker ? (
@@ -2439,12 +2488,50 @@ const SuperadminPanel = () => {
                                   <div>
                                     <label className={labelClass}>Client Users <span className="text-slate-400 font-normal normal-case tracking-normal">(all org sites by default)</span></label>
                                     <div className="space-y-1 mb-2">
-                                      {users.filter(u => u.profile?.role === 'client' && u.profile?.organisation_id === org.id).map(u => (
-                                        <div key={u.id} className="flex items-center justify-between px-3 py-1.5 bg-white border border-slate-200 rounded-xl text-sm">
-                                          <span className="font-bold text-slate-700">{u.email}</span>
-                                          <button onClick={() => handleRemoveOrgClient(u.id)} className="text-rose-400 hover:text-rose-600 p-0.5 rounded"><X size={13} /></button>
-                                        </div>
-                                      ))}
+                                      {users.filter(u => u.profile?.role === 'client' && u.profile?.organisation_id === org.id).map(u => {
+                                        const orgSites = sites.filter(s => s.organisation_id === org.id);
+                                        const assignedSiteIds = new Set(clientSiteAssignments.filter(a => a.client_user_id === u.id).map((a: any) => a.site_id));
+                                        const isExpanded = expandingUserId === u.id;
+                                        return (
+                                          <div key={u.id} className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+                                            <div className="flex items-center justify-between px-3 py-1.5 text-sm">
+                                              <button onClick={() => setExpandingUserId(isExpanded ? null : u.id)} className="flex items-center gap-1.5 font-bold text-slate-700 hover:text-indigo-600 text-left">
+                                                <ChevronRight size={12} className={`transition-transform ${isExpanded ? 'rotate-90' : ''}`} />
+                                                {u.email}
+                                                {assignedSiteIds.size > 0 && <span className="text-[10px] font-black text-indigo-500 bg-indigo-50 px-1.5 py-0.5 rounded-full">{assignedSiteIds.size} site{assignedSiteIds.size !== 1 ? 's' : ''}</span>}
+                                              </button>
+                                              <div className="flex items-center gap-3">
+                                                <label className="flex items-center gap-1.5 text-[10px] font-bold text-slate-500 cursor-pointer select-none">
+                                                  <input type="checkbox" checked={!!u.profile?.view_only} onChange={e => handleSetViewOnly(u.id, e.target.checked)} className="accent-indigo-600" />
+                                                  Viewer only
+                                                </label>
+                                                <button onClick={() => handleRemoveOrgClient(u.id)} className="text-rose-400 hover:text-rose-600 p-0.5 rounded"><X size={13} /></button>
+                                              </div>
+                                            </div>
+                                            {isExpanded && (
+                                              <div className="border-t border-slate-100 px-3 py-2 bg-slate-50 space-y-1">
+                                                <p className="text-[10px] font-black uppercase tracking-wider text-slate-400 mb-1.5">Site access {assignedSiteIds.size === 0 ? '— all sites (default)' : '— restricted to checked'}</p>
+                                                {orgSites.map(s => {
+                                                  const assigned = assignedSiteIds.has(s.id);
+                                                  const assignment = clientSiteAssignments.find((a: any) => a.client_user_id === u.id && a.site_id === s.id);
+                                                  return (
+                                                    <label key={s.id} className="flex items-center gap-2 text-xs font-bold text-slate-600 cursor-pointer hover:text-indigo-600">
+                                                      <input type="checkbox" checked={assigned} className="accent-indigo-600"
+                                                        onChange={async e => {
+                                                          if (e.target.checked) { await handleAddSiteClient(s.id, u.id); }
+                                                          else if (assignment) { await handleDeleteClientSiteAssignment(assignment.id); }
+                                                        }}
+                                                      />
+                                                      {s.name}
+                                                    </label>
+                                                  );
+                                                })}
+                                                {orgSites.length === 0 && <p className="text-xs text-slate-400">No sites in this org</p>}
+                                              </div>
+                                            )}
+                                          </div>
+                                        );
+                                      })}
                                       {users.filter(u => u.profile?.role === 'client' && u.profile?.organisation_id === org.id).length === 0 && <p className="text-xs text-slate-400">No client users assigned</p>}
                                     </div>
                                     <div className="relative">
@@ -2488,7 +2575,7 @@ const SuperadminPanel = () => {
           </div>
 
           {showSiteForm && (
-            <div className="bg-white border border-indigo-200 rounded-2xl p-6 space-y-4">
+            <div className="bg-white border border-indigo-200 rounded-lg p-6 space-y-4">
               <h4 className="font-black text-slate-900 text-sm uppercase tracking-widest">New Site</h4>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div><label className={labelClass}>Site Name *</label><input value={siteName} onChange={e => setSiteName(e.target.value)} placeholder="e.g. Main Assembly Factory" className={inputClass} /></div>
@@ -2532,12 +2619,12 @@ const SuperadminPanel = () => {
 
           {loading ? <div className="py-12 text-center text-slate-400 text-sm font-bold animate-pulse">Loading…</div>
             : filteredSites.length === 0 ? (
-              <div className="bg-white rounded-2xl border border-slate-200 p-12 text-center">
+              <div className="bg-white rounded-lg border border-slate-200 p-12 text-center">
                 <Factory size={32} className="text-slate-300 mx-auto mb-3" />
                 <p className="font-black text-slate-700">No sites yet</p>
               </div>
             ) : (
-              <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
+              <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
                 <table className="w-full text-left">
                   <thead><tr className="bg-slate-50 text-[10px] uppercase font-black text-slate-400 border-b border-slate-100"><th className="px-6 py-3">Site</th><th className="px-6 py-3">Organisation</th><th className="px-6 py-3">Advisor</th><th className="px-6 py-3">Type</th><th className="px-6 py-3">Datto Folder</th><th className="px-6 py-3"></th></tr></thead>
                   <tbody className="divide-y divide-slate-100">
@@ -2716,7 +2803,7 @@ const SuperadminPanel = () => {
             <button onClick={() => setShowUserForm(v => !v)} className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-xl text-[11px] font-black uppercase tracking-wider hover:bg-indigo-700"><Plus size={13} />Add User</button>
           </div>
           {showUserForm && (
-            <div className="bg-white border border-indigo-200 rounded-2xl p-6 space-y-4">
+            <div className="bg-white border border-indigo-200 rounded-lg p-6 space-y-4">
               <h4 className="font-black text-slate-900 text-sm uppercase tracking-widest">New User</h4>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div><label className={labelClass}>Email *</label><input type="email" value={userEmail} onChange={e => setUserEmail(e.target.value)} placeholder="user@company.com" className={inputClass} /></div>
@@ -2762,7 +2849,7 @@ const SuperadminPanel = () => {
             </div>
           )}
           {loading ? <div className="py-12 text-center text-slate-400 text-sm font-bold animate-pulse">Loading…</div> : (
-            <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
+            <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
               <table className="w-full text-left">
                 <thead><tr className="bg-slate-50 text-[10px] uppercase font-black text-slate-400 border-b border-slate-100"><th className="px-6 py-3">Email</th><th className="px-6 py-3">Role</th><th className="px-6 py-3">Organisation</th><th className="px-6 py-3">Sites</th><th className="px-6 py-3"></th></tr></thead>
                 <tbody className="divide-y divide-slate-100">
@@ -2784,7 +2871,10 @@ const SuperadminPanel = () => {
                             ) : '—'}
                           </td>
                           <td className="px-6 py-4 text-right">
-                            {user.profile?.role !== 'superadmin' && <button onClick={e => { e.stopPropagation(); handleDeleteUser(user.id); }} className="text-rose-400 hover:text-rose-600 p-1.5 rounded-lg hover:bg-rose-50"><X size={14} /></button>}
+                            <div className="flex items-center justify-end gap-1">
+                              {user.profile?.role !== 'superadmin' && <button onClick={e => { e.stopPropagation(); setAdminSetPwUser({ id: user.id, email: user.email }); setAdminSetPwValue(''); }} className="text-slate-400 hover:text-indigo-600 p-1.5 rounded-lg hover:bg-indigo-50" title="Set password"><KeyRound size={14} /></button>}
+                              {user.profile?.role !== 'superadmin' && <button onClick={e => { e.stopPropagation(); handleDeleteUser(user.id); }} className="text-rose-400 hover:text-rose-600 p-1.5 rounded-lg hover:bg-rose-50"><X size={14} /></button>}
+                            </div>
                           </td>
                         </tr>
                         {isClient && isExpanded && (
@@ -2860,7 +2950,7 @@ const SuperadminPanel = () => {
 
           {/* Add requirement form */}
           {showAddReqForm && (
-            <div className="bg-white border border-indigo-200 rounded-2xl p-6 space-y-4">
+            <div className="bg-white border border-indigo-200 rounded-lg p-6 space-y-4">
               <h4 className="font-black text-slate-900 text-sm uppercase tracking-widest">New Requirement</h4>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div><label className={labelClass}>Requirement Name *</label><input value={newReqName} onChange={e => setNewReqName(e.target.value)} placeholder="e.g. Fire Risk Assessment" className={inputClass} /></div>
@@ -2877,7 +2967,7 @@ const SuperadminPanel = () => {
 
           {/* AI generate preview */}
           {generatePreview && (
-            <div className="bg-white border border-violet-200 rounded-2xl overflow-hidden">
+            <div className="bg-white border border-violet-200 rounded-lg overflow-hidden">
               <div className="bg-violet-600 px-6 py-4 flex items-center justify-between">
                 <h4 className="font-black text-white text-sm uppercase tracking-widest flex items-center gap-2"><Sparkles size={14} />Review AI-Generated Requirements</h4>
                 <button onClick={() => setGeneratePreview(null)} className="text-violet-200 hover:text-white"><X size={18} /></button>
@@ -2910,13 +3000,13 @@ const SuperadminPanel = () => {
           {/* Existing requirements list */}
           {reqLoading ? <div className="py-8 text-center text-slate-400 text-sm font-bold animate-pulse">Loading…</div>
           : requirements.length === 0 ? (
-            <div className="bg-white rounded-2xl border border-slate-200 p-12 text-center">
+            <div className="bg-white rounded-lg border border-slate-200 p-12 text-center">
               <Shield size={32} className="text-slate-300 mx-auto mb-3" />
               <p className="font-black text-slate-700">No requirements set for {SITE_TYPE_LABELS[reqSiteType]}</p>
               <p className="text-sm text-slate-400 mt-1">Use "Generate with AI" to create a starting list, or add manually.</p>
             </div>
           ) : (
-            <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
+            <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
               <table className="w-full text-left">
                 <thead><tr className="bg-slate-50 text-[10px] uppercase font-black text-slate-400 border-b border-slate-100"><th className="px-6 py-3">Requirement</th><th className="px-6 py-3">Status</th><th className="px-6 py-3">Legal Basis</th><th className="px-6 py-3"></th></tr></thead>
                 <tbody className="divide-y divide-slate-100">
@@ -2997,7 +3087,7 @@ const SuperadminPanel = () => {
                     { label: 'CloudConvert', costUsd: null, sub: `${cc.count ?? 0} conversions`, color: 'text-amber-600', isCC: true },
                     { label: 'Total AI Cost', costUsd: totalCost, sub: `${(gemini.count ?? 0) + (claude.count ?? 0)} AI calls`, color: 'text-slate-800', isCC: false },
                   ].map(card => (
-                    <div key={card.label} className="bg-white border border-slate-200 rounded-2xl p-5">
+                    <div key={card.label} className="bg-white border border-slate-200 rounded-lg p-5">
                       <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">{card.label}</p>
                       {card.isCC ? (
                         <p className={`text-xl font-black mt-1 ${card.color}`}>{cloudconvertCredits !== null ? `${cloudconvertCredits} credits` : '—'}</p>
@@ -3014,7 +3104,7 @@ const SuperadminPanel = () => {
 
                 {/* Daily bar chart */}
                 {daily.length > 0 && (
-                  <div className="bg-white border border-slate-200 rounded-2xl p-6">
+                  <div className="bg-white border border-slate-200 rounded-lg p-6">
                     <h4 className="text-[11px] font-black uppercase tracking-widest text-slate-400 mb-4">Daily cost — last {usageDays} days</h4>
                     <div className="flex items-end gap-1 h-32">
                       {daily.map((d: any) => {
@@ -3042,7 +3132,7 @@ const SuperadminPanel = () => {
 
                 {/* Per-org table */}
                 {orgs.length > 0 && (
-                  <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden">
+                  <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
                     <div className="px-6 py-4 border-b border-slate-100">
                       <h4 className="text-[11px] font-black uppercase tracking-widest text-slate-400">Per organisation</h4>
                     </div>
@@ -3071,7 +3161,7 @@ const SuperadminPanel = () => {
 
                 {/* Recent calls */}
                 {recent.length > 0 && (
-                  <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden">
+                  <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
                     <div className="px-6 py-4 border-b border-slate-100">
                       <h4 className="text-[11px] font-black uppercase tracking-widest text-slate-400">Recent calls (last 50)</h4>
                     </div>
@@ -3122,6 +3212,29 @@ const SuperadminPanel = () => {
             setSyncConfigSite(null);
           }}
         />
+      )}
+
+      {/* Admin set password modal */}
+      {adminSetPwUser && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-lg shadow-2xl w-full max-w-sm p-6">
+            <h3 className="font-black text-slate-900 text-base mb-1">Set password</h3>
+            <p className="text-xs text-slate-400 mb-4">{adminSetPwUser.email}</p>
+            {flashError && <div className="bg-rose-50 border border-rose-200 text-rose-700 text-xs font-bold px-3 py-2 rounded-xl mb-3">{flashError}</div>}
+            <div><label className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1 block">New Password</label><div className="relative"><Lock size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300" /><input type="password" value={adminSetPwValue} onChange={e => setAdminSetPwValue(e.target.value)} onKeyDown={async e => { if (e.key === 'Enter') { /* submit */ } }} placeholder="Min. 8 characters" className="w-full pl-9 pr-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300" /></div></div>
+            <div className="flex gap-2 mt-5">
+              <button onClick={() => { setAdminSetPwUser(null); setAdminSetPwValue(''); }} className="flex-1 py-2.5 border border-slate-200 rounded-xl text-[11px] font-black uppercase tracking-wider text-slate-500 hover:bg-slate-50">Cancel</button>
+              <button disabled={adminSetPwLoading} onClick={async () => {
+                if (adminSetPwValue.length < 8) { flash('Password must be at least 8 characters', true); return; }
+                setAdminSetPwLoading(true);
+                const res = await fetch('/api/admin/users', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userId: adminSetPwUser.id, newPassword: adminSetPwValue }) });
+                setAdminSetPwLoading(false);
+                if (!res.ok) { const d = await res.json().catch(() => ({})); flash(d.error || 'Failed to set password', true); return; }
+                setAdminSetPwUser(null); setAdminSetPwValue(''); flash('Password updated');
+              }} className="flex-1 py-2.5 bg-indigo-600 text-white rounded-xl text-[11px] font-black uppercase tracking-wider hover:bg-indigo-700 disabled:opacity-50">{adminSetPwLoading ? 'Saving…' : 'Set Password'}</button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
@@ -3215,7 +3328,7 @@ const DattoPathModal = ({ userId, currentPath, onClose, onSave }: {
 
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={onClose}>
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6" onClick={e => e.stopPropagation()}>
+      <div className="bg-white rounded-lg shadow-2xl w-full max-w-md p-6" onClick={e => e.stopPropagation()}>
         <h2 className="font-black text-slate-900 text-base mb-1">Word Document Path</h2>
         <p className="text-[11px] text-slate-500 mb-5 leading-relaxed">
           The path used to open Word documents from your Datto drive. Click <strong>Detect</strong> to auto-fill from your local Datto drive mapping, or enter it manually.
@@ -3287,7 +3400,7 @@ const SyncConfigModal = ({ site, onClose, onSave }: {
   const includedIds = new Set(includedFolders.keys());
   return (
     <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-      <div className="bg-white rounded-3xl shadow-2xl w-full max-w-lg overflow-hidden">
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg overflow-hidden">
         <div className="bg-violet-600 px-6 py-4 flex items-center justify-between">
           <div>
             <h2 className="font-black text-white text-sm uppercase tracking-widest flex items-center gap-2"><Settings size={14} />Configure AI Sync</h2>
@@ -3324,36 +3437,86 @@ const SyncConfigModal = ({ site, onClose, onSave }: {
 };
 
 // ─── Login Screen ─────────────────────────────────────────────────────────────
+const SetPasswordModal = ({ title, onSubmit, onClose }: { title: string; onSubmit: (pw: string) => Promise<void>; onClose: () => void }) => {
+  const [pw, setPw] = useState(''); const [pw2, setPw2] = useState('');
+  const [loading, setLoading] = useState(false); const [err, setErr] = useState('');
+  const handle = async () => {
+    if (pw.length < 8) { setErr('Password must be at least 8 characters'); return; }
+    if (pw !== pw2) { setErr('Passwords do not match'); return; }
+    setLoading(true); setErr('');
+    await onSubmit(pw);
+    setLoading(false);
+  };
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-lg shadow-2xl w-full max-w-sm p-6">
+        <h3 className="font-black text-slate-900 text-base mb-4">{title}</h3>
+        {err && <div className="bg-rose-50 border border-rose-200 text-rose-700 text-xs font-bold px-3 py-2 rounded-xl mb-3">{err}</div>}
+        <div className="space-y-3">
+          <div><label className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1 block">New Password</label><div className="relative"><Lock size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300" /><input type="password" value={pw} onChange={e => setPw(e.target.value)} placeholder="Min. 8 characters" className="w-full pl-9 pr-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300" /></div></div>
+          <div><label className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1 block">Confirm Password</label><div className="relative"><Lock size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300" /><input type="password" value={pw2} onChange={e => setPw2(e.target.value)} onKeyDown={e => e.key === 'Enter' && handle()} placeholder="Repeat password" className="w-full pl-9 pr-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300" /></div></div>
+        </div>
+        <div className="flex gap-2 mt-5">
+          <button onClick={onClose} className="flex-1 py-2.5 border border-slate-200 rounded-xl text-[11px] font-black uppercase tracking-wider text-slate-500 hover:bg-slate-50">Cancel</button>
+          <button onClick={handle} disabled={loading} className="flex-1 py-2.5 bg-indigo-600 text-white rounded-xl text-[11px] font-black uppercase tracking-wider hover:bg-indigo-700 disabled:opacity-50">{loading ? 'Saving…' : 'Set Password'}</button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 const LoginScreen = ({ onLogin }: { onLogin: () => void }) => {
   const [email, setEmail] = useState(''); const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false); const [error, setError] = useState('');
+  const [mode, setMode] = useState<'login' | 'forgot' | 'sent'>('login');
   const handleLogin = async () => {
     setLoading(true); setError('');
     const { error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) { setError('Invalid email or password'); setLoading(false); } else { onLogin(); }
   };
+  const handleForgot = async () => {
+    if (!email) { setError('Enter your email address first'); return; }
+    setLoading(true); setError('');
+    await supabase.auth.resetPasswordForEmail(email, { redirectTo: window.location.origin });
+    setLoading(false); setMode('sent');
+  };
   return (
     <div className="min-h-screen bg-indigo-950 flex items-center justify-center p-4">
       <div className="w-full max-w-md">
         <div className="text-center mb-8">
-          <div className="w-16 h-16 bg-white rounded-2xl flex items-center justify-center text-indigo-950 font-black text-2xl mx-auto mb-4 shadow-xl">MB</div>
-          <h1 className="text-2xl font-black text-white tracking-tight">McCormack Benson Health &amp; Safety</h1>
-          <p className="text-indigo-300 text-sm mt-1">Compliance Portal</p>
+          <div className="mx-auto mb-3 bg-white rounded-lg px-5 py-3 shadow-xl inline-block"><img src="/logo-full.svg" alt="McCormack Benson Health & Safety" className="h-24 w-auto object-contain" /></div>
         </div>
-        <div className="bg-white rounded-3xl p-8 shadow-2xl">
-          <h2 className="text-lg font-black text-slate-900 mb-6">Sign in to your account</h2>
-          {error && <div className="bg-rose-50 border border-rose-200 text-rose-700 text-sm font-bold px-4 py-3 rounded-xl mb-4">{error}</div>}
-          <div className="space-y-4">
-            <div>
-              <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1.5 block">Email</label>
-              <div className="relative"><Mail size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300" /><input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="you@company.com" className="w-full pl-10 pr-4 py-3 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300" /></div>
+        <div className="bg-white rounded-xl p-8 shadow-2xl">
+          {mode === 'sent' ? (
+            <div className="text-center py-4">
+              <div className="w-12 h-12 bg-emerald-100 rounded-lg flex items-center justify-center mx-auto mb-4"><Mail size={22} className="text-emerald-600" /></div>
+              <h2 className="text-base font-black text-slate-900 mb-2">Check your email</h2>
+              <p className="text-sm text-slate-500 mb-5">If <span className="font-bold text-slate-700">{email}</span> is registered, you'll receive a reset link shortly.</p>
+              <button onClick={() => { setMode('login'); setError(''); }} className="text-indigo-600 text-sm font-black hover:underline">← Back to sign in</button>
             </div>
-            <div>
-              <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1.5 block">Password</label>
-              <div className="relative"><Lock size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300" /><input type="password" value={password} onChange={e => setPassword(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleLogin()} placeholder="••••••••" className="w-full pl-10 pr-4 py-3 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300" /></div>
-            </div>
-            <button onClick={handleLogin} disabled={loading} className="w-full bg-indigo-600 text-white py-3 rounded-xl font-black text-sm uppercase tracking-wider hover:bg-indigo-700 disabled:opacity-50 mt-2">{loading ? 'Signing in…' : 'Sign In'}</button>
-          </div>
+          ) : mode === 'forgot' ? (
+            <>
+              <h2 className="text-lg font-black text-slate-900 mb-1">Reset your password</h2>
+              <p className="text-xs text-slate-400 mb-5">Enter your email and we'll send a reset link.</p>
+              {error && <div className="bg-rose-50 border border-rose-200 text-rose-700 text-sm font-bold px-4 py-3 rounded-xl mb-4">{error}</div>}
+              <div className="space-y-4">
+                <div><label className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1.5 block">Email</label><div className="relative"><Mail size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300" /><input type="email" value={email} onChange={e => setEmail(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleForgot()} placeholder="you@company.com" className="w-full pl-10 pr-4 py-3 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300" /></div></div>
+                <button onClick={handleForgot} disabled={loading} className="w-full bg-indigo-600 text-white py-3 rounded-xl font-black text-sm uppercase tracking-wider hover:bg-indigo-700 disabled:opacity-50">{loading ? 'Sending…' : 'Send Reset Link'}</button>
+                <button onClick={() => { setMode('login'); setError(''); }} className="w-full text-slate-400 text-sm font-bold hover:text-slate-600">← Back to sign in</button>
+              </div>
+            </>
+          ) : (
+            <>
+              <h2 className="text-lg font-black text-slate-900 mb-6">Sign in to your account</h2>
+              {error && <div className="bg-rose-50 border border-rose-200 text-rose-700 text-sm font-bold px-4 py-3 rounded-xl mb-4">{error}</div>}
+              <div className="space-y-4">
+                <div><label className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1.5 block">Email</label><div className="relative"><Mail size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300" /><input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="you@company.com" className="w-full pl-10 pr-4 py-3 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300" /></div></div>
+                <div><label className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1.5 block">Password</label><div className="relative"><Lock size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300" /><input type="password" value={password} onChange={e => setPassword(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleLogin()} placeholder="••••••••" className="w-full pl-10 pr-4 py-3 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300" /></div></div>
+                <button onClick={handleLogin} disabled={loading} className="w-full bg-indigo-600 text-white py-3 rounded-xl font-black text-sm uppercase tracking-wider hover:bg-indigo-700 disabled:opacity-50 mt-2">{loading ? 'Signing in…' : 'Sign In'}</button>
+                <button onClick={() => { setMode('forgot'); setError(''); }} className="w-full text-slate-400 text-xs font-bold hover:text-slate-600 text-center">Forgot password?</button>
+              </div>
+            </>
+          )}
         </div>
       </div>
     </div>
@@ -3364,10 +3527,17 @@ const LoginScreen = ({ onLogin }: { onLogin: () => void }) => {
 export default function App() {
   const [user, setUser] = useState<any>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
+  const isViewOnly = profile?.role === 'client' && profile?.view_only === true;
   const [authLoading, setAuthLoading] = useState(true);
+  const [showPasswordReset, setShowPasswordReset] = useState(false);
+  const [showChangePassword, setShowChangePassword] = useState(false);
+  const [appFlash, setAppFlash] = useState('');
+  const appFlashRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const showAppFlash = (msg: string) => { setAppFlash(msg); if (appFlashRef.current) clearTimeout(appFlashRef.current); appFlashRef.current = setTimeout(() => setAppFlash(''), 3500); };
   const [view, setView] = useState<AppView>('portfolio');
   const [dashboardTab, setDashboardTab] = useState<'analytics' | 'data'>('analytics');
   const [siteTab, setSiteTab] = useState<'actions' | 'documents' | 'dochealth' | 'iag' | 'files'>('actions');
+  const effectiveSiteTab = isViewOnly && (siteTab === 'actions' || siteTab === 'documents') ? 'files' : siteTab;
   const [iagServices, setIagServices] = useState<any[]>([]);
   const [iagServicesLoading, setIagServicesLoading] = useState(false);
   const [selectedSite, setSelectedSite] = useState<Site | null>(null);
@@ -3379,6 +3549,8 @@ export default function App() {
   const [actionNotes, setActionNotes] = useState<Record<string, string>>({});
   const [sites, setSites] = useState<Site[]>([]);
   const [organisations, setOrganisations] = useState<Organisation[]>([]);
+  const clientOrg = profile?.role === 'client' ? organisations.find(o => o.id === profile?.organisation_id) ?? null : null;
+  const siteOrg = selectedSite ? organisations.find(o => o.id === selectedSite.organisation_id) ?? null : clientOrg;
   const [allActions, setAllActions] = useState<Action[]>([]);
   const [showAddAction, setShowAddAction] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
@@ -3408,7 +3580,7 @@ export default function App() {
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => { setUser(session?.user ?? null); setAuthLoading(false); });
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => { setUser(session?.user ?? null); });
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => { setUser(session?.user ?? null); if (event === 'PASSWORD_RECOVERY') setShowPasswordReset(true); });
     return () => subscription.unsubscribe();
   }, []);
 
@@ -3425,6 +3597,7 @@ export default function App() {
           }
         }
         if (data.role === 'superadmin') setView('admin');
+        else if (data.role === 'client' && data.view_only) { setView('site'); setSiteTab('files'); }
         else setView('portfolio');
       }
     });
@@ -3665,7 +3838,7 @@ export default function App() {
     await supabase.from('actions').update({ issue_date: date }).eq('id', id);
     setAllActions(prev => prev.map(a => a.id === id ? { ...a, issueDate: date } : a));
   };
-  const handleSiteClick = (site: Site) => { setSelectedSite(site); setView('site'); recalcActionProgress(site.id); refreshComplianceScore(site.id); };
+  const handleSiteClick = (site: Site) => { setSelectedSite(site); setView('site'); if (isViewOnly) setSiteTab(site.datto_folder_id ? 'files' : 'iag'); recalcActionProgress(site.id); refreshComplianceScore(site.id); };
   const handleSaveSyncConfig = (siteId: string, includedIds: string[]) => {
     setSites(prev => prev.map(s => s.id === siteId ? { ...s, included_datto_folder_ids: includedIds } : s));
     setSelectedSite(prev => prev?.id === siteId ? { ...prev, included_datto_folder_ids: includedIds } : prev);
@@ -3859,7 +4032,10 @@ export default function App() {
         allItems = await fetchAllFiles(site.datto_folder_id, userExcludedIds, rootPath);
       }
       const SUPPORTED_EXTS = ['.docx', '.doc', '.pdf', '.xlsx', '.xls'];
-      let docxFiles = allItems.filter(i => SUPPORTED_EXTS.some(ext => i.name.toLowerCase().endsWith(ext)));
+      let docxFiles = allItems.filter(i =>
+        SUPPORTED_EXTS.some(ext => i.name.toLowerCase().endsWith(ext)) &&
+        !i.name.toLowerCase().includes('draft')
+      );
 
       // Deduplicate: if both a PDF and an Office doc share the same base name, keep the Office doc
       const OFFICE_EXTS = new Set(['.docx', '.doc', '.xlsx', '.xls']);
@@ -4362,15 +4538,16 @@ export default function App() {
 
   if (authLoading) return <div className="min-h-screen bg-indigo-950 flex items-center justify-center"><div className="text-indigo-300 font-black text-sm uppercase tracking-widest animate-pulse">Loading…</div></div>;
   if (!user) return <LoginScreen onLogin={() => {}} />;
+  if (!profile) return <div className="min-h-screen bg-indigo-950 flex items-center justify-center"><div className="text-indigo-300 font-black text-sm uppercase tracking-widest animate-pulse">Loading…</div></div>;
 
   return (
     <div className="min-h-screen bg-slate-50 font-sans text-slate-900 selection:bg-indigo-100 overflow-x-hidden">
-      <aside className="hidden lg:flex fixed left-0 top-0 h-full w-20 bg-indigo-950 flex-col items-center py-8 gap-10 text-indigo-300 z-20">
-        <div className="w-12 h-12 bg-white rounded-xl flex items-center justify-center text-indigo-950 shadow-lg font-black text-xl italic hover:scale-105 transition-transform">MB</div>
+      <aside className="hidden lg:flex fixed left-0 top-0 h-full w-20 bg-indigo-950 flex-col items-center pt-4 pb-8 gap-10 text-indigo-300 z-20">
+        {profile?.role === 'client' && <a href="https://www.mb-hs.com/" target="_blank" rel="noopener noreferrer" className="w-12 h-12 bg-white rounded-xl flex items-center justify-center shadow-lg overflow-hidden p-1 hover:scale-105 transition-transform"><img src="/logo-mark.svg" alt="MBHS" className="w-full h-full object-contain" /></a>}
         <nav className="flex flex-col gap-6">
           {profile?.role === 'superadmin' && <button onClick={() => setView('admin')} className={`p-3 rounded-xl transition-all ${view === 'admin' ? 'bg-indigo-700 text-white shadow-inner' : 'hover:text-white hover:bg-white/5'}`} title="Admin Panel"><Shield size={22} /></button>}
-          {(profile?.role === 'advisor' || (profile?.role === 'client' && sites.length > 1)) && <button onClick={() => { setView('portfolio'); setSelectedSite(null); }} className={`p-3 rounded-xl transition-all ${view === 'portfolio' ? 'bg-indigo-700 text-white shadow-inner' : 'hover:text-white hover:bg-white/5'}`} title="Dashboard"><Layout size={22} /></button>}
-          {(profile?.role === 'advisor' || profile?.role === 'client') && <button onClick={() => { setView('site'); if (sites.length > 0 && !selectedSite) setSelectedSite(sites[0]); }} className={`p-3 rounded-xl transition-all ${view === 'site' ? 'bg-indigo-700 text-white shadow-inner' : 'hover:text-white hover:bg-white/5'}`} title="Action Plans"><ClipboardList size={22} /></button>}
+          {(profile?.role === 'advisor' || (profile?.role === 'client' && !isViewOnly && sites.length > 1)) && <button onClick={() => { setView('portfolio'); setSelectedSite(null); }} className={`p-3 rounded-xl transition-all ${view === 'portfolio' ? 'bg-indigo-700 text-white shadow-inner' : 'hover:text-white hover:bg-white/5'}`} title="Dashboard"><Layout size={22} /></button>}
+          {(profile?.role === 'advisor' || profile?.role === 'client') && <button onClick={() => { setView('site'); if (sites.length > 0 && !selectedSite) setSelectedSite(sites[0]); }} className={`p-3 rounded-xl transition-all ${view === 'site' ? 'bg-indigo-700 text-white shadow-inner' : 'hover:text-white hover:bg-white/5'}`} title={isViewOnly ? 'Documents' : 'Action Plans'}><FileText size={22} /></button>}
           {(profile?.role === 'advisor' || profile?.role === 'superadmin') && <button onClick={() => setShowSettings(true)} className="p-3 rounded-xl hover:text-white hover:bg-white/5" title="Settings"><Settings size={22} /></button>}
         </nav>
         <div className="mt-auto flex flex-col gap-5 items-center">
@@ -4383,8 +4560,8 @@ export default function App() {
       {/* Bottom navigation bar — tablet/mobile only */}
       <nav className="fixed bottom-0 left-0 right-0 lg:hidden flex items-center justify-around bg-indigo-950 h-16 z-20 border-t border-indigo-900 text-indigo-300">
         {profile?.role === 'superadmin' && <button onClick={() => setView('admin')} className={`flex flex-col items-center gap-1 p-2 rounded-xl transition-all ${view === 'admin' ? 'text-white' : 'hover:text-white'}`}><Shield size={20} /><span className="text-[9px] font-black uppercase tracking-wide">Admin</span></button>}
-        {(profile?.role === 'advisor' || (profile?.role === 'client' && sites.length > 1)) && <button onClick={() => { setView('portfolio'); setSelectedSite(null); }} className={`flex flex-col items-center gap-1 p-2 rounded-xl transition-all ${view === 'portfolio' ? 'text-white' : 'hover:text-white'}`}><Layout size={20} /><span className="text-[9px] font-black uppercase tracking-wide">Dashboard</span></button>}
-        {(profile?.role === 'advisor' || profile?.role === 'client') && <button onClick={() => { setView('site'); if (sites.length > 0 && !selectedSite) setSelectedSite(sites[0]); }} className={`flex flex-col items-center gap-1 p-2 rounded-xl transition-all ${view === 'site' ? 'text-white' : 'hover:text-white'}`}><ClipboardList size={20} /><span className="text-[9px] font-black uppercase tracking-wide">Actions</span></button>}
+        {(profile?.role === 'advisor' || (profile?.role === 'client' && !isViewOnly && sites.length > 1)) && <button onClick={() => { setView('portfolio'); setSelectedSite(null); }} className={`flex flex-col items-center gap-1 p-2 rounded-xl transition-all ${view === 'portfolio' ? 'text-white' : 'hover:text-white'}`}><Layout size={20} /><span className="text-[9px] font-black uppercase tracking-wide">Dashboard</span></button>}
+        {(profile?.role === 'advisor' || profile?.role === 'client') && <button onClick={() => { setView('site'); if (sites.length > 0 && !selectedSite) setSelectedSite(sites[0]); }} className={`flex flex-col items-center gap-1 p-2 rounded-xl transition-all ${view === 'site' ? 'text-white' : 'hover:text-white'}`}><FileText size={20} /><span className="text-[9px] font-black uppercase tracking-wide">{isViewOnly ? 'Docs' : 'Actions'}</span></button>}
         {(profile?.role === 'advisor' || profile?.role === 'superadmin') && <button onClick={() => setShowSettings(true)} className="flex flex-col items-center gap-1 p-2 rounded-xl hover:text-white"><Settings size={20} /><span className="text-[9px] font-black uppercase tracking-wide">Settings</span></button>}
         <button onClick={handleLogout} className="flex flex-col items-center gap-1 p-2 rounded-xl hover:text-white"><LogOut size={20} /><span className="text-[9px] font-black uppercase tracking-wide">Sign out</span></button>
       </nav>
@@ -4392,15 +4569,21 @@ export default function App() {
       <main className="lg:pl-20 pb-16 lg:pb-0">
         <header className="bg-white/95 backdrop-blur-sm border-b border-slate-200 px-4 md:px-8 py-3 md:py-4 flex items-center justify-between sticky top-0 z-10">
           <div className="flex items-center gap-3">
-            {view === 'site' && (profile?.role === 'advisor' || (profile?.role === 'client' && sites.length > 1)) && <button onClick={() => { setView('portfolio'); setSelectedSite(null); }} className="p-2 hover:bg-slate-100 rounded-lg text-slate-400"><ArrowLeft size={18} /></button>}
-            <div>
-              <h1 className="text-base font-black text-slate-900 tracking-tight leading-none truncate max-w-[180px] sm:max-w-none">McCormack Benson Health &amp; Safety</h1>
-              <div className="flex items-center gap-2 text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1"><Database size={9} /><span>Portal Sync: {syncLastRun}</span></div>
-            </div>
+            {view === 'site' && (profile?.role === 'advisor' || (profile?.role === 'client' && !isViewOnly && sites.length > 1)) && <button onClick={() => { setView('portfolio'); setSelectedSite(null); }} className="p-2 hover:bg-slate-100 rounded-lg text-slate-400"><ArrowLeft size={18} /></button>}
+            {profile?.role === 'client' && siteOrg?.logo_url ? (
+              <div className="bg-white border border-slate-300 rounded-xl px-3 py-1.5 flex items-center justify-center h-10 max-w-[200px]">
+                <img src={siteOrg.logo_url} alt={siteOrg.name} className="max-h-7 max-w-full object-contain" />
+              </div>
+            ) : (
+              <div>
+                <img src="/logo-full.svg" alt="McCormack Benson Health & Safety" className="h-14 w-auto object-contain" />
+              </div>
+            )}
           </div>
           <div className="flex items-center gap-5">
-            <div className="text-right hidden sm:block"><p className="text-xs font-black text-slate-800">{user.email}</p><p className="text-[10px] text-indigo-600 font-bold uppercase tracking-widest">● {profile?.role}</p></div>
-            {(profile?.role === 'advisor' || (profile?.role === 'client' && sites.length > 1)) && (
+            <button onClick={() => setShowChangePassword(true)} className="p-2 rounded-xl text-slate-400 hover:text-slate-600 hover:bg-slate-100" title="Change password"><KeyRound size={16} /></button>
+            <div className="text-right hidden sm:block"><p className="text-xs font-black text-slate-800">{user.email}</p><p className="text-[10px] text-indigo-600 font-bold uppercase tracking-widest">● {profile?.role}</p>{(profile?.role === 'advisor' || profile?.role === 'superadmin') && <p className="text-[9px] text-slate-400 font-bold uppercase tracking-widest flex items-center justify-end gap-1 mt-0.5"><Database size={8} />Sync: {syncLastRun}</p>}</div>
+            {(profile?.role === 'advisor' || (profile?.role === 'client' && !isViewOnly && sites.length > 1)) && (
               <div className="hidden md:flex bg-slate-100 p-1 rounded-xl">
                 <button onClick={() => { setView('portfolio'); setSelectedSite(null); }} className={`px-4 py-1.5 text-[10px] font-black uppercase rounded-lg transition-all ${view === 'portfolio' ? 'bg-white shadow-sm text-indigo-600' : 'text-slate-400 hover:text-slate-600'}`}>Dashboard</button>
                 <button onClick={() => { setView('site'); if (sites.length > 0 && !selectedSite) setSelectedSite(sites[0]); }} className={`px-4 py-1.5 text-[10px] font-black uppercase rounded-lg transition-all ${view === 'site' ? 'bg-white shadow-sm text-indigo-600' : 'text-slate-400 hover:text-slate-600'}`}>Action Plan</button>
@@ -4414,12 +4597,12 @@ export default function App() {
 
           {view === 'portfolio' && (profile?.role === 'advisor' || profile?.role === 'client') && (
             <div className="space-y-8 animate-in fade-in duration-500">
-              <div className="bg-gradient-to-br from-indigo-900 via-indigo-950 to-slate-900 rounded-3xl p-6 md:p-10 text-white flex flex-col lg:flex-row justify-between items-start lg:items-center gap-6 md:gap-8 shadow-2xl relative overflow-hidden">
+              <div className="bg-gradient-to-br from-indigo-900 via-indigo-950 to-slate-900 rounded-xl p-6 md:p-10 text-white flex flex-col lg:flex-row justify-between items-start lg:items-center gap-6 md:gap-8 shadow-2xl relative overflow-hidden">
                 <div className="absolute top-0 right-0 w-96 h-96 bg-indigo-500 rounded-full -mr-32 -mt-32 blur-[100px] opacity-20 pointer-events-none" />
                 <div className="relative z-10"><span className="text-[10px] font-black uppercase tracking-[0.3em] text-indigo-300">Executive Summary</span><h2 className="text-2xl md:text-4xl font-black tracking-tighter mt-2">Divisional Compliance</h2><p className="text-indigo-300 mt-2 max-w-md text-sm">Real-time H&S status across all sites.</p></div>
                 <div className="flex gap-3 md:gap-4 relative z-10">
                   {[{ label: 'Overdue', value: criticalCount, color: 'text-rose-400', icon: <Zap size={14} /> }, { label: 'Upcoming', value: upcomingCount, color: 'text-amber-400', icon: <Clock size={14} /> }, { label: 'Sites', value: viewSites.length, color: 'text-indigo-300', icon: <Building2 size={14} /> }].map(stat => (
-                    <div key={stat.label} className="bg-white/5 backdrop-blur-md rounded-2xl p-3 md:p-5 border border-white/10 text-center min-w-[72px] md:min-w-[90px]">
+                    <div key={stat.label} className="bg-white/5 backdrop-blur-md rounded-lg p-3 md:p-5 border border-white/10 text-center min-w-[72px] md:min-w-[90px]">
                       <div className={`flex items-center justify-center gap-1 text-[10px] font-black uppercase tracking-widest opacity-70 mb-1.5 ${stat.color}`}>{stat.icon}{stat.label}</div>
                       <p className={`text-2xl md:text-4xl font-black ${stat.color}`}>{stat.value}</p>
                     </div>
@@ -4443,7 +4626,7 @@ export default function App() {
               </div>
               {dashboardTab === 'analytics' && (
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                  <div className="lg:col-span-2 bg-white rounded-3xl border border-slate-200 p-4 md:p-8 shadow-sm">
+                  <div className="lg:col-span-2 bg-white rounded-xl border border-slate-200 p-4 md:p-8 shadow-sm">
                     <h3 className="font-black text-slate-900 text-lg tracking-tight uppercase mb-8">Compliance Benchmarking</h3>
                     <div className="space-y-6">
                       {viewSites.map(site => {
@@ -4461,7 +4644,7 @@ export default function App() {
                       {viewSites.length === 0 && <p className="text-sm text-slate-400 text-center py-8">No sites assigned yet.</p>}
                     </div>
                   </div>
-                  <div className="bg-white rounded-3xl border border-slate-200 p-4 md:p-8 shadow-sm flex flex-col">
+                  <div className="bg-white rounded-xl border border-slate-200 p-4 md:p-8 shadow-sm flex flex-col">
                     <h3 className="font-black text-slate-900 text-lg tracking-tight uppercase mb-6">Action Summary</h3>
                     <div className="flex-1 flex flex-col justify-center items-center">
                       {(() => {
@@ -4538,7 +4721,7 @@ export default function App() {
                         ...(profile?.role !== 'client' ? [{ label: 'Documents', val: site.compliance }] : []),
                       ];
                       return (
-                      <div key={site.id} className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm cursor-pointer hover:border-indigo-300 hover:shadow-md transition-all group" onClick={() => handleSiteClick(site)}>
+                      <div key={site.id} className="bg-white rounded-lg border border-slate-200 p-5 shadow-sm cursor-pointer hover:border-indigo-300 hover:shadow-md transition-all group" onClick={() => handleSiteClick(site)}>
                         <div className="flex items-start justify-between mb-4"><div className="w-10 h-10 bg-slate-50 rounded-xl flex items-center justify-center text-slate-400 group-hover:bg-indigo-600 group-hover:text-white transition-all">{getSiteIcon(site.type)}</div><ComplianceRing score={hsPerformance} /></div>
                         <p className="font-black text-sm text-slate-800 leading-tight mb-1">{site.name}</p>
                         <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-3">{site.type}</p>
@@ -4562,7 +4745,7 @@ export default function App() {
                 </div>
               )}
               {dashboardTab === 'data' && (
-                <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
+                <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
                   <table className="w-full text-left">
                     <thead><tr className="bg-slate-50/80 text-[10px] uppercase font-black text-slate-400 border-b border-slate-100"><th className="px-8 py-4">Site</th><th className="px-8 py-4">Type</th><th className="px-8 py-4">Score</th><th className="px-8 py-4">Last Review</th><th className="px-8 py-4"></th></tr></thead>
                     <tbody className="divide-y divide-slate-100">
@@ -4584,15 +4767,17 @@ export default function App() {
 
           {view === 'site' && selectedSite && (
             <div className="space-y-6 animate-in slide-in-from-right-8 duration-400">
-              <div className="bg-white border border-slate-200 p-4 md:p-8 rounded-3xl shadow-sm relative overflow-hidden border-l-[8px] border-l-indigo-600">
+              <div className="bg-white border border-slate-200 p-4 md:p-8 rounded-lg shadow-sm relative overflow-hidden border-l-[12px] border-l-indigo-700">
+                <div className="absolute inset-0 bg-gradient-to-r from-indigo-50/40 to-transparent pointer-events-none" />
                 <div className="absolute inset-0 bg-gradient-to-r from-indigo-50/40 to-transparent pointer-events-none" />
                 <div className="relative flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
                   <div className="flex items-center gap-6">
-                    <div className="w-16 h-16 bg-slate-900 rounded-2xl flex items-center justify-center text-white shadow-xl">{getSiteIcon(selectedSite.type, 28)}</div>
-                    <div><h2 className="text-lg md:text-2xl font-black text-slate-900 tracking-tight">{selectedSite.name}</h2><p className="text-slate-500 text-xs md:text-sm mt-1">Last audit: {selectedSite.lastReview} · {selectedSite.type}</p></div>
+                    <div className="w-10 h-10 bg-slate-900 rounded-xl flex items-center justify-center text-white shadow-lg overflow-hidden">
+                      {getSiteIcon(selectedSite.type, 20)}
+                    </div>
+                    <div><h2 className="text-lg md:text-2xl font-black text-slate-900 tracking-tight">{selectedSite.name}</h2><p className="text-slate-500 text-xs md:text-sm mt-1">{SITE_TYPE_LABELS[selectedSite.type] || selectedSite.type}</p></div>
                   </div>
                   <div className="flex gap-3 flex-wrap">
-                    <button className="bg-slate-100 text-slate-600 px-6 py-2.5 rounded-xl text-[11px] font-black uppercase tracking-widest hover:bg-slate-200">Audit Archive</button>
                     {profile?.role === 'superadmin' && selectedSite.datto_folder_id && (
                       <button
                         onClick={() => setShowSyncConfig(true)}
@@ -4626,7 +4811,6 @@ export default function App() {
                         </button>
                       </div>
                     )}
-                    <button className="bg-indigo-600 text-white px-6 py-2.5 rounded-xl text-[11px] font-black uppercase tracking-widest shadow-lg hover:bg-indigo-700">Export Plan</button>
                   </div>
                 </div>
               </div>
@@ -4645,7 +4829,7 @@ export default function App() {
                 )}
               </div>
               {/* ── Score cards ── */}
-              <div className="space-y-4">
+              {!isViewOnly && <div className="space-y-4">
                 {/* Row 1 — Compliance Score (3/4) + Industry Alignment (1/4) */}
                 <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 items-stretch">
                 {/* Compliance Score */}
@@ -4697,7 +4881,7 @@ export default function App() {
 
 
                   return (
-                    <div className="col-span-2 lg:col-span-3 bg-white rounded-2xl border border-slate-200 shadow-sm cursor-pointer hover:border-indigo-300 hover:shadow-md transition-all" onClick={() => setSiteTab('actions')}>
+                    <div className="col-span-2 lg:col-span-3 bg-white rounded-lg border border-slate-200 shadow-sm cursor-pointer hover:border-indigo-300 hover:shadow-md transition-all" onClick={() => setSiteTab('actions')}>
                       {/* Card header */}
                       <div className="px-5 py-2.5 border-b border-slate-100 flex items-center justify-between">
                         <p className="text-[11px] font-black uppercase tracking-widest text-slate-500">Compliance Score</p>
@@ -4816,7 +5000,7 @@ export default function App() {
                     const hasScore = iagAllTotal > 0 || selectedSite.iagScore !== null;
                     const c = scoreColor(s);
                     return (
-                      <div className="col-span-2 lg:col-span-1 bg-white rounded-2xl border border-slate-200 shadow-sm relative cursor-pointer hover:border-violet-300 hover:shadow-md transition-all flex flex-col" onClick={() => { setSiteTab('iag'); loadIagServices(selectedSite.id); }}>
+                      <div className="col-span-2 lg:col-span-1 bg-white rounded-lg border border-slate-200 shadow-sm relative cursor-pointer hover:border-violet-300 hover:shadow-md transition-all flex flex-col" onClick={() => { setSiteTab('iag'); loadIagServices(selectedSite.id); }}>
                         <div className="px-5 py-2.5 border-b border-slate-100 flex items-center justify-between">
                           <div className="group flex items-center cursor-default">
                             <p className="text-[11px] font-black uppercase tracking-widest text-slate-500">Industry Alignment</p>
@@ -4845,7 +5029,7 @@ export default function App() {
                 </div>{/* end 4-col grid */}
                 {/* Row 2 — Documentation Health (advisor/superadmin only, full width) */}
                 {profile?.role !== 'client' && (() => { const s = selectedSite.compliance; const c = scoreColor(s); return (
-                  <div className="bg-white rounded-2xl border border-slate-200 shadow-sm cursor-pointer hover:border-amber-300 hover:shadow-md transition-all" onClick={() => setSiteTab('dochealth')}>
+                  <div className="bg-white rounded-lg border border-slate-200 shadow-sm cursor-pointer hover:border-amber-300 hover:shadow-md transition-all" onClick={() => setSiteTab('dochealth')}>
                     <div className="px-5 py-2.5 border-b border-slate-100 flex items-center justify-between">
                       <div className="group flex items-center cursor-default">
                         <p className="text-[11px] font-black uppercase tracking-widest text-slate-500">Documentation Health</p>
@@ -4862,18 +5046,18 @@ export default function App() {
                     </div>
                   </div>
                 ); })()}
-              </div>
-              {scoreExplanationCard && <ScoreExplanationModal card={scoreExplanationCard} onClose={() => setScoreExplanationCard(null)} />}
+              </div>}
+              {!isViewOnly && scoreExplanationCard && <ScoreExplanationModal card={scoreExplanationCard} onClose={() => setScoreExplanationCard(null)} />}
               {/* Site tab toggle */}
               <div className="flex bg-slate-100 p-1 rounded-xl overflow-x-auto gap-0.5 w-full md:w-fit">
-                <button onClick={() => setSiteTab('actions')} className={`px-4 py-2 text-[11px] font-black uppercase tracking-widest rounded-lg transition-all whitespace-nowrap ${siteTab === 'actions' ? 'bg-white shadow-sm text-indigo-600' : 'text-slate-400 hover:text-slate-600'}`}>Assigned Actions</button>
-                {selectedSite.datto_folder_id && <button onClick={() => setSiteTab('files')} className={`px-4 py-2 text-[11px] font-black uppercase tracking-widest rounded-lg transition-all whitespace-nowrap ${siteTab === 'files' ? 'bg-white shadow-sm text-sky-600' : 'text-slate-400 hover:text-slate-600'}`}>H&S Documents</button>}
-                <button onClick={() => setSiteTab('documents')} className={`px-4 py-2 text-[11px] font-black uppercase tracking-widest rounded-lg transition-all whitespace-nowrap ${siteTab === 'documents' ? 'bg-white shadow-sm text-amber-600' : 'text-slate-400 hover:text-slate-600'}`}>Client Documents</button>
-                <button onClick={() => { setSiteTab('iag'); loadIagServices(selectedSite.id); }} className={`px-4 py-2 text-[11px] font-black uppercase tracking-widest rounded-lg transition-all whitespace-nowrap ${siteTab === 'iag' ? 'bg-white shadow-sm text-violet-600' : 'text-slate-400 hover:text-slate-600'}`}>Industry Alignment</button>
-                {profile?.role !== 'client' && <button onClick={() => setSiteTab('dochealth')} className={`px-4 py-2 text-[11px] font-black uppercase tracking-widest rounded-lg transition-all whitespace-nowrap ${siteTab === 'dochealth' ? 'bg-white shadow-sm text-amber-600' : 'text-slate-400 hover:text-slate-600'}`}>Advisor Actions</button>}
+                {!isViewOnly && <button onClick={() => setSiteTab('actions')} className={`px-4 py-2 text-[11px] font-black uppercase tracking-widest rounded-lg transition-all whitespace-nowrap ${effectiveSiteTab === 'actions' ? 'bg-white shadow-sm text-indigo-600' : 'text-slate-400 hover:text-slate-600'}`}>Assigned Actions</button>}
+                {selectedSite.datto_folder_id && <button onClick={() => setSiteTab('files')} className={`px-4 py-2 text-[11px] font-black uppercase tracking-widest rounded-lg transition-all whitespace-nowrap ${effectiveSiteTab === 'files' ? 'bg-white shadow-sm text-sky-600' : 'text-slate-400 hover:text-slate-600'}`}>H&S Documents</button>}
+                {!isViewOnly && <button onClick={() => setSiteTab('documents')} className={`px-4 py-2 text-[11px] font-black uppercase tracking-widest rounded-lg transition-all whitespace-nowrap ${effectiveSiteTab === 'documents' ? 'bg-white shadow-sm text-amber-600' : 'text-slate-400 hover:text-slate-600'}`}>Client Documents</button>}
+                <button onClick={() => { setSiteTab('iag'); loadIagServices(selectedSite.id); }} className={`px-4 py-2 text-[11px] font-black uppercase tracking-widest rounded-lg transition-all whitespace-nowrap ${effectiveSiteTab === 'iag' ? 'bg-white shadow-sm text-violet-600' : 'text-slate-400 hover:text-slate-600'}`}>Industry Alignment</button>
+                {profile?.role !== 'client' && <button onClick={() => setSiteTab('dochealth')} className={`px-4 py-2 text-[11px] font-black uppercase tracking-widest rounded-lg transition-all whitespace-nowrap ${effectiveSiteTab === 'dochealth' ? 'bg-white shadow-sm text-amber-600' : 'text-slate-400 hover:text-slate-600'}`}>Advisor Actions</button>}
               </div>
 
-              {siteTab === 'actions' && (<>
+              {effectiveSiteTab === 'actions' && !isViewOnly && (<>
               <div className="flex items-center justify-between gap-2">
                 <div className="flex items-center gap-1">
                   {(['all', 'red', 'amber', 'green', 'resolved'] as const).map(f => (
@@ -4898,7 +5082,7 @@ export default function App() {
 
               {/* ── AI Review Panel ── */}
               {showAiPanel && (
-                <div className="bg-white border border-violet-200 rounded-2xl overflow-hidden shadow-lg">
+                <div className="bg-white border border-violet-200 rounded-lg overflow-hidden shadow-lg">
                   <div className="bg-violet-600 px-6 py-4 flex items-center justify-between">
                     <div className="flex items-center gap-3">
                       <Sparkles className="w-4 h-4 text-violet-200" />
@@ -4933,7 +5117,7 @@ export default function App() {
                       {reviewActions.filter(a => a.isError).map(ra => (
                         <div key={ra.id} className="px-5 py-2.5 bg-rose-50 border-b border-rose-100 text-[11px] font-bold text-rose-600 flex items-center gap-1.5">
                           <AlertCircle size={11} className="text-rose-500 flex-shrink-0" />
-                          <span><span className="text-rose-700">{ra.docName}</span> could not be processed. <span className="font-normal text-rose-400">{ra.errorMessage}</span></span>
+                          <span><a href={getFileHref({ id: ra.docFileId ?? '', name: ra.docName ?? '', type: 'file' }, ra.docFolderPath ?? '', profile?.role ?? 'advisor')} target={profile?.role === 'advisor' ? undefined : '_blank'} rel="noreferrer" className="text-rose-700 underline hover:text-rose-500">{ra.docName}</a> could not be processed. <span className="font-normal text-rose-400">{ra.errorMessage}</span></span>
                         </div>
                       ))}
                       {(() => {
@@ -5099,7 +5283,7 @@ export default function App() {
 
               <div className="space-y-4">
                 {filteredActions.length === 0 ? (
-                  <div className="bg-white rounded-2xl border border-slate-200 p-12 text-center"><CheckCircle2 size={32} className="text-emerald-400 mx-auto mb-3" /><p className="font-black text-slate-700">No actions for this site</p><p className="text-sm text-slate-400 mt-1">All items resolved or filtered out.</p></div>
+                  <div className="bg-white rounded-lg border border-slate-200 p-12 text-center"><CheckCircle2 size={32} className="text-emerald-400 mx-auto mb-3" /><p className="font-black text-slate-700">No actions for this site</p><p className="text-sm text-slate-400 mt-1">All items resolved or filtered out.</p></div>
                 ) : docGroups.map(({ source, fileId, displayName, actions, redCount, amberCount, highRiskCount, hasRed, hasAmber }) => {
                   const isOpen = expandedDocGroups.has(source);
                   const isSyncingThis = syncingDocId === String(fileId);
@@ -5138,7 +5322,7 @@ export default function App() {
               </div>
               </>)}
 
-              {siteTab === 'documents' && profile && (
+              {effectiveSiteTab === 'documents' && profile && (
                 <SiteDocumentsTab
                   site={selectedSite}
                   profile={profile}
@@ -5153,7 +5337,7 @@ export default function App() {
               )}
 
               {/* ── Document Health tab (advisor only) ── */}
-              {siteTab === 'dochealth' && profile?.role !== 'client' && (
+              {effectiveSiteTab === 'dochealth' && profile?.role !== 'client' && (
                 <DocHealthTab siteId={selectedSite.id} onComplianceUpdate={(score) => {
                   setSelectedSite(prev => prev ? { ...prev, compliance: score } : prev);
                   setSites(prev => prev.map(s => s.id === selectedSite.id ? { ...s, compliance: score } : s));
@@ -5161,7 +5345,7 @@ export default function App() {
               )}
 
               {/* ── Files browser tab — accordion style ── */}
-              {siteTab === 'files' && selectedSite.datto_folder_id && (() => {
+              {effectiveSiteTab === 'files' && selectedSite.datto_folder_id && (() => {
                 const role = profile?.role || 'client';
                 const rootEntry = folderData.get(selectedSite.datto_folder_id!);
                 const rootItems = rootEntry ? [...rootEntry.items].sort((a, b) =>
@@ -5229,8 +5413,9 @@ export default function App() {
 
                 return (
                   <div className="space-y-2">
+                    <p className="text-[11px] text-slate-400 font-medium px-1">Search, view and download your H&amp;S documents. Files open as PDF in your browser.</p>
                     {/* Search bar */}
-                    <div className="bg-white rounded-2xl border border-slate-200 shadow-sm px-4 py-3 flex items-center gap-3">
+                    <div className="bg-white rounded-lg border border-slate-200 shadow-sm px-4 py-3 flex items-center gap-3">
                       <Search size={14} className="text-slate-400 flex-shrink-0" />
                       <input
                         type="text"
@@ -5245,7 +5430,7 @@ export default function App() {
 
                     {/* Search results */}
                     {searchResults !== null ? (
-                      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+                      <div className="bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden">
                         {searchResults.length === 0 ? (
                           <div className="p-8 text-center text-slate-400 text-sm font-bold">No files match "{fileSearchQuery}"</div>
                         ) : (
@@ -5258,7 +5443,7 @@ export default function App() {
                         )}
                       </div>
                     ) : loadingFolderIds.has(selectedSite.datto_folder_id!) && !rootEntry ? (
-                      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-8 text-center text-slate-400 text-sm font-bold animate-pulse">Loading…</div>
+                      <div className="bg-white rounded-lg border border-slate-200 shadow-sm p-8 text-center text-slate-400 text-sm font-bold animate-pulse">Loading…</div>
                     ) : (
                       <>
                         {/* Accordion sections — one per top-level folder */}
@@ -5267,7 +5452,7 @@ export default function App() {
                           const isLoading = sectionLoading.has(folder.id);
                           const files = sectionFiles.get(folder.id) ?? [];
                           return (
-                            <div key={folder.id} className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+                            <div key={folder.id} className="bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden">
                               <button
                                 onClick={() => toggleSection(folder)}
                                 className="w-full flex items-center gap-3 px-4 py-3.5 hover:bg-slate-50 transition-colors text-left"
@@ -5347,7 +5532,7 @@ export default function App() {
 
                         {/* Any files sitting directly in the root (no subfolder) */}
                         {rootFiles.length > 0 && (
-                          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+                          <div className="bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden">
                             <div className="px-4 py-3 border-b border-slate-100">
                               <span className="text-[11px] font-black uppercase tracking-widest text-slate-400">Other files</span>
                             </div>
@@ -5363,8 +5548,16 @@ export default function App() {
               })()}
 
               {/* ── Industry Alignment tab ── */}
-              {siteTab === 'iag' && (
-                <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+              {effectiveSiteTab === 'iag' && (
+                <div className="space-y-4">
+                <div className="bg-violet-50 border border-violet-100 rounded-lg px-6 py-4 flex gap-4 items-start">
+                  <Shield size={18} className="text-violet-400 shrink-0 mt-0.5" />
+                  <div>
+                    <p className="text-sm font-black text-violet-900">What is Industry Alignment?</p>
+                    <p className="text-xs text-violet-700 mt-1 leading-relaxed">This page shows how your contracted H&amp;S services compare against the recommended and mandatory requirements for your site type. <span className="font-bold">Mandatory</span> items are legally or sector-required. <span className="font-bold">Recommended</span> items represent best practice. Gaps highlighted in red indicate mandatory services not currently contracted — speak to your advisor to address these.</p>
+                  </div>
+                </div>
+                <div className="bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden">
                   <div className="bg-violet-600 px-6 py-4 flex items-center justify-between">
                     <h3 className="font-black text-white uppercase tracking-widest text-sm flex items-center gap-2"><Shield size={14} />Industry Alignment — {SITE_TYPE_LABELS[selectedSite.type] || selectedSite.type}</h3>
                     <span className="text-violet-200 text-[11px] font-bold">Services contracted for this site</span>
@@ -5415,6 +5608,7 @@ export default function App() {
                     </div>
                   )}
                 </div>
+                </div>
               )}
             </div>
           )}
@@ -5434,6 +5628,31 @@ export default function App() {
             setShowSettings(false);
           }}
         />
+      )}
+
+      {/* Password recovery — triggered by email reset link */}
+      {showPasswordReset && (
+        <SetPasswordModal
+          title="Set your new password"
+          onSubmit={async (pw) => { const { error } = await supabase.auth.updateUser({ password: pw }); if (error) throw error; setShowPasswordReset(false); showAppFlash('Password updated successfully'); }}
+          onClose={() => setShowPasswordReset(false)}
+        />
+      )}
+
+      {/* Change password — initiated by logged-in user */}
+      {showChangePassword && (
+        <SetPasswordModal
+          title="Change your password"
+          onSubmit={async (pw) => { const { error } = await supabase.auth.updateUser({ password: pw }); if (error) throw error; setShowChangePassword(false); showAppFlash('Password updated successfully'); }}
+          onClose={() => setShowChangePassword(false)}
+        />
+      )}
+
+      {/* App-level flash notification */}
+      {appFlash && (
+        <div className="fixed bottom-20 lg:bottom-6 left-1/2 -translate-x-1/2 z-50 bg-slate-900 text-white text-sm font-bold px-5 py-3 rounded-lg shadow-xl animate-in slide-in-from-bottom-4 duration-300">
+          {appFlash}
+        </div>
       )}
     </div>
   );

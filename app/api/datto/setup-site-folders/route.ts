@@ -68,8 +68,8 @@ export async function POST(request: NextRequest) {
         results.clientProvided = `failed: ${err.message}`;
       }
 
-      // 2. Z-Archive Manual with full subfolder mirror
-      const zArchiveBase = path.join(manualAbsPath, 'Z-Archive Manual');
+      // 2. Z-Archived Documents with full subfolder mirror
+      const zArchiveBase = path.join(manualAbsPath, 'Z-Archived Documents');
       try {
         fs.mkdirSync(zArchiveBase, { recursive: true });
         for (const sub of Z_ARCHIVE_SUBFOLDERS) {
