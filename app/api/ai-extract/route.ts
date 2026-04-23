@@ -33,6 +33,12 @@ Analyse the following document and extract all action items, required controls, 
 - "reviewDate": string | null (ISO date YYYY-MM-DD of last review/update if found, otherwise null)
 - "assessor": string | null (name of the person who completed the assessment, otherwise null)
 - "clientConsulted": string | null (name of client or person consulted, otherwise null)
+- "documentType": one of "general_ra" | "coshh" | "dse" | "fire_ra" | "other" — identify the document type from its structure and content:
+  - "general_ra": standard risk assessment with hazard register and/or action plan table
+  - "coshh": COSHH/chemical substance assessment (substance name, GHS hazard symbols, controls by route of entry — skin/eyes/inhalation/ingestion)
+  - "dse": DSE or workstation assessment (display screen, keyboard, chair, environment YES/NO checklist)
+  - "fire_ra": fire risk assessment (fire hazards, means of escape, emergency plan, recommendations)
+  - "other": anything that does not fit the above
 
 When the document is provided as HTML, use the <table> structure to read rows and columns precisely — do not guess at table content from surrounding text. Many H&S documents contain two tables: a hazard register (rows numbered 1, 2, 3… each with a hazard description, existing controls, and risk rating) and a separate action plan table (rows referencing those same numbers). The hazard register column headers may vary (e.g. "Existing Control Measures", "Current Controls", "Measures in Place", "Controls") — identify them by content and position, not exact header names. You MUST cross-reference every action back to the hazard register using the hazard number to populate "hazard", "existingControls", and "riskRating" — do not leave these null if the information exists in the document. If an action references "All" hazards rather than a specific number, summarise the overall hazard context from the document. Never return the hazard number itself as the hazard description.
 
@@ -48,7 +54,26 @@ When the document is provided as HTML, use the <table> structure to read rows an
 - "dueDate": string | null (ISO date YYYY-MM-DD only if an explicit calendar date is stated for this specific action — do NOT use the document date, assessment date, or review date)
 - "dueDateRelative": string | null (if the action states a relative timeframe such as "1 month", "6 weeks", "3 months", "immediately" etc., return it exactly as written; also use this for open-ended terms such as "Ongoing", "Continuous", "Permanent", "Regular" — only populate this if dueDate is null)
 
-If no actions are found, return { "documentMeta": { "assessmentDate": null, "reviewDate": null, "assessor": null, "clientConsulted": null }, "actions": [] }.`
+Format-specific extraction rules — apply these based on the documentType you identify:
+
+COSHH ("coshh"): This is a controls document, not an action plan. Return actions: []. The assessmentDate is in the "Assessment date" or "MSDS date" field. GHS pictogram symbols may be images — ignore missing symbol text and focus on the text labels (Toxic, Flammable, Corrosive, etc.).
+
+DSE ("dse"): Extract each question answered "No" or "N" as a separate action where description = the workstation requirement that was not met. Set dueDateRelative: "Annual review" for all DSE actions. If all answers are Yes/compliant, return actions: [].
+
+Fire RA ("fire_ra"): Fire risk assessments use either:
+  (a) An explicit Recommendations / Action Plan / Outstanding Actions table — extract actions directly from it.
+  (b) A numbered compliance checklist — rows are check questions with a Finding column recording deficiencies. For format (b):
+    - Only extract rows where there is a deficiency or non-compliance (rows marked "ACTION REQUIRED", or with a finding noting something is absent/inadequate). Skip "INFO ONLY" or compliant rows.
+    - "description" = a positive remedial instruction derived from the finding (e.g. "Introduce monthly emergency lighting 'flick' tests and maintain written records"). NEVER leave description blank — always derive a clear action from the deficiency text.
+    - "hazard" = the fire hazard category or section heading (e.g. "Emergency Escape Lighting", "Fire Detection and Alarm System") — NOT the full compliance question verbatim.
+    - "existing_controls" = compliant aspects already in place from the same section, if any; otherwise null. The deficiency text (what is MISSING or absent) must NOT be placed in existing_controls.
+    - Priority columns may contain "ACTION REQUIRED" or "INFO ONLY" — use these only to inform riskLevel (ACTION REQUIRED → HIGH or MEDIUM based on severity; INFO ONLY → LOW). Never place priority text in dueDate.
+    - Only use actual calendar dates for dueDate. If a date column is blank or contains non-date text, set dueDate: null.
+  Risk rating terms: Critical/Substantial/Intolerable → riskLevel "HIGH"; Moderate/Significant → "MEDIUM"; Tolerable/Trivial/Negligible → "LOW". You MUST populate riskLevel for every fire RA action — use "MEDIUM" if genuinely unclear.
+
+Numeric risk matrices (any type): When risk ratings are numeric scores (e.g. from a Severity × Probability matrix), use the scale shown in the document to populate riskLevel. Typical scale: 0–8 = LOW, 9–15 = MEDIUM, 16–25 = HIGH. Extract the final numeric score, not the individual Severity/Probability components.
+
+If no actions are found, return { "documentMeta": { "assessmentDate": null, "reviewDate": null, "assessor": null, "clientConsulted": null, "documentType": "other" }, "actions": [] }.`
 
 export async function POST(request: NextRequest) {
   const body = await request.json().catch(() => null)

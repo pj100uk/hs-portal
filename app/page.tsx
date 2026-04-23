@@ -47,6 +47,7 @@ interface DocumentMeta {
   reviewDate: string | null;
   assessor: string | null;
   clientConsulted: string | null;
+  documentType?: 'general_ra' | 'coshh' | 'dse' | 'fire_ra' | 'other' | null;
 }
 
 interface ExtractedAction {
@@ -606,30 +607,34 @@ const ActionCard = ({ action, isResolved, onToggleResolve, onAddNote, onDelete, 
               {action.date && <><span className="text-slate-300">|</span><span><span className="text-slate-500 font-normal">Due Date: </span>{toUKDate(action.date)}</span></>}
               {action.who && <><span className="text-slate-300">|</span><span><span className="text-slate-500 font-normal">Responsible: </span>{action.who}</span></>}
             </div>
-            {action.source && (
+            {(action.source || (role === 'advisor' && !!onDelete)) && (
               <div className="flex items-center gap-2 flex-shrink-0">
-                {(role === 'advisor' || role === 'superadmin') && action.sourceFolderPath ? (() => {
-                  const basePath = typeof window !== 'undefined' ? (localStorage.getItem('dattoBasePath') || 'W:/Customer Documents') : 'W:/Customer Documents';
-                  const uri = buildOfficeUri(basePath, action.sourceFolderPath, action.source);
-                  return uri ? (
-                    <a href={uri} className="flex items-center gap-1.5 text-[11px] font-bold text-indigo-600 hover:text-indigo-800 hover:underline flex-shrink-0" title="Open original file">
-                      <ExternalLink size={12} className="text-indigo-500 flex-shrink-0" /><span className="font-normal text-slate-400">Open Document:</span>{action.source.replace(/\.[^.]+$/, '')}
-                    </a>
-                  ) : (
+                {action.source && (
+                  (role === 'advisor' || role === 'superadmin') && action.sourceFolderPath ? (() => {
+                    const href = getFileHref({ id: action.source_document_id || '', name: action.source, type: 'file' }, action.sourceFolderPath!, role);
+                    const isOffice = href.startsWith('ms-');
+                    return isOffice ? (
+                      <a href={href} className="flex items-center gap-1.5 text-[11px] font-bold text-indigo-600 hover:text-indigo-800 hover:underline flex-shrink-0" title="Open original file">
+                        <ExternalLink size={12} className="text-indigo-500 flex-shrink-0" /><span className="font-normal text-slate-400">Open Document:</span>{action.source.replace(/\.[^.]+$/, '')}
+                      </a>
+                    ) : (
+                      <a href={href} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 text-[11px] font-bold text-indigo-600 hover:text-indigo-800 hover:underline flex-shrink-0" title="View document">
+                        <ExternalLink size={12} className="text-indigo-500 flex-shrink-0" /><span className="font-normal text-slate-400">Open Document:</span>{action.source.replace(/\.[^.]+$/, '')}
+                      </a>
+                    );
+                  })() : role === 'client' && action.source_document_id ? (() => {
+                    const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(action.source_document_id!);
+                    const viewerHref = isUUID
+                      ? `/viewer?docId=${action.source_document_id}&fileName=${encodeURIComponent(action.source)}&role=${role}`
+                      : `/viewer?fileId=${action.source_document_id}&fileName=${encodeURIComponent(action.source)}&role=${role}`;
+                    return (
+                      <a href={viewerHref} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 text-[11px] font-bold text-indigo-600 hover:text-indigo-800 hover:underline flex-shrink-0" title="View document as PDF">
+                        <ExternalLink size={12} className="text-indigo-500 flex-shrink-0" /><span className="font-normal text-slate-400">Open Document:</span>{action.source.replace(/\.[^.]+$/, '')}
+                      </a>
+                    );
+                  })() : (
                     <span className="flex items-center gap-1.5 text-[11px] font-bold text-slate-600 flex-shrink-0"><File size={12} className="text-slate-400 flex-shrink-0" /><span className="font-normal text-slate-400">Document:</span>{action.source.replace(/\.[^.]+$/, '')}</span>
-                  );
-                })() : role === 'client' && action.source_document_id ? (() => {
-                  const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(action.source_document_id!);
-                  const viewerHref = isUUID
-                    ? `/viewer?docId=${action.source_document_id}&fileName=${encodeURIComponent(action.source)}&role=${role}`
-                    : `/viewer?fileId=${action.source_document_id}&fileName=${encodeURIComponent(action.source)}&role=${role}`;
-                  return (
-                    <a href={viewerHref} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 text-[11px] font-bold text-indigo-600 hover:text-indigo-800 hover:underline flex-shrink-0" title="View document as PDF">
-                      <ExternalLink size={12} className="text-indigo-500 flex-shrink-0" /><span className="font-normal text-slate-400">Open Document:</span>{action.source.replace(/\.[^.]+$/, '')}
-                    </a>
-                  );
-                })() : (
-                  <span className="flex items-center gap-1.5 text-[11px] font-bold text-slate-600 flex-shrink-0"><File size={12} className="text-slate-400 flex-shrink-0" /><span className="font-normal text-slate-400">Document:</span>{action.source.replace(/\.[^.]+$/, '')}</span>
+                  )
                 )}
                 {role === 'advisor' && onDelete && (
                   <button onClick={e => { e.stopPropagation(); if (confirm('Delete this action? This cannot be undone.')) onDelete(action.id); }} className="p-1.5 rounded-lg border border-rose-200 text-rose-400 hover:text-rose-600 hover:border-rose-400 hover:bg-rose-50 transition-colors" title="Delete action">
@@ -933,10 +938,19 @@ const FolderPickerField = ({ folderId, folderName, showPicker, onOpenPicker, onS
 // ─── Add Action Form ──────────────────────────────────────────────────────────
 type RiskLevel = 'high' | 'medium' | 'low';
 function normaliseRiskLevel(raw: string): RiskLevel | null {
-  const n = raw.toLowerCase();
-  if (n.includes('high') || n === 'h') return 'high';
-  if (n.includes('med')  || n === 'm') return 'medium';
-  if (n.includes('low')  || n === 'l') return 'low';
+  const n = raw.toLowerCase().trim();
+  // Numeric score — extract trailing number from "12", "3×4=12", "Risk: 16"
+  const numMatch = n.match(/(?:^|[=:\s])(\d+)\s*$/) ?? n.match(/^(\d+)$/);
+  if (numMatch) {
+    const score = parseInt(numMatch[1], 10);
+    return score >= 16 ? 'high' : score >= 9 ? 'medium' : 'low';
+  }
+  // Text HIGH — includes fire RA "critical"/"substantial", extended "very high"/"extreme"
+  if (/critical|extreme|intolerable|substantial|very.?high|high/.test(n) || n === 'h') return 'high';
+  // Text MEDIUM — includes fire RA "moderate"/"significant"
+  if (/significant|moderate|med/.test(n) || n === 'm') return 'medium';
+  // Text LOW — includes fire RA "tolerable"/"trivial"/"negligible"
+  if (/tolerable|trivial|negligible|low|none/.test(n) || n === 'l') return 'low';
   return null;
 }
 
@@ -1700,8 +1714,8 @@ const SiteDocumentsTab = ({ site, profile, userId, onComplianceUpdate, onActions
 };
 
 // ─── Document Health Tab ──────────────────────────────────────────────────────
-const DocHealthTab = ({ siteId, onComplianceUpdate }: { siteId: string; onComplianceUpdate?: (score: number) => void }) => {
-  const [rows, setRows] = useState<{ docName: string; issueDate: string | null; actionCount: number; reviewDue: string | null }[]>([]);
+const DocHealthTab = ({ siteId, onComplianceUpdate, onJumpToActions, role }: { siteId: string; onComplianceUpdate?: (score: number) => void; onJumpToActions?: (docName: string) => void; role?: string }) => {
+  const [rows, setRows] = useState<{ docName: string; issueDate: string | null; actionCount: number; reviewDue: string | null; fileId: string | null; folderPath: string | null }[]>([]);
   const [loading, setLoading] = useState(true);
   const [editingDoc, setEditingDoc] = useState<string | null>(null);
   const [reviewInput, setReviewInput] = useState('');
@@ -1710,23 +1724,27 @@ const DocHealthTab = ({ siteId, onComplianceUpdate }: { siteId: string; onCompli
   useEffect(() => {
     setLoading(true);
     Promise.all([
-      supabase.from('actions').select('source_document_name, issue_date').eq('site_id', siteId).not('source_document_name', 'is', null).is('site_document_id', null),
+      supabase.from('actions').select('source_document_name, issue_date, source_document_id, source_folder_path').eq('site_id', siteId).not('source_document_name', 'is', null).is('site_document_id', null),
       supabase.from('document_health').select('document_name, review_due').eq('site_id', siteId),
     ]).then(([actRes, healthRes]) => {
       const actions = actRes.data ?? [];
       const health = healthRes.data ?? [];
       // Group actions by source document name
-      const map = new Map<string, { issueDate: string | null; count: number }>();
+      const map = new Map<string, { issueDate: string | null; count: number; fileId: string | null; folderPath: string | null }>();
       for (const a of actions) {
         const name: string = a.source_document_name;
         const existing = map.get(name);
         const d = a.issue_date as string | null;
+        const fid = (a.source_document_id as string | null) ?? null;
+        const fp = (a.source_folder_path as string | null) ?? null;
         if (!existing) {
-          map.set(name, { issueDate: d, count: 1 });
+          map.set(name, { issueDate: d, count: 1, fileId: fid, folderPath: fp });
         } else {
           map.set(name, {
             count: existing.count + 1,
             issueDate: d && (!existing.issueDate || d > existing.issueDate) ? d : existing.issueDate,
+            fileId: existing.fileId ?? fid,
+            folderPath: existing.folderPath ?? fp,
           });
         }
       }
@@ -1736,6 +1754,8 @@ const DocHealthTab = ({ siteId, onComplianceUpdate }: { siteId: string; onCompli
         issueDate: v.issueDate,
         actionCount: v.count,
         reviewDue: reviewMap.get(docName) ?? null,
+        fileId: v.fileId,
+        folderPath: v.folderPath,
       }));
       // Sort: red first, then amber, then grey, then green
       const statusOrder = (r: typeof built[0]) => {
@@ -1870,19 +1890,27 @@ const DocHealthTab = ({ siteId, onComplianceUpdate }: { siteId: string; onCompli
           <div className="p-12 text-center"><FileText size={28} className="text-slate-300 mx-auto mb-3" /><p className="font-black text-slate-700 text-sm">No AI-synced documents found for this site</p><p className="text-sm text-slate-400 mt-1">Run an AI sync to populate document health data.</p></div>
         ) : (
           <table className="w-full text-left">
-            <thead><tr className="bg-slate-50 text-[10px] uppercase font-black text-slate-400 border-b border-slate-100"><th className="px-5 py-3">Document</th><th className="px-5 py-3">Last Assessed</th><th className="px-5 py-3">Review Due</th><th className="px-5 py-3">Status</th><th className="px-5 py-3 text-right">Actions</th></tr></thead>
+            <thead><tr className="bg-slate-50 text-[10px] uppercase font-black text-slate-400 border-b border-slate-100"><th className="px-5 py-3 w-[40%]">Document</th><th className="px-3 py-3 w-[19%]">Last Assessed</th><th className="px-3 py-3 w-[16%]">Review Due</th><th className="px-3 py-3 w-[17%]">Status</th><th className="px-3 py-3 w-[8%] text-right">Actions</th></tr></thead>
             <tbody className="divide-y divide-slate-100">
               {rows.map(row => {
                 const s = docStatus(row.issueDate, row.reviewDue, today);
                 return (
                   <tr key={row.docName} className={s === 'red' ? 'bg-rose-50/40' : s === 'amber' ? 'bg-amber-50/30' : ''}>
-                    <td className="px-5 py-3.5 font-bold text-slate-800 text-sm max-w-xs truncate">{row.docName.replace(/\.[^.]+$/, '')}</td>
-                    <td className="px-5 py-3.5 text-[13px] text-slate-600">
+                    <td className="px-5 py-3.5 text-sm max-w-xs">
+                      <button
+                        onClick={() => onJumpToActions?.(row.docName)}
+                        className="font-bold text-indigo-600 hover:text-indigo-800 hover:underline truncate w-full text-left block"
+                        title={`View actions for: ${row.docName.replace(/\.[^.]+$/, '')}`}
+                      >
+                        {row.docName.replace(/\.[^.]+$/, '')}
+                      </button>
+                    </td>
+                    <td className="px-3 py-3.5 text-[13px] text-slate-600">
                       {row.issueDate
                         ? <span>{fmt(row.issueDate)} <span className="text-slate-400 text-[11px]">({ageLabel(row.issueDate)})</span></span>
                         : <span className="text-slate-300 text-[11px]">Not known</span>}
                     </td>
-                    <td className="px-5 py-3.5">
+                    <td className="px-3 py-3.5">
                       {editingDoc === row.docName ? (
                         <input
                           type="date"
@@ -1903,8 +1931,28 @@ const DocHealthTab = ({ siteId, onComplianceUpdate }: { siteId: string; onCompli
                         </span>
                       )}
                     </td>
-                    <td className="px-5 py-3.5">{statusBadge(s, row.reviewDue)}</td>
-                    <td className="px-5 py-3.5 text-right text-[11px] font-bold text-slate-400">{row.actionCount}</td>
+                    <td className="px-3 py-3.5">{statusBadge(s, row.reviewDue)}</td>
+                    <td className="px-3 py-3.5 text-right text-[11px] font-bold text-slate-400">
+                      <div className="flex items-center justify-end gap-3">
+                        <span>{row.actionCount}</span>
+                        {row.fileId && (() => {
+                          const href = getFileHref({ id: row.fileId!, name: row.docName, type: 'file' }, row.folderPath || '', role ?? 'advisor');
+                          const isOffice = href.startsWith('ms-');
+                          return (
+                            <a
+                              href={href}
+                              target={isOffice ? undefined : '_blank'}
+                              rel={isOffice ? undefined : 'noopener noreferrer'}
+                              className="text-slate-300 hover:text-indigo-500 transition-colors"
+                              title={isOffice ? 'Open in Word/Excel' : 'Open document'}
+                              onClick={e => e.stopPropagation()}
+                            >
+                              <ExternalLink size={13} />
+                            </a>
+                          );
+                        })()}
+                      </div>
+                    </td>
                   </tr>
                 );
               })}
@@ -3560,6 +3608,7 @@ export default function App() {
   const [showSettings, setShowSettings] = useState(false);
   const [expandedActionId, setExpandedActionId] = useState<string | null>(null);
   const [expandedDocGroups, setExpandedDocGroups] = useState<Set<string>>(new Set());
+  const pendingExpandDocRef = React.useRef<string | null>(null);
   const [aiSyncing, setAiSyncing] = useState(false);
   const [aiSyncProgress, setAiSyncProgress] = useState('');
   // File browser state
@@ -3799,8 +3848,16 @@ export default function App() {
     if (selectedSite?.id) loadIagServices(selectedSite.id);
   }, [selectedSite?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Collapse open actions when switching tabs or filters
-  React.useEffect(() => { setExpandedActionId(null); setExpandedDocGroups(new Set()); }, [siteTab, filterPriority]);
+  // Collapse open actions when switching tabs or filters (honour pending expansion from doc-health jump)
+  React.useEffect(() => {
+    setExpandedActionId(null);
+    if (pendingExpandDocRef.current) {
+      setExpandedDocGroups(new Set([pendingExpandDocRef.current]));
+      pendingExpandDocRef.current = null;
+    } else {
+      setExpandedDocGroups(new Set());
+    }
+  }, [siteTab, filterPriority]);
 
   // Init file browser when Files tab is opened (preserves state on tab toggle, only re-inits for new site)
   React.useEffect(() => {
@@ -4193,7 +4250,43 @@ export default function App() {
               throw new Error(`AI extraction failed for ${doc.name}: ${errMsg}`);
             }
           }
-          const { actions, documentMeta } = await aiRes.json();
+          const { actions: _rawActions, documentMeta } = await aiRes.json();
+          // Drop actions with blank description; move non-ISO-date text out of dueDate
+          const actions = (_rawActions as any[] ?? [])
+            .filter((a: any) => (a.description ?? '').toString().trim().length > 0)
+            .map((a: any) => {
+              const d = (a.dueDate ?? '').toString().trim();
+              if (d && !/^\d{4}-\d{2}-\d{2}$/.test(d)) {
+                return { ...a, dueDate: null, dueDateRelative: a.dueDateRelative ?? d };
+              }
+              return a;
+            });
+          const documentType: DocumentMeta['documentType'] = (documentMeta as DocumentMeta)?.documentType ?? 'general_ra';
+
+          // COSHH: controls document — generate one ongoing review action instead of an error
+          if (documentType === 'coshh') {
+            if (!documentMeta?.assessmentDate) {
+              setReviewActions(prev => [...prev, { id: `skipped-${doc.id}`, description: '', dueDate: null, dueDateRelative: null, responsiblePerson: null, priority: null, advisorPriority: null, docName: doc.name, docFileId: doc.id, docFolderFileId: doc.parentFolderId, docFolderPath: doc.folderPath ?? '', selected: false, added: false, isError: true, errorMessage: 'No assessment date found — document appears to be an unfilled template and was skipped.', hazardRef: null, hazard: null, existingControls: null, regulation: null, riskRating: null, riskLevel: null, documentMeta: null }]);
+            } else {
+              setReviewActions(prev => [...prev, { id: `coshh-review-${doc.id}`, description: 'Review and update COSHH assessment — confirm controls remain adequate and substance/process has not changed', dueDate: null, dueDateRelative: 'Ongoing', responsiblePerson: null, priority: null, advisorPriority: null, hazardRef: null, hazard: 'Chemical/substance exposure', existingControls: null, regulation: 'COSHH Regulations 2002', riskRating: null, riskLevel: null, docName: doc.name, docFileId: doc.id, docFolderFileId: doc.parentFolderId, docFolderPath: doc.folderPath ?? '', selected: true, added: false, isError: false, documentMeta: documentMeta ?? null }]);
+            }
+            return;
+          }
+
+          // DSE: checklist — extract NO answers as actions; if all compliant generate annual review
+          if (documentType === 'dse') {
+            if (!documentMeta?.assessmentDate) {
+              setReviewActions(prev => [...prev, { id: `skipped-${doc.id}`, description: '', dueDate: null, dueDateRelative: null, responsiblePerson: null, priority: null, advisorPriority: null, docName: doc.name, docFileId: doc.id, docFolderFileId: doc.parentFolderId, docFolderPath: doc.folderPath ?? '', selected: false, added: false, isError: true, errorMessage: 'No assessment date found — document appears to be an unfilled template and was skipped.', hazardRef: null, hazard: null, existingControls: null, regulation: null, riskRating: null, riskLevel: null, documentMeta: null }]);
+              return;
+            }
+            if ((actions as ExtractedAction[]).length === 0) {
+              setReviewActions(prev => [...prev, { id: `dse-review-${doc.id}`, description: 'Annual DSE workstation review — confirm all workstation requirements continue to be met', dueDate: null, dueDateRelative: 'Annual review', responsiblePerson: null, priority: null, advisorPriority: null, hazardRef: null, hazard: 'Display screen equipment use', existingControls: null, regulation: 'Health and Safety (Display Screen Equipment) Regulations 1992', riskRating: null, riskLevel: 'LOW', docName: doc.name, docFileId: doc.id, docFolderFileId: doc.parentFolderId, docFolderPath: doc.folderPath ?? '', selected: true, added: false, isError: false, documentMeta: documentMeta ?? null }]);
+              return;
+            }
+            // Fall through to normal processing if Gemini found NO-answer actions
+          }
+
+          // General: skip unfilled templates
           if (!documentMeta?.assessmentDate) {
             setReviewActions(prev => [...prev, {
               id: `skipped-${doc.id}`, description: '', dueDate: null, dueDateRelative: null,
@@ -4802,9 +4895,7 @@ export default function App() {
                 </div>
               </div>
               {/* ── Score cards ── */}
-              {!isViewOnly && <div className="space-y-4">
-                {/* Row 1 — Compliance Score (3/4) + Industry Alignment (1/4) */}
-                <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 items-stretch">
+              {!isViewOnly && <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 items-stretch">
                 {/* Compliance Score */}
                 {(() => {
                   const siteActions = allActions.filter(a => a.site === selectedSite.name);
@@ -4961,7 +5052,7 @@ export default function App() {
                     </div>
                   );
                 })()}
-                  {/* Industry Alignment — col-span-1, fills height of compliance card */}
+                  {/* Right column — IAG + Doc Health stacked (advisor) / IAG full-height (client) */}
                   {(() => {
                     const iagMandatory = iagServices.filter(sv => sv.is_mandatory);
                     const iagMandatoryContracted = iagMandatory.filter(sv => sv.purchased).length;
@@ -4971,55 +5062,84 @@ export default function App() {
                     const iagMandatoryGap = iagMandatoryTotal > 0 && iagMandatoryContracted < iagMandatoryTotal;
                     const s = iagAllTotal > 0 ? Math.round((iagAllContracted / iagAllTotal) * 100) : (selectedSite.iagScore ?? 0);
                     const hasScore = iagAllTotal > 0 || selectedSite.iagScore !== null;
-                    const c = scoreColor(s);
+                    const docS = selectedSite.compliance;
+                    const docC = scoreColor(docS);
+                    const isClient = profile?.role === 'client';
                     return (
-                      <div className="col-span-2 lg:col-span-1 bg-white rounded-lg border border-slate-200 shadow-sm relative cursor-pointer hover:border-violet-300 hover:shadow-md transition-all flex flex-col" onClick={() => { setSiteTab('iag'); loadIagServices(selectedSite.id); }}>
-                        <div className="px-5 py-2.5 border-b border-slate-100 flex items-center justify-between">
-                          <div className="group flex items-center cursor-default">
-                            <p className="text-[11px] font-black uppercase tracking-widest text-slate-500">Industry Alignment</p>
-                            <InlineTip text="How many of your site's recommended and mandatory services are contracted, based on your industry type." />
+                      <div className="col-span-2 lg:col-span-1 flex flex-col gap-3">
+                        {/* IAG card */}
+                        <div className={`bg-white rounded-lg border border-slate-200 shadow-sm relative cursor-pointer hover:border-violet-300 hover:shadow-md transition-all${isClient ? ' flex-1 flex flex-col' : ''}`} onClick={() => { setSiteTab('iag'); loadIagServices(selectedSite.id); }}>
+                          <div className="px-5 py-2.5 border-b border-slate-100 flex items-center justify-between">
+                            <div className="group flex items-center cursor-default">
+                              <p className="text-[11px] font-black uppercase tracking-widest text-slate-500">Industry Alignment</p>
+                              <InlineTip text="How many of your site's recommended and mandatory services are contracted, based on your industry type." />
+                            </div>
+                            <button onClick={e => { e.stopPropagation(); setScoreExplanationCard('iag'); }} className="flex items-center gap-1 text-slate-300 hover:text-violet-500 transition-colors" title="How is this calculated?"><AlertCircle size={14} /><span className="text-[9px] font-black uppercase tracking-wider">Help</span></button>
                           </div>
-                          <button onClick={e => { e.stopPropagation(); setScoreExplanationCard('iag'); }} className="flex items-center gap-1 text-slate-300 hover:text-violet-500 transition-colors" title="How is this calculated?"><AlertCircle size={14} /><span className="text-[9px] font-black uppercase tracking-wider">Help</span></button>
-                        </div>
-                        <div className="flex-1 flex flex-col items-center justify-center px-5 py-4 gap-3">
-                          {hasScore
-                            ? <ComplianceRing score={s} size={56} percent />
-                            : <div className="w-14 h-14 rounded-full border-4 border-slate-100 flex items-center justify-center"><span className="text-slate-300 text-sm font-black">—</span></div>
-                          }
-                          <div className="text-center">
-                            <p className="text-[9px] text-slate-400 font-medium">coverage vs requirements</p>
-                            {iagAllTotal > 0 && (
-                              <div className="flex items-center justify-center gap-1.5 flex-wrap mt-2">
-                                <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider border ${iagMandatoryGap ? 'bg-rose-50 border-rose-200 text-rose-700' : 'bg-emerald-50 border-emerald-200 text-emerald-700'}`}>{iagMandatoryContracted}/{iagMandatoryTotal} mandatory</span>
-                                <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-slate-50 border border-slate-200 text-slate-500 text-[9px] font-black uppercase tracking-wider">{iagAllContracted}/{iagAllTotal} contracted</span>
+                          {isClient ? (
+                            /* Client: full-height centred layout with larger donut */
+                            <div className="flex-1 flex flex-col items-center justify-center px-5 py-6 gap-3">
+                              {hasScore
+                                ? <ComplianceRing score={s} size={72} percent />
+                                : <div className="w-[72px] h-[72px] rounded-full border-4 border-slate-100 flex items-center justify-center"><span className="text-slate-300 text-sm font-black">—</span></div>
+                              }
+                              <div className="text-center">
+                                <p className="text-[9px] text-slate-400 font-medium">coverage vs requirements</p>
+                                {iagAllTotal > 0 && (
+                                  <div className="flex flex-col items-center gap-1 mt-2">
+                                    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider border ${iagMandatoryGap ? 'bg-rose-50 border-rose-200 text-rose-700' : 'bg-emerald-50 border-emerald-200 text-emerald-700'}`}>{iagMandatoryContracted}/{iagMandatoryTotal} mandatory</span>
+                                    <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-slate-50 border border-slate-200 text-slate-500 text-[9px] font-black uppercase tracking-wider">{iagAllContracted}/{iagAllTotal} contracted</span>
+                                  </div>
+                                )}
                               </div>
-                            )}
-                          </div>
+                            </div>
+                          ) : (
+                            /* Advisor: compact horizontal — donut left, labels/pills right */
+                            <div className="px-4 py-3 flex items-center gap-3">
+                              <div className="shrink-0">
+                                {hasScore
+                                  ? <ComplianceRing score={s} size={56} percent />
+                                  : <div className="w-14 h-14 rounded-full border-4 border-slate-100 flex items-center justify-center"><span className="text-slate-300 text-sm font-black">—</span></div>
+                                }
+                              </div>
+                              <div className="flex flex-col gap-1.5 min-w-0">
+                                <p className="text-[9px] text-slate-400 font-medium leading-tight">coverage vs requirements</p>
+                                {iagAllTotal > 0 && (
+                                  <>
+                                    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider border ${iagMandatoryGap ? 'bg-rose-50 border-rose-200 text-rose-700' : 'bg-emerald-50 border-emerald-200 text-emerald-700'}`}>{iagMandatoryContracted}/{iagMandatoryTotal} mandatory</span>
+                                    <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-slate-50 border border-slate-200 text-slate-500 text-[9px] font-black uppercase tracking-wider">{iagAllContracted}/{iagAllTotal} contracted</span>
+                                  </>
+                                )}
+                              </div>
+                            </div>
+                          )}
                         </div>
+                        {/* Doc Health card — advisor only, flex-1 fills remaining column height */}
+                        {!isClient && (
+                          <div className="flex-1 flex flex-col bg-white rounded-lg border border-slate-200 shadow-sm cursor-pointer hover:border-amber-300 hover:shadow-md transition-all" onClick={() => setSiteTab('dochealth')}>
+                            <div className="px-5 py-2.5 border-b border-slate-100 flex items-center justify-between">
+                              <div className="group flex items-center cursor-default">
+                                <p className="text-[11px] font-black uppercase tracking-widest text-slate-500">Documentation Health</p>
+                                <InlineTip text="Percentage of required documents that are present and up to date. Managed by your advisor based on what's uploaded in the H&S documents folder." />
+                              </div>
+                              <button onClick={e => { e.stopPropagation(); setScoreExplanationCard('documentation'); }} className="flex items-center gap-1 text-slate-300 hover:text-amber-500 transition-colors" title="How is this calculated?"><AlertCircle size={14} /><span className="text-[9px] font-black uppercase tracking-wider">Help</span></button>
+                            </div>
+                            <div className="flex-1 flex items-center px-4 py-3 gap-3">
+                              <div className="shrink-0">
+                                <ComplianceRing score={docS} size={56} />
+                              </div>
+                              <div>
+                                <p className={`text-2xl font-black ${docC.text}`}>{docS}%</p>
+                                <p className="text-[10px] text-slate-400 font-medium mt-0.5">advisor managed</p>
+                              </div>
+                            </div>
+                          </div>
+                        )}
                       </div>
                     );
                   })()}
-                </div>{/* end 4-col grid */}
-                {/* Row 2 — Documentation Health (advisor/superadmin only, full width) */}
-                {profile?.role !== 'client' && (() => { const s = selectedSite.compliance; const c = scoreColor(s); return (
-                  <div className="bg-white rounded-lg border border-slate-200 shadow-sm cursor-pointer hover:border-amber-300 hover:shadow-md transition-all" onClick={() => setSiteTab('dochealth')}>
-                    <div className="px-5 py-2.5 border-b border-slate-100 flex items-center justify-between">
-                      <div className="group flex items-center cursor-default">
-                        <p className="text-[11px] font-black uppercase tracking-widest text-slate-500">Documentation Health</p>
-                        <InlineTip text="Percentage of required documents that are present and up to date. Managed by your advisor based on what's uploaded in the H&S documents folder." />
-                      </div>
-                      <button onClick={e => { e.stopPropagation(); setScoreExplanationCard('documentation'); }} className="flex items-center gap-1 text-slate-300 hover:text-amber-500 transition-colors" title="How is this calculated?"><AlertCircle size={14} /><span className="text-[9px] font-black uppercase tracking-wider">Help</span></button>
-                    </div>
-                    <div className="p-5 flex items-center justify-center gap-4">
-                      <ComplianceRing score={s} size={64} />
-                      <div className="text-center">
-                        <p className={`text-2xl md:text-3xl font-black ${c.text}`}>{s}%</p>
-                        <p className="text-[10px] text-slate-400 font-medium mt-1">advisor managed</p>
-                      </div>
-                    </div>
-                  </div>
-                ); })()}
-              </div>}
+                </div>
+              }
               {!isViewOnly && scoreExplanationCard && <ScoreExplanationModal card={scoreExplanationCard} onClose={() => setScoreExplanationCard(null)} />}
               {/* Site tab toggle */}
               <div className="flex bg-slate-100 p-1 rounded-xl overflow-x-auto gap-0.5 w-full md:w-fit">
@@ -5314,7 +5434,10 @@ export default function App() {
                 <DocHealthTab siteId={selectedSite.id} onComplianceUpdate={(score) => {
                   setSelectedSite(prev => prev ? { ...prev, compliance: score } : prev);
                   setSites(prev => prev.map(s => s.id === selectedSite.id ? { ...s, compliance: score } : s));
-                }} />
+                }} onJumpToActions={(docName) => {
+                  pendingExpandDocRef.current = docName;
+                  setSiteTab('actions');
+                }} role={profile?.role} />
               )}
 
               {/* ── Files browser tab — accordion style ── */}
