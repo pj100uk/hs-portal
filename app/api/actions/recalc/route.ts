@@ -26,17 +26,21 @@ export async function POST(request: NextRequest) {
   const today = new Date().toISOString().slice(0, 10);
   const sixMonthsAgo = new Date(Date.now() - 180 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
   const ONGOING_RE = /on.?going|continuous|continual|continued|continuing|rolling|recurring|recurrent|regular|permanent|indefinite|open.?ended|as.?required|as.?needed|periodic|routine|always/i;
+  const IMMEDIATE_RE = /\b(immediately?|urgent(ly)?|asap|a\.?s\.?a\.?p\.?|as\s+soon\s+as\s+(possible|practicable)|right\s+away|straight\s+away|without\s+delay|at\s+once|now|today)\b/i;
   let resolvedPoints = 0;
   let totalPoints = 0;
 
   for (const a of actions) {
     const isResolved = a.status === 'resolved';
     const date = a.due_date as string | null;
-    const isOngoing = !!date && ONGOING_RE.test(date);
-    const hasSpecificDate = !!date && !isOngoing && /^\d{4}-\d{2}-\d{2}$/.test(date);
+    const isImmediate = !!date && IMMEDIATE_RE.test(date);
+    const isOngoing = !isImmediate && !!date && ONGOING_RE.test(date);
+    const hasSpecificDate = !!date && !isImmediate && !isOngoing && /^\d{4}-\d{2}-\d{2}$/.test(date);
 
     let w = 1;
-    if (hasSpecificDate) {
+    if (isImmediate) {
+      w = 2; // treat same as overdue
+    } else if (hasSpecificDate) {
       if (date! < today) {
         w = 2; // overdue
       } else {

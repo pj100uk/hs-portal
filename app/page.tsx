@@ -242,11 +242,13 @@ const overdueRiskConfig: Record<string, typeof priorityConfig.red> = {
 };
 
 const DERIVE_ONGOING_RE = /on.?going|continuous|continual|continued|continuing|rolling|recurring|recurrent|regular|permanent|indefinite|open.?ended|as.?required|as.?needed|periodic|routine|always|review/i;
+const DERIVE_IMMEDIATE_RE = /\b(immediately?|urgent(ly)?|asap|a\.?s\.?a\.?p\.?|as\s+soon\s+as\s+(possible|practicable)|right\s+away|straight\s+away|without\s+delay|at\s+once|now|today)\b/i;
 
 function derivePriority(action: Action): { priority: Priority; label: string } {
   if (action.status === 'resolved') return { priority: 'green', label: 'Resolved' };
   const today = new Date().toLocaleDateString('en-CA');
   const date = action.date;
+  if (date && DERIVE_IMMEDIATE_RE.test(date)) return { priority: 'red', label: 'Immediate' };
   const isOngoing = !!date && DERIVE_ONGOING_RE.test(date);
   const hasSpecificDate = !!date && !isOngoing && /^\d{4}-\d{2}-\d{2}$/.test(date);
   if (hasSpecificDate) {
@@ -291,6 +293,7 @@ const StatusBadge = ({ type, count }: { type: Priority; count: number }) => {
 
 // ─── Score colour thresholds (Green ≥85%, Amber ≥50%, Red <50%) ──────────────
 const ONGOING_RE = /on.?going|continuous|continual|continued|continuing|rolling|recurring|recurrent|regular|permanent|indefinite|open.?ended|as.?required|as.?needed|periodic|routine|always|review/i;
+const IMMEDIATE_RE = /\b(immediately?|urgent(ly)?|asap|a\.?s\.?a\.?p\.?|as\s+soon\s+as\s+(possible|practicable)|right\s+away|straight\s+away|without\s+delay|at\s+once|now|today)\b/i;
 
 const computeActionProgress = (actions: Action[]): number => {
   if (actions.length === 0) return 100;
@@ -299,11 +302,12 @@ const computeActionProgress = (actions: Action[]): number => {
   for (const a of actions) {
     const d = a.date ?? null;
     const isResolved = a.status === 'resolved';
-    const isOverdue = !isResolved && !!d && !ONGOING_RE.test(d) && /^\d{4}-\d{2}-\d{2}$/.test(d) && d < today;
-    const isUpcoming = !isResolved && !isOverdue && !!d && !ONGOING_RE.test(d) && /^\d{4}-\d{2}-\d{2}$/.test(d)
+    const isImmediate = !isResolved && !!d && IMMEDIATE_RE.test(d);
+    const isOverdue = !isResolved && !isImmediate && !!d && !ONGOING_RE.test(d) && /^\d{4}-\d{2}-\d{2}$/.test(d) && d < today;
+    const isUpcoming = !isResolved && !isImmediate && !isOverdue && !!d && !ONGOING_RE.test(d) && /^\d{4}-\d{2}-\d{2}$/.test(d)
       && Math.ceil((new Date(d).getTime() - Date.now()) / 86400000) <= 30;
-    const w = isOverdue ? 2 : isUpcoming ? 1 : 1;
-    if (!isOverdue && !isUpcoming) onTrackPoints += w;
+    const w = (isOverdue || isImmediate) ? 2 : 1;
+    if (!isOverdue && !isImmediate && !isUpcoming) onTrackPoints += w;
     totalPoints += w;
   }
   return totalPoints === 0 ? 100 : Math.round((onTrackPoints / totalPoints) * 100);
@@ -3535,7 +3539,6 @@ export default function App() {
   const appFlashRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const showAppFlash = (msg: string) => { setAppFlash(msg); if (appFlashRef.current) clearTimeout(appFlashRef.current); appFlashRef.current = setTimeout(() => setAppFlash(''), 3500); };
   const [view, setView] = useState<AppView>('portfolio');
-  const [dashboardTab, setDashboardTab] = useState<'analytics' | 'data'>('analytics');
   const [siteTab, setSiteTab] = useState<'actions' | 'documents' | 'dochealth' | 'iag' | 'files'>('actions');
   const effectiveSiteTab = isViewOnly && (siteTab === 'actions' || siteTab === 'documents') ? 'files' : siteTab;
   const [iagServices, setIagServices] = useState<any[]>([]);
@@ -3551,6 +3554,7 @@ export default function App() {
   const [organisations, setOrganisations] = useState<Organisation[]>([]);
   const clientOrg = profile?.role === 'client' ? organisations.find(o => o.id === profile?.organisation_id) ?? null : null;
   const siteOrg = selectedSite ? organisations.find(o => o.id === selectedSite.organisation_id) ?? null : clientOrg;
+  const portfolioOrg = clientOrg ?? (filterOrgId ? organisations.find(o => o.id === filterOrgId) ?? null : null);
   const [allActions, setAllActions] = useState<Action[]>([]);
   const [showAddAction, setShowAddAction] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
@@ -4488,6 +4492,9 @@ export default function App() {
       const ar = a.riskLevel ? (riskOrder[a.riskLevel] ?? 3) : 3;
       const br = b.riskLevel ? (riskOrder[b.riskLevel] ?? 3) : 3;
       if (ar !== br) return ar - br;
+      const aImmediate = !!a.date && IMMEDIATE_RE.test(a.date);
+      const bImmediate = !!b.date && IMMEDIATE_RE.test(b.date);
+      if (aImmediate !== bImmediate) return aImmediate ? -1 : 1;
       const aHasDate = !!a.date && /^\d{4}-\d{2}-\d{2}$/.test(a.date);
       const bHasDate = !!b.date && /^\d{4}-\d{2}-\d{2}$/.test(b.date);
       if (aHasDate && bHasDate) return a.date < b.date ? -1 : a.date > b.date ? 1 : 0;
@@ -4509,6 +4516,7 @@ export default function App() {
       displayName: source.replace(/\.[^.]+$/, ''),
       actions,
       hasRed: actions.some(a => derivePriority(a).priority === 'red'),
+      hasImmediate: actions.some(a => !isActionResolved(a) && !!a.date && IMMEDIATE_RE.test(a.date)),
       hasAmber: actions.some(a => derivePriority(a).priority === 'amber'),
       redCount: actions.filter(a => derivePriority(a).priority === 'red').length,
       amberCount: actions.filter(a => derivePriority(a).priority === 'amber').length,
@@ -4516,6 +4524,10 @@ export default function App() {
     }))
     .sort((a, b) => {
       if (a.hasRed !== b.hasRed) return a.hasRed ? -1 : 1;
+      // Within red: HIGH risk count first
+      if (a.highRiskCount !== b.highRiskCount) return b.highRiskCount - a.highRiskCount;
+      // Same risk profile: immediate groups before ISO-date overdue
+      if (a.hasImmediate !== b.hasImmediate) return a.hasImmediate ? -1 : 1;
       if (a.hasAmber !== b.hasAmber) return a.hasAmber ? -1 : 1;
       return a.displayName.localeCompare(b.displayName);
     });
@@ -4543,7 +4555,6 @@ export default function App() {
   return (
     <div className="min-h-screen bg-slate-50 font-sans text-slate-900 selection:bg-indigo-100 overflow-x-hidden">
       <aside className="hidden lg:flex fixed left-0 top-0 h-full w-20 bg-indigo-950 flex-col items-center pt-4 pb-8 gap-10 text-indigo-300 z-20">
-        {profile?.role === 'client' && <a href="https://www.mb-hs.com/" target="_blank" rel="noopener noreferrer" className="w-12 h-12 bg-white rounded-xl flex items-center justify-center shadow-lg overflow-hidden p-1 hover:scale-105 transition-transform"><img src="/logo-mark.svg" alt="MBHS" className="w-full h-full object-contain" /></a>}
         <nav className="flex flex-col gap-6">
           {profile?.role === 'superadmin' && <button onClick={() => setView('admin')} className={`p-3 rounded-xl transition-all ${view === 'admin' ? 'bg-indigo-700 text-white shadow-inner' : 'hover:text-white hover:bg-white/5'}`} title="Admin Panel"><Shield size={22} /></button>}
           {(profile?.role === 'advisor' || (profile?.role === 'client' && !isViewOnly && sites.length > 1)) && <button onClick={() => { setView('portfolio'); setSelectedSite(null); }} className={`p-3 rounded-xl transition-all ${view === 'portfolio' ? 'bg-indigo-700 text-white shadow-inner' : 'hover:text-white hover:bg-white/5'}`} title="Dashboard"><Layout size={22} /></button>}
@@ -4570,15 +4581,7 @@ export default function App() {
         <header className="bg-white/95 backdrop-blur-sm border-b border-slate-200 px-4 md:px-8 py-3 md:py-4 flex items-center justify-between sticky top-0 z-10">
           <div className="flex items-center gap-3">
             {view === 'site' && (profile?.role === 'advisor' || (profile?.role === 'client' && !isViewOnly && sites.length > 1)) && <button onClick={() => { setView('portfolio'); setSelectedSite(null); }} className="p-2 hover:bg-slate-100 rounded-lg text-slate-400"><ArrowLeft size={18} /></button>}
-            {profile?.role === 'client' && siteOrg?.logo_url ? (
-              <div className="bg-white border border-slate-300 rounded-xl px-3 py-1.5 flex items-center justify-center h-10 max-w-[200px]">
-                <img src={siteOrg.logo_url} alt={siteOrg.name} className="max-h-7 max-w-full object-contain" />
-              </div>
-            ) : (
-              <div>
-                <img src="/logo-full.svg" alt="McCormack Benson Health & Safety" className="h-14 w-auto object-contain" />
-              </div>
-            )}
+            <img src="/logo-full.svg" alt="McCormack Benson Health & Safety" className="h-14 w-auto object-contain" />
           </div>
           <div className="flex items-center gap-5">
             <button onClick={() => setShowChangePassword(true)} className="p-2 rounded-xl text-slate-400 hover:text-slate-600 hover:bg-slate-100" title="Change password"><KeyRound size={16} /></button>
@@ -4599,7 +4602,23 @@ export default function App() {
             <div className="space-y-8 animate-in fade-in duration-500">
               <div className="bg-gradient-to-br from-indigo-900 via-indigo-950 to-slate-900 rounded-xl p-6 md:p-10 text-white flex flex-col lg:flex-row justify-between items-start lg:items-center gap-6 md:gap-8 shadow-2xl relative overflow-hidden">
                 <div className="absolute top-0 right-0 w-96 h-96 bg-indigo-500 rounded-full -mr-32 -mt-32 blur-[100px] opacity-20 pointer-events-none" />
-                <div className="relative z-10"><span className="text-[10px] font-black uppercase tracking-[0.3em] text-indigo-300">Executive Summary</span><h2 className="text-2xl md:text-4xl font-black tracking-tighter mt-2">Divisional Compliance</h2><p className="text-indigo-300 mt-2 max-w-md text-sm">Real-time H&S status across all sites.</p></div>
+                <div className="relative z-10 flex items-center gap-5">
+                  {portfolioOrg?.logo_url && (
+                    <div className="bg-white rounded-xl px-3 py-2 flex items-center justify-center shrink-0 h-16 max-w-[160px]">
+                      <img src={portfolioOrg.logo_url} alt={portfolioOrg.name} className="max-h-12 max-w-[130px] object-contain" />
+                    </div>
+                  )}
+                  <div>
+                    {portfolioOrg?.name
+                      ? <>
+                          <h2 className="text-2xl md:text-4xl font-black tracking-tighter">{portfolioOrg.name}</h2>
+                          <p className="text-sm md:text-base font-black uppercase tracking-widest text-indigo-300 mt-1">Organisational Compliance</p>
+                        </>
+                      : <h2 className="text-2xl md:text-4xl font-black tracking-tighter">Organisational Compliance</h2>
+                    }
+                    <p className="text-indigo-300 mt-2 max-w-md text-sm">Real-time H&S status across all sites.</p>
+                  </div>
+                </div>
                 <div className="flex gap-3 md:gap-4 relative z-10">
                   {[{ label: 'Overdue', value: criticalCount, color: 'text-rose-400', icon: <Zap size={14} /> }, { label: 'Upcoming', value: upcomingCount, color: 'text-amber-400', icon: <Clock size={14} /> }, { label: 'Sites', value: viewSites.length, color: 'text-indigo-300', icon: <Building2 size={14} /> }].map(stat => (
                     <div key={stat.label} className="bg-white/5 backdrop-blur-md rounded-lg p-3 md:p-5 border border-white/10 text-center min-w-[72px] md:min-w-[90px]">
@@ -4619,77 +4638,8 @@ export default function App() {
                 )}
                 {filterOrgId && <button onClick={() => setFilterOrgId('')} className="text-xs font-bold text-indigo-500 hover:text-indigo-700 flex items-center gap-1"><X size={12} />Clear filter</button>}
               </div>
-              <div className="flex border-b border-slate-200 gap-6">
-                {[{ key: 'analytics', label: 'Visual Analytics', icon: <BarChart3 size={14} /> }, { key: 'data', label: 'Division Registry', icon: <Building2 size={14} /> }].map(tab => (
-                  <button key={tab.key} onClick={() => setDashboardTab(tab.key as 'analytics' | 'data')} className={`pb-4 px-1 text-[11px] font-black uppercase tracking-widest flex items-center gap-2 border-b-2 transition-all ${dashboardTab === tab.key ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-slate-400 hover:text-slate-600'}`}>{tab.icon}{tab.label}</button>
-                ))}
-              </div>
-              {dashboardTab === 'analytics' && (
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                  <div className="lg:col-span-2 bg-white rounded-xl border border-slate-200 p-4 md:p-8 shadow-sm">
-                    <h3 className="font-black text-slate-900 text-lg tracking-tight uppercase mb-8">Compliance Benchmarking</h3>
-                    <div className="space-y-6">
-                      {viewSites.map(site => {
-                        const onTrack = computeActionProgress(allActions.filter(a => a.site === site.name));
-                        return (
-                        <div key={site.id} className="group cursor-pointer" onClick={() => handleSiteClick(site)}>
-                          <div className="flex justify-between items-center mb-2">
-                            <div className="flex items-center gap-3"><div className="w-7 h-7 bg-slate-50 rounded-lg flex items-center justify-center text-slate-400 group-hover:bg-indigo-600 group-hover:text-white transition-all text-xs">{getSiteIcon(site.type, 14)}</div><span className="text-sm font-bold text-slate-700 group-hover:text-indigo-700">{site.name}</span></div>
-                            <span className={`font-black text-sm ${scoreColor(onTrack).text}`}>{onTrack}% on track</span>
-                          </div>
-                          <div className="w-full bg-slate-100 h-4 rounded-full overflow-hidden shadow-inner"><div className={`h-full rounded-full transition-all duration-1000 ${scoreColor(onTrack).bar}`} style={{ width: `${onTrack}%` }} /></div>
-                        </div>
-                        );
-                      })}
-                      {viewSites.length === 0 && <p className="text-sm text-slate-400 text-center py-8">No sites assigned yet.</p>}
-                    </div>
-                  </div>
-                  <div className="bg-white rounded-xl border border-slate-200 p-4 md:p-8 shadow-sm flex flex-col">
-                    <h3 className="font-black text-slate-900 text-lg tracking-tight uppercase mb-6">Action Summary</h3>
-                    <div className="flex-1 flex flex-col justify-center items-center">
-                      {(() => {
-                        const circ = 2 * Math.PI * 70;
-                        const total = viewActions.length;
-                        const scheduledCnt = viewActions.filter(a => derivePriority(a).priority === 'green').length;
-                        const segs = [
-                          { count: criticalCount, color: '#f43f5e' },
-                          { count: upcomingCount, color: '#fbbf24' },
-                          { count: scheduledCnt, color: '#10b981' },
-                        ];
-                        const arcs: { color: string; len: number; startDeg: number }[] = [];
-                        let cum = 0;
-                        if (total > 0) {
-                          for (const seg of segs) {
-                            if (seg.count > 0) {
-                              const len = (seg.count / total) * circ;
-                              arcs.push({ color: seg.color, len, startDeg: (cum / circ) * 360 });
-                              cum += len;
-                            }
-                          }
-                        }
-                        return (
-                          <div className="relative w-36 h-36 flex items-center justify-center mb-6">
-                            <svg className="w-full h-full -rotate-90" viewBox="0 0 160 160">
-                              <circle cx="80" cy="80" r="70" stroke="#f1f5f9" strokeWidth="16" fill="none" />
-                              {arcs.map((arc, i) => (
-                                <circle key={i} cx="80" cy="80" r="70" stroke={arc.color} strokeWidth="16" fill="none"
-                                  strokeDasharray={`${arc.len} ${circ - arc.len}`}
-                                  transform={`rotate(${arc.startDeg} 80 80)`}
-                                />
-                              ))}
-                            </svg>
-                            <div className="absolute text-center"><p className="text-3xl font-black text-slate-900 leading-none">{total}</p><p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mt-0.5">Total</p></div>
-                          </div>
-                        );
-                      })()}
-                      <div className="w-full space-y-2.5">
-                        {[{ label: 'Overdue', count: criticalCount, color: 'bg-rose-50 text-rose-700 border-rose-100' }, { label: 'Upcoming / Review Due', count: upcomingCount, color: 'bg-amber-50 text-amber-700 border-amber-100' }, { label: 'Scheduled / Review', count: viewActions.filter(a => derivePriority(a).priority === 'green').length, color: 'bg-emerald-50 text-emerald-700 border-emerald-100' }].map(item => (
-                          <div key={item.label} className={`flex items-center justify-between text-xs font-black px-4 py-2.5 rounded-xl border ${item.color}`}><span>{item.label}</span><span className="text-base font-black">{item.count}</span></div>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                  <div className="lg:col-span-3 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+              <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 items-start">
+                  <div className="lg:col-span-3 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
                     {viewSites.map(site => {
                       const siteActions = allActions.filter(a => a.site === site.name);
                       const actionsScore = computeActionProgress(siteActions);
@@ -4742,26 +4692,52 @@ export default function App() {
                       );
                     })}
                   </div>
+                  <div className="bg-white rounded-xl border border-slate-200 p-4 md:p-8 shadow-sm flex flex-col">
+                    <h3 className="font-black text-slate-900 text-lg tracking-tight uppercase mb-6">Action Summary</h3>
+                    <div className="flex-1 flex flex-col justify-center items-center">
+                      {(() => {
+                        const circ = 2 * Math.PI * 70;
+                        const total = viewActions.length;
+                        const scheduledCnt = viewActions.filter(a => derivePriority(a).priority === 'green').length;
+                        const segs = [
+                          { count: criticalCount, color: '#f43f5e' },
+                          { count: upcomingCount, color: '#fbbf24' },
+                          { count: scheduledCnt, color: '#10b981' },
+                        ];
+                        const arcs: { color: string; len: number; startDeg: number }[] = [];
+                        let cum = 0;
+                        if (total > 0) {
+                          for (const seg of segs) {
+                            if (seg.count > 0) {
+                              const len = (seg.count / total) * circ;
+                              arcs.push({ color: seg.color, len, startDeg: (cum / circ) * 360 });
+                              cum += len;
+                            }
+                          }
+                        }
+                        return (
+                          <div className="relative w-36 h-36 flex items-center justify-center mb-6">
+                            <svg className="w-full h-full -rotate-90" viewBox="0 0 160 160">
+                              <circle cx="80" cy="80" r="70" stroke="#f1f5f9" strokeWidth="16" fill="none" />
+                              {arcs.map((arc, i) => (
+                                <circle key={i} cx="80" cy="80" r="70" stroke={arc.color} strokeWidth="16" fill="none"
+                                  strokeDasharray={`${arc.len} ${circ - arc.len}`}
+                                  transform={`rotate(${arc.startDeg} 80 80)`}
+                                />
+                              ))}
+                            </svg>
+                            <div className="absolute text-center"><p className="text-3xl font-black text-slate-900 leading-none">{total}</p><p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mt-0.5">Total</p></div>
+                          </div>
+                        );
+                      })()}
+                      <div className="w-full space-y-2.5">
+                        {[{ label: 'Overdue', count: criticalCount, color: 'bg-rose-50 text-rose-700 border-rose-100' }, { label: 'Upcoming / Review Due', count: upcomingCount, color: 'bg-amber-50 text-amber-700 border-amber-100' }, { label: 'Scheduled / Review', count: viewActions.filter(a => derivePriority(a).priority === 'green').length, color: 'bg-emerald-50 text-emerald-700 border-emerald-100' }].map(item => (
+                          <div key={item.label} className={`flex items-center justify-between text-xs font-black px-4 py-2.5 rounded-xl border ${item.color}`}><span>{item.label}</span><span className="text-base font-black">{item.count}</span></div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
                 </div>
-              )}
-              {dashboardTab === 'data' && (
-                <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-                  <table className="w-full text-left">
-                    <thead><tr className="bg-slate-50/80 text-[10px] uppercase font-black text-slate-400 border-b border-slate-100"><th className="px-8 py-4">Site</th><th className="px-8 py-4">Type</th><th className="px-8 py-4">Score</th><th className="px-8 py-4">Last Review</th><th className="px-8 py-4"></th></tr></thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {viewSites.map(site => (
-                        <tr key={site.id} className="hover:bg-indigo-50/30 cursor-pointer group" onClick={() => handleSiteClick(site)}>
-                          <td className="px-8 py-5"><div className="flex items-center gap-3"><div className="w-10 h-10 bg-slate-50 rounded-xl flex items-center justify-center text-slate-400 group-hover:bg-indigo-600 group-hover:text-white transition-all shadow-sm">{getSiteIcon(site.type)}</div><span className="font-bold text-slate-800">{site.name}</span></div></td>
-                          <td className="px-8 py-5"><span className="text-[11px] font-black uppercase tracking-wider text-slate-500 bg-slate-50 border border-slate-100 px-3 py-1 rounded-lg">{site.type}</span></td>
-                          <td className="px-8 py-5"><ComplianceRing score={site.compliance} size={40} /></td>
-                          <td className="px-8 py-5 text-sm font-bold text-slate-600">{site.lastReview}</td>
-                          <td className="px-8 py-5 text-right"><ChevronRight size={16} className="text-slate-300 inline group-hover:translate-x-1 transition-transform" /></td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
             </div>
           )}
 
@@ -4771,13 +4747,24 @@ export default function App() {
                 <div className="absolute inset-0 bg-gradient-to-r from-indigo-50/40 to-transparent pointer-events-none" />
                 <div className="absolute inset-0 bg-gradient-to-r from-indigo-50/40 to-transparent pointer-events-none" />
                 <div className="relative flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
-                  <div className="flex items-center gap-6">
-                    <div className="w-10 h-10 bg-slate-900 rounded-xl flex items-center justify-center text-white shadow-lg overflow-hidden">
-                      {getSiteIcon(selectedSite.type, 20)}
-                    </div>
-                    <div><h2 className="text-lg md:text-2xl font-black text-slate-900 tracking-tight">{selectedSite.name}</h2><p className="text-slate-500 text-xs md:text-sm mt-1">{SITE_TYPE_LABELS[selectedSite.type] || selectedSite.type}</p></div>
+                  <div>
+                    <h2 className="text-lg md:text-2xl font-black text-slate-900 tracking-tight">{selectedSite.name}</h2>
+                    <p className="text-slate-500 text-xs md:text-sm mt-1 flex items-center gap-1.5">
+                      <span className="opacity-50">{getSiteIcon(selectedSite.type, 13)}</span>
+                      {SITE_TYPE_LABELS[selectedSite.type] || selectedSite.type}
+                    </p>
+                    {viewSites.length > 1 && (
+                      <select value={selectedSite?.id || ''} onChange={e => { const s = sites.find(s => s.id === e.target.value); if (s) setSelectedSite(s); }} className="mt-2 px-3 py-1.5 border border-slate-200 rounded-xl text-xs font-bold text-slate-600 focus:outline-none bg-white">
+                        {viewSites.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                      </select>
+                    )}
                   </div>
-                  <div className="flex gap-3 flex-wrap">
+                  <div className="flex gap-3 flex-wrap items-start">
+                    {siteOrg?.logo_url && (
+                      <div className="bg-white border border-slate-200 rounded-lg px-4 py-2 flex items-center justify-center h-20 max-w-[200px] shrink-0">
+                        <img src={siteOrg.logo_url} alt={siteOrg.name} className="max-h-16 max-w-[160px] object-contain" />
+                      </div>
+                    )}
                     {profile?.role === 'superadmin' && selectedSite.datto_folder_id && (
                       <button
                         onClick={() => setShowSyncConfig(true)}
@@ -4813,20 +4800,6 @@ export default function App() {
                     )}
                   </div>
                 </div>
-              </div>
-              {/* Org / site filter bar */}
-              <div className="flex items-center gap-3 flex-wrap">
-                {organisations.length > 1 && (
-                  <select value={filterOrgId} onChange={e => { setFilterOrgId(e.target.value); const first = sites.find(s => !e.target.value || s.organisation_id === e.target.value); if (first) setSelectedSite(first); }} className="px-3 py-2 border border-slate-200 rounded-xl text-xs font-bold text-slate-600 focus:outline-none bg-white">
-                    <option value="">All Organisations</option>
-                    {organisations.map(o => <option key={o.id} value={o.id}>{o.name}</option>)}
-                  </select>
-                )}
-                {viewSites.length > 1 && (
-                  <select value={selectedSite?.id || ''} onChange={e => { const s = sites.find(s => s.id === e.target.value); if (s) setSelectedSite(s); }} className="px-3 py-2 border border-slate-200 rounded-xl text-xs font-bold text-slate-600 focus:outline-none bg-white">
-                    {viewSites.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                  </select>
-                )}
               </div>
               {/* ── Score cards ── */}
               {!isViewOnly && <div className="space-y-4">
@@ -5455,13 +5428,13 @@ export default function App() {
                             <div key={folder.id} className="bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden">
                               <button
                                 onClick={() => toggleSection(folder)}
-                                className="w-full flex items-center gap-3 px-4 py-3.5 hover:bg-slate-50 transition-colors text-left"
+                                className={`w-full flex items-center gap-3 px-4 py-3.5 transition-colors text-left border-l-4 ${isExpanded ? 'bg-indigo-50 border-l-indigo-500' : 'bg-white border-l-transparent hover:bg-slate-50'}`}
                               >
                                 {isExpanded
-                                  ? <FolderOpen size={15} className="text-amber-400 flex-shrink-0" />
+                                  ? <FolderOpen size={15} className="text-indigo-500 flex-shrink-0" />
                                   : <Folder size={15} className="text-amber-400 flex-shrink-0" />
                                 }
-                                <span className="text-[13px] font-bold text-slate-800 flex-1 truncate">{folder.name}</span>
+                                <span className={`text-[13px] font-bold flex-1 truncate ${isExpanded ? 'text-indigo-700' : 'text-slate-800'}`}>{folder.name}</span>
                                 {isExpanded && files.length > 0 && (
                                   <span className="text-[10px] font-bold text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full flex-shrink-0">{files.length}</span>
                                 )}
@@ -5505,13 +5478,13 @@ export default function App() {
                                               if (!prev.has(subKey)) s.add(subKey);
                                               return s;
                                             })}
-                                            className="w-full px-4 py-2 bg-slate-50 border-y border-slate-100 flex items-center gap-2 hover:bg-slate-100 transition-colors text-left"
+                                            className={`w-full px-4 py-2 border-y flex items-center gap-2 transition-colors text-left ${isSubOpen ? 'bg-indigo-50 border-indigo-100 border-l-2 border-l-indigo-400' : 'bg-slate-50 border-slate-100 hover:bg-slate-100'}`}
                                           >
                                             {isSubOpen
-                                              ? <FolderOpen size={11} className="text-amber-400 flex-shrink-0" />
+                                              ? <FolderOpen size={11} className="text-indigo-400 flex-shrink-0" />
                                               : <Folder size={11} className="text-amber-300 flex-shrink-0" />
                                             }
-                                            <span className="text-[11px] font-bold text-slate-600 flex-1">{groupPath}</span>
+                                            <span className={`text-[11px] font-bold flex-1 ${isSubOpen ? 'text-indigo-600' : 'text-slate-600'}`}>{groupPath}</span>
                                             <span className="text-[10px] text-slate-400 mr-1">{groupFiles.length}</span>
                                             <ChevronDown size={11} className={`text-slate-400 flex-shrink-0 transition-transform ${isSubOpen ? 'rotate-180' : ''}`} />
                                           </button>

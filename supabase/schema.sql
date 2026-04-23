@@ -1,4 +1,4 @@
--- Schema dumped at 2026-04-22T17:09:53.216Z
+-- Schema dumped at 2026-04-23T08:40:13.443Z
 
 TABLE: actions
   id uuid NOT NULL DEFAULT gen_random_uuid()
