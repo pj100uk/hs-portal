@@ -3630,10 +3630,25 @@ export default function App() {
   const [scoreExplanationCard, setScoreExplanationCard] = useState<'implementation' | 'iag' | 'documentation' | null>(null);
   const [advisors, setAdvisors] = useState<{ id: string; email: string }[]>([]);
   const aiCancelledRef = React.useRef(false);
+  const currentUserIdRef = React.useRef<string | null>(null);
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => { setUser(session?.user ?? null); setAuthLoading(false); });
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => { setUser(session?.user ?? null); if (event === 'PASSWORD_RECOVERY') setShowPasswordReset(true); });
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      currentUserIdRef.current = session?.user?.id ?? null;
+      setUser(session?.user ?? null);
+      setAuthLoading(false);
+    });
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === 'SIGNED_OUT') { window.location.href = '/'; return; }
+      // If a different user signs in on the same tab, reload to clear all previous user's state
+      if (event === 'SIGNED_IN' && currentUserIdRef.current && session?.user?.id !== currentUserIdRef.current) {
+        window.location.href = '/';
+        return;
+      }
+      currentUserIdRef.current = session?.user?.id ?? null;
+      setUser(session?.user ?? null);
+      if (event === 'PASSWORD_RECOVERY') setShowPasswordReset(true);
+    });
     return () => subscription.unsubscribe();
   }, []);
 
@@ -5572,27 +5587,42 @@ export default function App() {
                                     <p className="px-4 py-4 text-[12px] text-slate-400">No files found in this section.</p>
                                   ) : (() => {
                                     const sectionPath = `${rootEntry?.path}/${folder.name}`;
-                                    const grouped = new Map<string, typeof files>();
+                                    // Two-level grouping: first by immediate subfolder, then by the next
+                                    // path segment within that subfolder (sub-subfolders like Archive).
+                                    type GroupData = { directFiles: typeof files; subGroups: Map<string, typeof files> };
+                                    const grouped = new Map<string, GroupData>();
                                     for (const file of files) {
-                                      const rel = file.folderPath?.replace(sectionPath, '').replace(/^\//, '') || '';
-                                      const existing = grouped.get(rel) ?? [];
-                                      existing.push(file);
-                                      grouped.set(rel, existing);
+                                      const fullRel = file.folderPath?.replace(sectionPath, '').replace(/^\//, '') || '';
+                                      const slash1 = fullRel.indexOf('/');
+                                      const topKey = slash1 >= 0 ? fullRel.slice(0, slash1) : fullRel;
+                                      const remainder = slash1 >= 0 ? fullRel.slice(slash1 + 1) : '';
+                                      if (!grouped.has(topKey)) grouped.set(topKey, { directFiles: [], subGroups: new Map() });
+                                      const group = grouped.get(topKey)!;
+                                      if (!remainder) {
+                                        group.directFiles.push(file);
+                                      } else {
+                                        const slash2 = remainder.indexOf('/');
+                                        const subKey = slash2 >= 0 ? remainder.slice(0, slash2) : remainder;
+                                        const sub = group.subGroups.get(subKey) ?? [];
+                                        sub.push(file);
+                                        group.subGroups.set(subKey, sub);
+                                      }
                                     }
                                     const sortedGroups = [...grouped.entries()].sort(([a], [b]) =>
                                       !a ? -1 : !b ? 1 : a.localeCompare(b)
                                     );
-                                    return sortedGroups.map(([groupPath, groupFiles]) => {
+                                    return sortedGroups.map(([groupPath, groupData]) => {
                                       if (!groupPath) {
                                         // Files directly in section root — always visible, no toggle
                                         return (
                                           <div key="__root__" className="divide-y divide-slate-50">
-                                            {groupFiles.map(file => renderFileRow(file))}
+                                            {groupData.directFiles.map(file => renderFileRow(file))}
                                           </div>
                                         );
                                       }
                                       const subKey = `${folder.id}::${groupPath}`;
                                       const isSubOpen = expandedSubfolders.has(subKey);
+                                      const totalCount = groupData.directFiles.length + [...groupData.subGroups.values()].reduce((s, f) => s + f.length, 0);
                                       return (
                                         <div key={groupPath}>
                                           <button
@@ -5603,17 +5633,40 @@ export default function App() {
                                             })}
                                             className={`w-full px-4 py-2 border-y flex items-center gap-2 transition-colors text-left ${isSubOpen ? 'bg-indigo-50 border-indigo-100 border-l-2 border-l-indigo-400' : 'bg-slate-50 border-slate-100 hover:bg-slate-100'}`}
                                           >
-                                            {isSubOpen
-                                              ? <FolderOpen size={11} className="text-indigo-400 flex-shrink-0" />
-                                              : <Folder size={11} className="text-amber-300 flex-shrink-0" />
-                                            }
+                                            {isSubOpen ? <FolderOpen size={11} className="text-indigo-400 flex-shrink-0" /> : <Folder size={11} className="text-amber-300 flex-shrink-0" />}
                                             <span className={`text-[11px] font-bold flex-1 ${isSubOpen ? 'text-indigo-600' : 'text-slate-600'}`}>{groupPath}</span>
-                                            <span className="text-[10px] text-slate-400 mr-1">{groupFiles.length}</span>
+                                            <span className="text-[10px] text-slate-400 mr-1">{totalCount}</span>
                                             <ChevronDown size={11} className={`text-slate-400 flex-shrink-0 transition-transform ${isSubOpen ? 'rotate-180' : ''}`} />
                                           </button>
                                           {isSubOpen && (
                                             <div className="divide-y divide-slate-50">
-                                              {groupFiles.map(file => renderFileRow(file))}
+                                              {groupData.directFiles.map(file => renderFileRow(file))}
+                                              {[...groupData.subGroups.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([subGroupName, subFiles]) => {
+                                                const subSubKey = `${folder.id}::${groupPath}::${subGroupName}`;
+                                                const isSubSubOpen = expandedSubfolders.has(subSubKey);
+                                                return (
+                                                  <div key={subGroupName} className="border-t border-slate-50">
+                                                    <button
+                                                      onClick={() => setExpandedSubfolders(prev => {
+                                                        const s = new Set([...prev].filter(k => !k.startsWith(`${folder.id}::${groupPath}::`)));
+                                                        if (!prev.has(subSubKey)) s.add(subSubKey);
+                                                        return s;
+                                                      })}
+                                                      className={`w-full pl-8 pr-4 py-1.5 flex items-center gap-2 transition-colors text-left ${isSubSubOpen ? 'bg-indigo-50/60' : 'bg-slate-50/60 hover:bg-slate-100/60'}`}
+                                                    >
+                                                      {isSubSubOpen ? <FolderOpen size={10} className="text-indigo-300 flex-shrink-0" /> : <Folder size={10} className="text-amber-200 flex-shrink-0" />}
+                                                      <span className={`text-[10px] font-bold flex-1 ${isSubSubOpen ? 'text-indigo-500' : 'text-slate-500'}`}>{subGroupName}</span>
+                                                      <span className="text-[9px] text-slate-400 mr-1">{subFiles.length}</span>
+                                                      <ChevronDown size={10} className={`text-slate-300 flex-shrink-0 transition-transform ${isSubSubOpen ? 'rotate-180' : ''}`} />
+                                                    </button>
+                                                    {isSubSubOpen && (
+                                                      <div className="divide-y divide-slate-50 pl-4">
+                                                        {subFiles.map(file => renderFileRow(file))}
+                                                      </div>
+                                                    )}
+                                                  </div>
+                                                );
+                                              })}
                                             </div>
                                           )}
                                         </div>
