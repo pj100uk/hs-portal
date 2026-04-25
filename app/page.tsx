@@ -17,7 +17,7 @@ import { supabase } from './lib/supabase';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 type Priority = 'red' | 'amber' | 'green';
-type ActionStatus = 'open' | 'resolved';
+type ActionStatus = 'open' | 'resolved' | 'pending_review';
 type AppView = 'portfolio' | 'site' | 'admin';
 type AdminTab = 'organisations' | 'sites' | 'users' | 'requirements' | 'usage';
 
@@ -28,7 +28,20 @@ interface Action {
   hazardRef?: string | null; hazard?: string | null; existingControls?: string | null;
   riskRating?: string | null; riskLevel?: string | null; resolvedDate?: string | null; sourceFolderId?: string | null;
   isSuggested?: boolean; updatedAt?: string | null; sourceFolderPath?: string | null; issueDate?: string | null; dattoFileId?: string | null;
+  reviewNote?: string | null;
 }
+interface ActionEvidence {
+  id: string;
+  fileName: string;
+  fileSizeBytes: number | null;
+  storagePath: string;
+  uploadedAt: string;
+  uploadedBy: string | null;
+  dattoFileId?: string | null;
+  hazardRef?: string | null;
+  sourceDocumentId?: string | null;
+}
+
 interface Site {
   id: string; name: string; type: string; organisation_id: string | null;
   red: number; amber: number; green: number; compliance: number; lastReview: string;
@@ -249,8 +262,8 @@ function derivePriority(action: Action): { priority: Priority; label: string } {
   if (action.status === 'resolved') return { priority: 'green', label: 'Resolved' };
   const today = new Date().toLocaleDateString('en-CA');
   const date = action.date;
-  if (date && DERIVE_IMMEDIATE_RE.test(date)) return { priority: 'red', label: 'Immediate' };
   const isOngoing = !!date && DERIVE_ONGOING_RE.test(date);
+  if (date && !isOngoing && DERIVE_IMMEDIATE_RE.test(date)) return { priority: 'red', label: 'Immediate' };
   const hasSpecificDate = !!date && !isOngoing && /^\d{4}-\d{2}-\d{2}$/.test(date);
   if (hasSpecificDate) {
     if (date < today) return { priority: 'red', label: 'Overdue' };
@@ -302,13 +315,13 @@ const computeActionProgress = (actions: Action[]): number => {
   let onTrackPoints = 0, totalPoints = 0;
   for (const a of actions) {
     const d = a.date ?? null;
-    const isResolved = a.status === 'resolved';
-    const isImmediate = !isResolved && !!d && IMMEDIATE_RE.test(d);
+    const isResolved = a.status === 'resolved' || a.status === 'pending_review';
+    const isImmediate = !isResolved && !!d && IMMEDIATE_RE.test(d) && !ONGOING_RE.test(d);
     const isOverdue = !isResolved && !isImmediate && !!d && !ONGOING_RE.test(d) && /^\d{4}-\d{2}-\d{2}$/.test(d) && d < today;
     const isUpcoming = !isResolved && !isImmediate && !isOverdue && !!d && !ONGOING_RE.test(d) && /^\d{4}-\d{2}-\d{2}$/.test(d)
       && Math.ceil((new Date(d).getTime() - Date.now()) / 86400000) <= 30;
     const w = (isOverdue || isImmediate) ? 2 : 1;
-    if (!isOverdue && !isImmediate && !isUpcoming) onTrackPoints += w;
+    if (isResolved || (!isOverdue && !isImmediate && !isUpcoming)) onTrackPoints += w;
     totalPoints += w;
   }
   return totalPoints === 0 ? 100 : Math.round((onTrackPoints / totalPoints) * 100);
@@ -469,8 +482,8 @@ function fileTypeBadge(name: string): { label: string; cls: string } {
 }
 
 // ─── Action Card ──────────────────────────────────────────────────────────────
-const ActionCard = ({ action, isResolved, onToggleResolve, onAddNote, onDelete, onUpdateIssueDate, role, expanded, onExpand }: {
-  action: Action; isResolved: boolean; onToggleResolve: (id: string) => void; onAddNote: (id: string, note: string) => void; onDelete?: (id: string) => void; onUpdateIssueDate?: (id: string, date: string | null) => void; role: string; expanded: boolean; onExpand: () => void;
+const ActionCard = ({ action, isResolved, onToggleResolve, onAddNote, onDelete, onUpdateIssueDate, onClientSubmit, onClientWithdraw, onAdvisorConfirm, onAdvisorReject, role, expanded, onExpand, siteId, userId, onFlash }: {
+  action: Action; isResolved: boolean; onToggleResolve: (id: string) => void; onAddNote: (id: string, note: string) => void; onDelete?: (id: string) => void; onUpdateIssueDate?: (id: string, date: string | null) => void; onClientSubmit?: (id: string) => void; onClientWithdraw?: (id: string) => void; onAdvisorConfirm?: (id: string) => void; onAdvisorReject?: (id: string, note: string) => void; role: string; expanded: boolean; onExpand: () => void; siteId?: string; userId?: string; onFlash?: (msg: string) => void;
 }) => {
   const [noteText, setNoteText] = useState('');
   const [showNoteInput, setShowNoteInput] = useState(false);
@@ -478,7 +491,23 @@ const ActionCard = ({ action, isResolved, onToggleResolve, onAddNote, onDelete, 
   const [issueDateInput, setIssueDateInput] = useState(action.issueDate || '');
   const [syncing, setSyncing] = useState(false);
   const [syncResult, setSyncResult] = useState<{ ok: boolean; msg: string } | null>(null);
+  const [rejectNote, setRejectNote] = useState('');
+  const [showRejectInput, setShowRejectInput] = useState(false);
+  const [evidence, setEvidence] = useState<ActionEvidence[]>([]);
+  const [evidenceLoading, setEvidenceLoading] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const fileInputRef = React.useRef<HTMLInputElement>(null);
   const today = new Date().toLocaleDateString('en-CA');
+
+  React.useEffect(() => {
+    if (!expanded) return;
+    setEvidenceLoading(true);
+    fetch(`/api/actions/${action.id}/evidence`)
+      .then(r => r.json())
+      .then(d => setEvidence(d.evidence ?? []))
+      .catch(() => {})
+      .finally(() => setEvidenceLoading(false));
+  }, [expanded, action.id]);
   const isOngoing = !!action.date && ONGOING_RE.test(action.date);
   const isOverdue = !isResolved && !isOngoing && !!action.date && action.date < today;
   const { priority: derivedPriority, label: derivedLabel } = derivePriority(action);
@@ -522,6 +551,43 @@ const ActionCard = ({ action, isResolved, onToggleResolve, onAddNote, onDelete, 
     doSync();
   };
 
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !siteId) return;
+    setUploading(true);
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      fd.append('siteId', siteId);
+      if (userId) fd.append('userId', userId);
+      if (action.sourceFolderId) fd.append('sourceFolderId', action.sourceFolderId);
+      if (action.hazardRef) fd.append('hazardRef', action.hazardRef);
+      if (action.source_document_id) fd.append('sourceDocumentId', action.source_document_id);
+      if (action.source) fd.append('sourceDocumentName', action.source);
+      const res = await fetch(`/api/actions/${action.id}/evidence`, { method: 'POST', body: fd });
+      const data = await res.json();
+      if (!res.ok) { onFlash?.(data.error ?? 'Upload failed'); return; }
+      setEvidence(prev => [...prev, data.evidence]);
+    } finally {
+      setUploading(false);
+      e.target.value = '';
+    }
+  };
+
+  const handleDeleteEvidence = async (ev: ActionEvidence) => {
+    if (!window.confirm(`Remove "${ev.fileName}" from this action?`)) return;
+    const res = await fetch(`/api/actions/${action.id}/evidence?evidenceId=${ev.id}`, { method: 'DELETE' });
+    if (res.ok) setEvidence(prev => prev.filter(e => e.id !== ev.id));
+    else onFlash?.('Delete failed — try again.');
+  };
+
+  const openEvidence = async (ev: ActionEvidence) => {
+    const res = await fetch(`/api/actions/${action.id}/evidence?signedUrl=${ev.id}`);
+    const data = await res.json();
+    if (res.ok && data.url) window.open(data.url, '_blank');
+    else { console.error('[openEvidence]', data.error); onFlash?.('Could not open file — try again.'); }
+  };
+
   const handleResolve = () => {
     const resolving = !isResolved;
     onToggleResolve(action.id);
@@ -531,7 +597,7 @@ const ActionCard = ({ action, isResolved, onToggleResolve, onAddNote, onDelete, 
     }
   };
   return (
-    <div className={`rounded-lg border transition-all duration-300 overflow-hidden ${isResolved ? 'bg-slate-50/60 border-slate-100 opacity-60' : `${cfg.bg} ${cfg.border}`}`}>
+    <div className={`rounded-lg border transition-all duration-300 overflow-hidden ${action.status === 'pending_review' ? 'bg-amber-50/60 border-amber-200' : isResolved ? 'bg-slate-50/60 border-slate-100 opacity-60' : `${cfg.bg} ${cfg.border}`}`}>
       <div className="px-4 py-3 flex flex-col md:flex-row md:items-center gap-3 cursor-pointer" onClick={onExpand}>
         <div className={`w-1.5 rounded-full self-stretch hidden md:block flex-shrink-0 ${isResolved ? 'bg-slate-300' : cfg.bar}`} />
         <div className="flex-1 min-w-0">
@@ -555,7 +621,9 @@ const ActionCard = ({ action, isResolved, onToggleResolve, onAddNote, onDelete, 
                   : 'bg-emerald-200 text-emerald-800 border-emerald-300';
                 return <span className={`text-[10px] font-black uppercase w-28 py-1 rounded-full border text-center ${riskDarkCls}`}>{action.riskLevel} Risk</span>;
               })()}
-              {isResolved ? (
+              {action.status === 'pending_review' ? (
+                <span className="text-[10px] font-black uppercase w-28 py-1 rounded-full border text-center bg-amber-100 border-amber-300 text-amber-700 flex items-center justify-center gap-1"><Clock size={9} />Pending</span>
+              ) : isResolved ? (
                 <span className="text-[10px] font-black uppercase w-28 py-1 rounded-full border text-center bg-white border-slate-200 text-slate-400">Resolved</span>
               ) : isOngoing ? (
                 <span className="text-[10px] font-black uppercase w-28 py-1 rounded-full border text-center bg-emerald-50 border-emerald-200 text-emerald-700">Ongoing</span>
@@ -676,6 +744,15 @@ const ActionCard = ({ action, isResolved, onToggleResolve, onAddNote, onDelete, 
               <p className="text-[12px] text-slate-700">{action.action}</p>
             </div>
           )}
+          {action.reviewNote && action.status === 'open' && (
+            <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 flex items-start gap-2">
+              <AlertCircle size={14} className="text-amber-500 flex-shrink-0 mt-0.5" />
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-wider text-amber-700 mb-0.5">Advisor Note</p>
+                <p className="text-[12px] text-amber-800">{action.reviewNote}</p>
+              </div>
+            </div>
+          )}
           <div><p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1.5">Requirement Detail</p><p className="text-sm text-slate-700 leading-relaxed">{action.description}</p></div>
           {/* AI Suggestion mini-card — only shown when there's a regulation to display */}
           {action.regulation && (
@@ -692,18 +769,72 @@ const ActionCard = ({ action, isResolved, onToggleResolve, onAddNote, onDelete, 
               <div className="bg-white rounded-xl border border-slate-200 px-4 py-3 text-sm text-slate-700 min-h-[48px]">{action.notes || <span className="text-slate-300 italic">No notes added.</span>}</div>
             </div>
             <div>
-              <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1.5 flex items-center gap-1.5"><Paperclip size={11} />Evidence</p>
-              <div className="bg-white rounded-xl border border-dashed border-slate-200 px-4 py-3 flex items-center justify-center gap-2 cursor-pointer hover:border-indigo-300 group">
-                <Plus size={14} className="text-slate-300 group-hover:text-indigo-400" /><span className="text-xs font-bold text-slate-300 group-hover:text-indigo-400">Upload Evidence</span>
+              <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1.5 flex items-center justify-between gap-1.5">
+                <span className="flex items-center gap-1.5"><Paperclip size={11} />Evidence</span>
+                {action.source && (
+                  <a href={`/api/actions/${action.id}/evidence-form`} download className="flex items-center gap-1 text-[9px] font-black uppercase tracking-wider text-indigo-400 hover:text-indigo-600 transition-colors">
+                    <FileText size={10} />Download Acknowledgement Form
+                  </a>
+                )}
+              </p>
+              <div onClick={() => fileInputRef.current?.click()} className="bg-white rounded-xl border border-dashed border-slate-200 px-4 py-3 flex items-center justify-center gap-2 cursor-pointer hover:border-indigo-300 group">
+                {uploading ? <span className="text-xs text-slate-400">Uploading…</span> : <><Plus size={14} className="text-slate-300 group-hover:text-indigo-400" /><span className="text-xs font-bold text-slate-300 group-hover:text-indigo-400">Upload Evidence</span></>}
               </div>
-              <div className="mt-3 pt-3 border-t border-slate-100">
-                <button
-                  onClick={handleResolve}
-                  className={`w-full px-4 py-2 rounded-xl font-black text-xs uppercase tracking-wider active:scale-95 shadow-sm flex items-center justify-center gap-2 ${isResolved ? 'bg-white border border-slate-200 text-slate-400 hover:border-rose-200 hover:text-rose-400' : 'bg-slate-900 text-white hover:bg-indigo-700'}`}
-                >
-                  {isResolved ? <><X size={13} />Undo Resolve</> : <><CheckCircle size={13} />Mark as Resolved</>}
-                </button>
-                {!isResolved && <p className="text-[11px] text-slate-400 italic mt-1.5 text-center">Add a note or upload evidence to demonstrate how this was resolved.</p>}
+              <input ref={fileInputRef} type="file" accept=".pdf,.docx,.doc,.jpg,.jpeg,.png" className="hidden" onChange={handleFileSelect} />
+              {evidenceLoading && <p className="text-[11px] text-slate-400 mt-2 text-center">Loading…</p>}
+              {evidence.length > 0 && (
+                <div className="mt-2 space-y-1">
+                  {evidence.map(ev => (
+                    <div key={ev.id} className="flex items-center gap-2 py-0.5">
+                      <Paperclip size={11} className="text-slate-400 flex-shrink-0" />
+                      <button onClick={() => openEvidence(ev)} className="text-[12px] text-indigo-600 hover:underline flex-1 text-left truncate">{ev.fileName}</button>
+                      {ev.fileSizeBytes && <span className="text-[10px] text-slate-400 flex-shrink-0">{Math.round(ev.fileSizeBytes / 1024)}KB</span>}
+                      {(role === 'advisor' || role === 'superadmin' || ev.uploadedBy === userId) && (
+                        <button onClick={() => handleDeleteEvidence(ev)} className="text-slate-300 hover:text-rose-400 flex-shrink-0 ml-1"><X size={12} /></button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+              <div className="mt-3 pt-3 border-t border-slate-100 space-y-2">
+                {action.status === 'pending_review' && role === 'client' && (
+                  <>
+                    <div className="w-full px-4 py-2 rounded-xl font-black text-xs uppercase tracking-wider bg-amber-50 border border-amber-200 text-amber-700 flex items-center justify-center gap-2">
+                      <Clock size={13} />Awaiting Confirmation
+                    </div>
+                    <button onClick={e => { e.stopPropagation(); onClientWithdraw?.(action.id); }} className="w-full px-4 py-2 rounded-xl font-black text-xs uppercase tracking-wider border border-slate-200 text-slate-400 hover:border-rose-200 hover:text-rose-400 bg-white flex items-center justify-center gap-2"><X size={13} />Withdraw</button>
+                  </>
+                )}
+                {action.status === 'pending_review' && (role === 'advisor' || role === 'superadmin') && (
+                  <>
+                    <button onClick={e => { e.stopPropagation(); onAdvisorConfirm?.(action.id); }} className="w-full px-4 py-2 rounded-xl font-black text-xs uppercase tracking-wider active:scale-95 bg-emerald-600 text-white hover:bg-emerald-700 flex items-center justify-center gap-2"><CheckCircle size={13} />Confirm Resolved</button>
+                    {showRejectInput ? (
+                      <div className="space-y-2">
+                        <textarea value={rejectNote} onChange={e => setRejectNote(e.target.value)} placeholder="Reason for rejection…" rows={2} className="w-full text-sm border border-slate-200 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-rose-200 resize-none bg-white" />
+                        <div className="flex gap-2">
+                          <button onClick={e => { e.stopPropagation(); onAdvisorReject?.(action.id, rejectNote); setRejectNote(''); setShowRejectInput(false); }} className="flex-1 px-4 py-2 rounded-xl font-black text-xs uppercase bg-rose-600 text-white hover:bg-rose-700 flex items-center justify-center gap-2"><X size={13} />Send Back</button>
+                          <button onClick={() => { setShowRejectInput(false); setRejectNote(''); }} className="px-4 py-2 rounded-xl font-black text-xs bg-white border border-slate-200 text-slate-400">Cancel</button>
+                        </div>
+                      </div>
+                    ) : (
+                      <button onClick={e => { e.stopPropagation(); setShowRejectInput(true); }} className="w-full px-4 py-2 rounded-xl font-black text-xs uppercase tracking-wider border border-rose-200 text-rose-500 hover:bg-rose-50 flex items-center justify-center gap-2"><X size={13} />Reject</button>
+                    )}
+                  </>
+                )}
+                {action.status !== 'pending_review' && role === 'client' && !isResolved && (
+                  <button onClick={e => { e.stopPropagation(); onClientSubmit?.(action.id); }} className="w-full px-4 py-2 rounded-xl font-black text-xs uppercase tracking-wider active:scale-95 shadow-sm bg-slate-900 text-white hover:bg-indigo-700 flex items-center justify-center gap-2"><Clock size={13} />Submit for Review</button>
+                )}
+                {action.status !== 'pending_review' && role === 'client' && isResolved && (
+                  <div className="w-full px-4 py-2 rounded-xl font-black text-xs uppercase tracking-wider bg-white border border-slate-200 text-slate-400 flex items-center justify-center gap-2"><CheckCircle size={13} />Confirmed</div>
+                )}
+                {action.status !== 'pending_review' && (role === 'advisor' || role === 'superadmin') && (
+                  <>
+                    <button onClick={handleResolve} className={`w-full px-4 py-2 rounded-xl font-black text-xs uppercase tracking-wider active:scale-95 shadow-sm flex items-center justify-center gap-2 ${isResolved ? 'bg-white border border-slate-200 text-slate-400 hover:border-rose-200 hover:text-rose-400' : 'bg-slate-900 text-white hover:bg-indigo-700'}`}>
+                      {isResolved ? <><X size={13} />Undo Resolve</> : <><CheckCircle size={13} />Mark as Resolved</>}
+                    </button>
+                    {!isResolved && <p className="text-[11px] text-slate-400 italic mt-1.5 text-center">Add a note or upload evidence to demonstrate how this was resolved.</p>}
+                  </>
+                )}
               </div>
             </div>
           </div>
@@ -3596,7 +3727,7 @@ export default function App() {
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncLastRun, setSyncLastRun] = useState('2 hours ago');
   const [resolvedIds, setResolvedIds] = useState<string[]>([]);
-  const [filterPriority, setFilterPriority] = useState<Priority | 'all' | 'resolved'>('all');
+  const [filterPriority, setFilterPriority] = useState<Priority | 'all' | 'resolved' | 'pending_review'>('all');
   const [actionNotes, setActionNotes] = useState<Record<string, string>>({});
   const [sites, setSites] = useState<Site[]>([]);
   const [organisations, setOrganisations] = useState<Organisation[]>([]);
@@ -3782,7 +3913,7 @@ export default function App() {
         const { data: docs } = await supabase.from('site_documents').select('id, datto_file_id').in('datto_file_id', docIds);
         (docs ?? []).forEach((d: any) => { docMap[d.datto_file_id] = d.datto_file_id ?? null; });
       }
-      setAllActions(data.filter((a: any) => !a.site_document_id).map((a: any) => ({ id: a.id, action: a.title, description: a.description || '', date: a.due_date || '', site: sites.find(s => s.id === a.site_id)?.name || '', who: a.responsible_person || '', contractor: a.contractor || '', source: a.source_document_name || '', source_document_id: a.source_document_id || '', priority: (priorityMap[a.priority] || 'green') as Priority, regulation: a.regulation || '', notes: '', status: a.status as ActionStatus, hazardRef: a.hazard_ref || null, hazard: a.hazard || null, existingControls: a.existing_controls || null, riskRating: a.risk_rating || null, riskLevel: a.risk_level || null, resolvedDate: a.resolved_date || null, sourceFolderId: a.source_folder_id || null, isSuggested: a.is_suggested ?? false, updatedAt: a.updated_at || null, sourceFolderPath: a.source_folder_path || null, issueDate: a.issue_date || null, _siteDocumentId: a.site_document_id || null, dattoFileId: a.source_document_id ? (docMap[a.source_document_id] ?? null) : null })));
+      setAllActions(data.filter((a: any) => !a.site_document_id).map((a: any) => ({ id: a.id, action: a.title, description: a.description || '', date: a.due_date || '', site: sites.find(s => s.id === a.site_id)?.name || '', who: a.responsible_person || '', contractor: a.contractor || '', source: a.source_document_name || '', source_document_id: a.source_document_id || '', priority: (priorityMap[a.priority] || 'green') as Priority, regulation: a.regulation || '', notes: '', status: a.status as ActionStatus, hazardRef: a.hazard_ref || null, hazard: a.hazard || null, existingControls: a.existing_controls || null, riskRating: a.risk_rating || null, riskLevel: a.risk_level || null, resolvedDate: a.resolved_date || null, sourceFolderId: a.source_folder_id || null, isSuggested: a.is_suggested ?? false, updatedAt: a.updated_at || null, sourceFolderPath: a.source_folder_path || null, issueDate: a.issue_date || null, _siteDocumentId: a.site_document_id || null, dattoFileId: a.source_document_id ? (docMap[a.source_document_id] ?? null) : null, reviewNote: a.review_note ?? null })));
     });
   }, [user, sites]);
 
@@ -3898,6 +4029,40 @@ export default function App() {
       resolved_date: isCurrentlyResolved ? null : today,
     }).eq('id', id);
     setAllActions(prev => prev.map(a => a.id === id ? { ...a, status: isCurrentlyResolved ? 'open' : 'resolved', resolvedDate: isCurrentlyResolved ? null : today } : a));
+    const action = allActions.find(a => a.id === id);
+    const siteId = sites.find(s => s.name === action?.site)?.id;
+    if (siteId) recalcActionProgress(siteId);
+  };
+  const handleClientSubmit = async (id: string) => {
+    const { error } = await supabase.from('actions').update({ status: 'pending_review', review_note: null }).eq('id', id);
+    if (error) { console.error('[handleClientSubmit] DB error:', error); showAppFlash('Failed to submit — please try again.'); return; }
+    setAllActions(prev => prev.map(a => a.id === id ? { ...a, status: 'pending_review' as ActionStatus, reviewNote: null } : a));
+    const action = allActions.find(a => a.id === id);
+    const siteId = sites.find(s => s.name === action?.site)?.id;
+    if (siteId) recalcActionProgress(siteId);
+  };
+  const handleClientWithdraw = async (id: string) => {
+    const { error } = await supabase.from('actions').update({ status: 'open', review_note: null }).eq('id', id);
+    if (error) { console.error('[handleClientWithdraw] DB error:', error); showAppFlash('Failed to withdraw — please try again.'); return; }
+    setAllActions(prev => prev.map(a => a.id === id ? { ...a, status: 'open' as ActionStatus, reviewNote: null } : a));
+    const action = allActions.find(a => a.id === id);
+    const siteId = sites.find(s => s.name === action?.site)?.id;
+    if (siteId) recalcActionProgress(siteId);
+  };
+  const handleAdvisorConfirm = async (id: string) => {
+    const today = new Date().toLocaleDateString('en-CA');
+    const { error } = await supabase.from('actions').update({ status: 'resolved', resolved_date: today, review_note: null }).eq('id', id);
+    if (error) { console.error('[handleAdvisorConfirm] DB error:', error); showAppFlash('Failed to confirm — please try again.'); return; }
+    setAllActions(prev => prev.map(a => a.id === id ? { ...a, status: 'resolved' as ActionStatus, resolvedDate: today, reviewNote: null } : a));
+    setResolvedIds(prev => prev.includes(id) ? prev : [...prev, id]);
+    const action = allActions.find(a => a.id === id);
+    const siteId = sites.find(s => s.name === action?.site)?.id;
+    if (siteId) recalcActionProgress(siteId);
+  };
+  const handleAdvisorReject = async (id: string, note: string) => {
+    const { error } = await supabase.from('actions').update({ status: 'open', review_note: note || null }).eq('id', id);
+    if (error) { console.error('[handleAdvisorReject] DB error:', error); showAppFlash('Failed to reject — please try again.'); return; }
+    setAllActions(prev => prev.map(a => a.id === id ? { ...a, status: 'open' as ActionStatus, reviewNote: note || null } : a));
     const action = allActions.find(a => a.id === id);
     const siteId = sites.find(s => s.name === action?.site)?.id;
     if (siteId) recalcActionProgress(siteId);
@@ -4580,10 +4745,11 @@ export default function App() {
   const viewSites = filterOrgId ? sites.filter(s => s.organisation_id === filterOrgId) : sites;
   const viewActions = allActions.filter(a => viewSites.some(s => s.name === a.site));
   const siteActions = selectedSite ? allActions.filter(a => a.site === selectedSite.name) : allActions;
-  const isActionResolved = (a: Action) => resolvedIds.includes(a.id) || a.status === 'resolved';
+  const isActionResolved = (a: Action) => resolvedIds.includes(a.id) || a.status === 'resolved' || a.status === 'pending_review';
   const filteredActions = (
     filterPriority === 'all' ? siteActions.filter(a => !isActionResolved(a)) :
-    filterPriority === 'resolved' ? siteActions.filter(a => isActionResolved(a)) :
+    filterPriority === 'resolved' ? siteActions.filter(a => a.status === 'resolved' || resolvedIds.includes(a.id)) :
+    filterPriority === 'pending_review' ? siteActions.filter(a => a.status === 'pending_review') :
     siteActions.filter(a => !isActionResolved(a) && derivePriority(a).priority === filterPriority)
   )
     .slice()
@@ -4600,8 +4766,8 @@ export default function App() {
       const ar = a.riskLevel ? (riskOrder[a.riskLevel] ?? 3) : 3;
       const br = b.riskLevel ? (riskOrder[b.riskLevel] ?? 3) : 3;
       if (ar !== br) return ar - br;
-      const aImmediate = !!a.date && IMMEDIATE_RE.test(a.date);
-      const bImmediate = !!b.date && IMMEDIATE_RE.test(b.date);
+      const aImmediate = !!a.date && IMMEDIATE_RE.test(a.date) && !ONGOING_RE.test(a.date);
+      const bImmediate = !!b.date && IMMEDIATE_RE.test(b.date) && !ONGOING_RE.test(b.date);
       if (aImmediate !== bImmediate) return aImmediate ? -1 : 1;
       const aHasDate = !!a.date && /^\d{4}-\d{2}-\d{2}$/.test(a.date);
       const bHasDate = !!b.date && /^\d{4}-\d{2}-\d{2}$/.test(b.date);
@@ -4624,7 +4790,7 @@ export default function App() {
       displayName: source.replace(/\.[^.]+$/, ''),
       actions,
       hasRed: actions.some(a => derivePriority(a).priority === 'red'),
-      hasImmediate: actions.some(a => !isActionResolved(a) && !!a.date && IMMEDIATE_RE.test(a.date)),
+      hasImmediate: actions.some(a => !isActionResolved(a) && !!a.date && IMMEDIATE_RE.test(a.date) && !ONGOING_RE.test(a.date)),
       hasAmber: actions.some(a => derivePriority(a).priority === 'amber'),
       redCount: actions.filter(a => derivePriority(a).priority === 'red').length,
       amberCount: actions.filter(a => derivePriority(a).priority === 'amber').length,
@@ -4646,15 +4812,17 @@ export default function App() {
   const openActions = siteActions.filter(a => !isActionResolved(a));
   const openCount = openActions.length;
   const resolvedCount = siteActions.filter(a => isActionResolved(a)).length;
+  const pendingReviewCount = siteActions.filter(a => a.status === 'pending_review').length;
   const filterCounts: Record<string, number> = {
-    all:      openCount,
-    red:      openActions.filter(a => derivePriority(a).priority === 'red').length,
-    amber:    openActions.filter(a => derivePriority(a).priority === 'amber').length,
-    green:    openActions.filter(a => derivePriority(a).priority === 'green').length,
-    resolved: resolvedCount,
+    all:            openCount,
+    red:            openActions.filter(a => derivePriority(a).priority === 'red').length,
+    amber:          openActions.filter(a => derivePriority(a).priority === 'amber').length,
+    green:          openActions.filter(a => derivePriority(a).priority === 'green').length,
+    resolved:       siteActions.filter(a => a.status === 'resolved' || resolvedIds.includes(a.id)).length,
+    pending_review: pendingReviewCount,
   };
-  const criticalCount = viewActions.filter(a => derivePriority(a).priority === 'red').length;
-  const upcomingCount = viewActions.filter(a => derivePriority(a).priority === 'amber').length;
+  const criticalCount = viewActions.filter(a => a.status !== 'resolved' && a.status !== 'pending_review' && derivePriority(a).priority === 'red').length;
+  const upcomingCount = viewActions.filter(a => a.status !== 'resolved' && a.status !== 'pending_review' && derivePriority(a).priority === 'amber').length;
 
   if (authLoading) return <div className="min-h-screen bg-indigo-950 flex items-center justify-center"><div className="text-indigo-300 font-black text-sm uppercase tracking-widest animate-pulse">Loading…</div></div>;
   if (!user) return <LoginScreen onLogin={() => {}} />;
@@ -4755,7 +4923,7 @@ export default function App() {
                       const riskTiers = (['HIGH', 'MEDIUM', 'LOW'] as const).map(tier => {
                         const forTier = siteActions.filter(a => a.riskLevel === tier);
                         const onTrackCount = forTier.filter(a => {
-                          if (a.status === 'resolved') return true;
+                          if (a.status === 'resolved' || a.status === 'pending_review') return true;
                           const d = a.date;
                           return !(d && !ONGOING_RE.test(d) && /^\d{4}-\d{2}-\d{2}$/.test(d) && d < today);
                         }).length;
@@ -4917,14 +5085,14 @@ export default function App() {
                   const s = computeActionProgress(siteActions);
                   const c = scoreColor(s);
                   const today = new Date().toLocaleDateString('en-CA');
-                  const unresolved = siteActions.filter(a => a.status !== 'resolved');
-                  const overdueCount = unresolved.filter(a => { const d = a.date; return d && !ONGOING_RE.test(d) && /^\d{4}-\d{2}-\d{2}$/.test(d) && d < today; }).length;
-                  const upcomingCount = unresolved.filter(a => { const d = a.date; if (!d || ONGOING_RE.test(d) || !/^\d{4}-\d{2}-\d{2}$/.test(d)) return false; const daysAway = Math.ceil((new Date(d).getTime() - Date.now()) / 86400000); return d >= today && daysAway <= 30; }).length;
+                  const unresolved = siteActions.filter(a => a.status !== 'resolved' && a.status !== 'pending_review');
+                  const overdueCount = unresolved.filter(a => derivePriority(a).priority === 'red').length;
+                  const upcomingCount = unresolved.filter(a => derivePriority(a).priority === 'amber').length;
                   const ongoingCount = unresolved.length - overdueCount - upcomingCount;
                   const riskTiers = (['HIGH', 'MEDIUM', 'LOW'] as const).map(tier => {
                     const forTier = siteActions.filter(a => a.riskLevel === tier);
                     const onTrackCount = forTier.filter(a => {
-                      if (a.status === 'resolved') return true;
+                      if (a.status === 'resolved' || a.status === 'pending_review') return true;
                       const d = a.date;
                       const isOverdue = d && !ONGOING_RE.test(d) && /^\d{4}-\d{2}-\d{2}$/.test(d) && d < today;
                       return !isOverdue;
@@ -4963,7 +5131,17 @@ export default function App() {
                     <div className="col-span-2 lg:col-span-3 bg-white rounded-lg border border-slate-200 shadow-sm cursor-pointer hover:border-indigo-300 hover:shadow-md transition-all" onClick={() => setSiteTab('actions')}>
                       {/* Card header */}
                       <div className="px-5 py-2.5 border-b border-slate-100 flex items-center justify-between">
-                        <p className="text-[11px] font-black uppercase tracking-widest text-slate-500">Compliance Score</p>
+                        <div className="flex items-center gap-2">
+                          <p className="text-[11px] font-black uppercase tracking-widest text-slate-500">Compliance Score</p>
+                          {pendingReviewCount > 0 && (
+                            <>
+                              <span className="text-slate-300">|</span>
+                              <button onClick={e => { e.stopPropagation(); setSiteTab('actions'); setFilterPriority('pending_review'); }} className="text-[11px] font-medium text-violet-500 hover:text-violet-700 transition-colors">
+                                {pendingReviewCount} Action{pendingReviewCount !== 1 ? 's' : ''} Pending Review
+                              </button>
+                            </>
+                          )}
+                        </div>
                         <button onClick={e => { e.stopPropagation(); setScoreExplanationCard('implementation'); }} className="flex items-center gap-1 text-slate-300 hover:text-indigo-500 transition-colors" title="How is this calculated?"><AlertCircle size={14} /><span className="text-[9px] font-black uppercase tracking-wider">Help</span></button>
                       </div>
                       {/* Body */}
@@ -5158,7 +5336,15 @@ export default function App() {
               {!isViewOnly && scoreExplanationCard && <ScoreExplanationModal card={scoreExplanationCard} onClose={() => setScoreExplanationCard(null)} />}
               {/* Site tab toggle */}
               <div className="flex bg-slate-100 p-1 rounded-xl overflow-x-auto gap-0.5 w-full md:w-fit">
-                {!isViewOnly && <button onClick={() => setSiteTab('actions')} className={`px-4 py-2 text-[11px] font-black uppercase tracking-widest rounded-lg transition-all whitespace-nowrap ${effectiveSiteTab === 'actions' ? 'bg-white shadow-sm text-indigo-600' : 'text-slate-400 hover:text-slate-600'}`}>Assigned Actions</button>}
+                {!isViewOnly && (() => {
+                  const pendingCount = (profile?.role === 'advisor' || profile?.role === 'superadmin') ? siteActions.filter(a => a.status === 'pending_review').length : 0;
+                  return (
+                    <button onClick={() => setSiteTab('actions')} className={`flex items-center gap-1.5 px-4 py-2 text-[11px] font-black uppercase tracking-widest rounded-lg transition-all whitespace-nowrap ${effectiveSiteTab === 'actions' ? 'bg-white shadow-sm text-indigo-600' : 'text-slate-400 hover:text-slate-600'}`}>
+                      Assigned Actions
+                      {pendingCount > 0 && <span className="bg-violet-500 text-white text-[9px] font-black rounded-full min-w-[16px] h-4 flex items-center justify-center px-1">{pendingCount}</span>}
+                    </button>
+                  );
+                })()}
                 {selectedSite.datto_folder_id && <button onClick={() => setSiteTab('files')} className={`px-4 py-2 text-[11px] font-black uppercase tracking-widest rounded-lg transition-all whitespace-nowrap ${effectiveSiteTab === 'files' ? 'bg-white shadow-sm text-sky-600' : 'text-slate-400 hover:text-slate-600'}`}>H&S Documents</button>}
                 {!isViewOnly && <button onClick={() => setSiteTab('documents')} className={`px-4 py-2 text-[11px] font-black uppercase tracking-widest rounded-lg transition-all whitespace-nowrap ${effectiveSiteTab === 'documents' ? 'bg-white shadow-sm text-amber-600' : 'text-slate-400 hover:text-slate-600'}`}>Client Documents</button>}
                 <button onClick={() => { setSiteTab('iag'); loadIagServices(selectedSite.id); }} className={`px-4 py-2 text-[11px] font-black uppercase tracking-widest rounded-lg transition-all whitespace-nowrap ${effectiveSiteTab === 'iag' ? 'bg-white shadow-sm text-violet-600' : 'text-slate-400 hover:text-slate-600'}`}>Industry Alignment</button>
@@ -5168,15 +5354,16 @@ export default function App() {
               {effectiveSiteTab === 'actions' && !isViewOnly && (<>
               <div className="flex items-center justify-between gap-2">
                 <div className="flex items-center gap-1">
-                  {(['all', 'red', 'amber', 'green', 'resolved'] as const).map(f => (
+                  {(['all', 'red', 'amber', 'green', 'pending_review', 'resolved'] as const).map(f => (
                     <button key={f} onClick={() => setFilterPriority(f)} className={`px-3 py-2 text-[11px] font-black uppercase tracking-wider transition-colors whitespace-nowrap ${
-                      f === 'all'      ? filterPriority === f ? 'text-slate-800 underline underline-offset-4 decoration-2' : 'text-slate-400 hover:text-slate-600'
-                    : f === 'red'      ? filterPriority === f ? 'text-rose-600 underline underline-offset-4 decoration-2'   : 'text-rose-400 hover:text-rose-600'
-                    : f === 'amber'    ? filterPriority === f ? 'text-amber-600 underline underline-offset-4 decoration-2' : 'text-amber-400 hover:text-amber-600'
-                    : f === 'green'    ? filterPriority === f ? 'text-emerald-600 underline underline-offset-4 decoration-2' : 'text-emerald-400 hover:text-emerald-600'
-                    :                   filterPriority === f ? 'text-slate-600 underline underline-offset-4 decoration-2' : 'text-slate-400 hover:text-slate-600'
+                      f === 'all'            ? filterPriority === f ? 'text-slate-800 underline underline-offset-4 decoration-2' : 'text-slate-400 hover:text-slate-600'
+                    : f === 'red'            ? filterPriority === f ? 'text-rose-600 underline underline-offset-4 decoration-2'   : 'text-rose-400 hover:text-rose-600'
+                    : f === 'amber'          ? filterPriority === f ? 'text-amber-600 underline underline-offset-4 decoration-2' : 'text-amber-400 hover:text-amber-600'
+                    : f === 'green'          ? filterPriority === f ? 'text-emerald-600 underline underline-offset-4 decoration-2' : 'text-emerald-400 hover:text-emerald-600'
+                    : f === 'pending_review' ? filterPriority === f ? 'text-violet-700 underline underline-offset-4 decoration-2' : 'text-violet-400 hover:text-violet-700'
+                    :                         filterPriority === f ? 'text-slate-600 underline underline-offset-4 decoration-2' : 'text-slate-400 hover:text-slate-600'
                     }`}>
-                      {f === 'all' ? 'All' : f === 'red' ? 'Overdue' : f === 'amber' ? 'Upcoming / Review Due' : f === 'green' ? 'Scheduled / Review' : 'Resolved'} ({filterCounts[f] ?? 0})
+                      {f === 'all' ? 'All' : f === 'red' ? 'Overdue' : f === 'amber' ? 'Upcoming / Review Due' : f === 'green' ? 'Scheduled / Review' : f === 'pending_review' ? 'Pending Review' : 'Resolved'} ({filterCounts[f] ?? 0})
                     </button>
                   ))}
                   <span className="ml-3 text-[10px] font-bold text-slate-400 bg-slate-50 border border-slate-100 px-2.5 py-1 rounded-lg whitespace-nowrap">{openCount} open · {resolvedCount} resolved</span>
@@ -5421,7 +5608,7 @@ export default function App() {
                       </div>
                       {isOpen && (
                         <div className="space-y-3 mt-2 pl-2">
-                          {actions.map(action => <ActionCard key={action.id} action={{ ...action, notes: actionNotes[action.id] || action.notes }} isResolved={resolvedIds.includes(action.id) || action.status === 'resolved'} onToggleResolve={toggleResolve} onAddNote={handleAddNote} onDelete={handleDeleteAction} onUpdateIssueDate={handleUpdateIssueDate} role={profile?.role || 'client'} expanded={expandedActionId === action.id} onExpand={() => setExpandedActionId(prev => prev === action.id ? null : action.id)} />)}
+                          {actions.map(action => <ActionCard key={action.id} action={{ ...action, notes: actionNotes[action.id] || action.notes }} isResolved={resolvedIds.includes(action.id) || action.status === 'resolved'} onToggleResolve={toggleResolve} onAddNote={handleAddNote} onDelete={handleDeleteAction} onUpdateIssueDate={handleUpdateIssueDate} onClientSubmit={handleClientSubmit} onClientWithdraw={handleClientWithdraw} onAdvisorConfirm={handleAdvisorConfirm} onAdvisorReject={handleAdvisorReject} role={profile?.role || 'client'} expanded={expandedActionId === action.id} onExpand={() => setExpandedActionId(prev => prev === action.id ? null : action.id)} siteId={selectedSite?.id} userId={user?.id} onFlash={showAppFlash} />)}
                         </div>
                       )}
                     </div>
@@ -5508,9 +5695,11 @@ export default function App() {
                       className="flex items-center gap-3 px-4 py-2.5 hover:bg-sky-50 group transition-colors"
                       title={isOfficeLink ? 'Open in Word/Excel from mapped drive' : undefined}
                     >
-                      <span className={`text-[9px] font-black px-1.5 py-0.5 rounded flex-shrink-0 ${badge.cls}`}>{badge.label}</span>
                       <div className="flex-1 min-w-0">
-                        <p className="text-[12px] font-semibold text-slate-700 group-hover:text-sky-700 truncate">{file.name.replace(/\.[^.]+$/, '')}</p>
+                        <p className="text-[12px] font-semibold text-slate-700 group-hover:text-sky-700 truncate flex items-center gap-1.5">
+                          <span className="truncate">{file.name.replace(/\.[^.]+$/, '')}</span>
+                          <span className={`text-[8px] font-black px-1 py-0.5 rounded flex-shrink-0 ${badge.cls}`}>{badge.label}</span>
+                        </p>
                         {subPath && <p className="text-[10px] text-slate-400 truncate mt-0.5">{subPath}</p>}
                       </div>
                       {file.modified && <span className="text-[10px] text-slate-300 flex-shrink-0 tabular-nums">{new Date(file.modified).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: '2-digit' })}</span>}
@@ -5652,12 +5841,12 @@ export default function App() {
                                                         if (!prev.has(subSubKey)) s.add(subSubKey);
                                                         return s;
                                                       })}
-                                                      className={`w-full pl-8 pr-4 py-1.5 flex items-center gap-2 transition-colors text-left ${isSubSubOpen ? 'bg-indigo-50/60' : 'bg-slate-50/60 hover:bg-slate-100/60'}`}
+                                                      className={`w-full pl-10 pr-4 py-2 flex items-center gap-2 transition-colors text-left ${isSubSubOpen ? 'bg-indigo-50 border-indigo-100 border-l-2 border-l-indigo-400' : 'bg-slate-50 border-slate-100 hover:bg-slate-100'}`}
                                                     >
-                                                      {isSubSubOpen ? <FolderOpen size={10} className="text-indigo-300 flex-shrink-0" /> : <Folder size={10} className="text-amber-200 flex-shrink-0" />}
-                                                      <span className={`text-[10px] font-bold flex-1 ${isSubSubOpen ? 'text-indigo-500' : 'text-slate-500'}`}>{subGroupName}</span>
-                                                      <span className="text-[9px] text-slate-400 mr-1">{subFiles.length}</span>
-                                                      <ChevronDown size={10} className={`text-slate-300 flex-shrink-0 transition-transform ${isSubSubOpen ? 'rotate-180' : ''}`} />
+                                                      {isSubSubOpen ? <FolderOpen size={11} className="text-indigo-400 flex-shrink-0" /> : <Folder size={11} className="text-amber-400 flex-shrink-0" />}
+                                                      <span className={`text-[11px] font-bold flex-1 ${isSubSubOpen ? 'text-indigo-600' : 'text-slate-600'}`}>{subGroupName}</span>
+                                                      <span className="text-[10px] text-slate-400 mr-1">{subFiles.length}</span>
+                                                      <ChevronDown size={11} className={`text-slate-400 flex-shrink-0 transition-transform ${isSubSubOpen ? 'rotate-180' : ''}`} />
                                                     </button>
                                                     {isSubSubOpen && (
                                                       <div className="divide-y divide-slate-50 pl-4">

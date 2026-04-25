@@ -1,4 +1,17 @@
--- Schema dumped at 2026-04-24T09:48:53.204Z
+-- Schema dumped at 2026-04-25T12:28:56.592Z
+
+TABLE: action_evidence
+  id uuid NOT NULL DEFAULT gen_random_uuid()
+  action_id uuid NOT NULL
+  site_id uuid NOT NULL
+  uploaded_by uuid
+  file_name text NOT NULL
+  file_size_bytes int4
+  storage_path text NOT NULL
+  uploaded_at timestamptz NOT NULL DEFAULT now()
+  datto_file_id text
+  hazard_ref text
+  source_document_id text
 
 TABLE: actions
   id uuid NOT NULL DEFAULT gen_random_uuid()
@@ -25,6 +38,7 @@ TABLE: actions
   is_suggested bool NOT NULL DEFAULT false
   source_folder_path text
   issue_date text
+  review_note text
 
 TABLE: advisor_organisations
   id uuid NOT NULL DEFAULT gen_random_uuid()

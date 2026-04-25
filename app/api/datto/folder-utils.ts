@@ -5,9 +5,10 @@ export const AUTH_HEADER = 'Basic ' + Buffer.from(`${CLIENT_ID}:${CLIENT_SECRET}
 
 const CLIENT_DOCS_FOLDER_NAME = 'Client Provided Documents';
 
-/** Extract ID from a Datto item response — matches all known field variants */
+/** Extract ID from a Datto item response — matches all known field variants including value-wrapped responses */
 function extractId(item: any): string | null {
-  const raw = item.id ?? item.fileId ?? item.folderId ?? item.fileID ?? item.folderID;
+  const d = item.value ?? item;
+  const raw = d.id ?? d.fileId ?? d.folderId ?? d.fileID ?? d.folderID;
   return raw != null ? String(raw) : null;
 }
 
@@ -45,7 +46,7 @@ function findFolder(arr: any[], name: string): string | null {
 }
 
 /** Resolve or create a named subfolder. Returns { id } on success or { id: null, error } on failure. */
-async function resolveSubfolder(parentFolderId: string, folderName: string): Promise<{ id: string | null; error?: string }> {
+export async function resolveSubfolder(parentFolderId: string, folderName: string): Promise<{ id: string | null; error?: string }> {
   // Check if it already exists
   const children = await listChildren(parentFolderId);
   const existingId = findFolder(children, folderName);
