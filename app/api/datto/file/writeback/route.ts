@@ -7,10 +7,16 @@ const BASE_URL = 'https://eu.workplace.datto.com/2/api/v1';
 const AUTH_HEADER = 'Basic ' + Buffer.from(`${CLIENT_ID}:${CLIENT_SECRET}`).toString('base64');
 
 // Extract all text from a table cell's XML
+function decodeXmlEntities(s: string): string {
+  return s.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'");
+}
+
 function cellText(cellXml: string): string {
-  return (cellXml.match(/<w:t[^>]*>([^<]*)<\/w:t>/g) || [])
-    .map(t => t.replace(/<[^>]+>/g, ''))
-    .join('');
+  return decodeXmlEntities(
+    (cellXml.match(/<w:t[^>]*>([^<]*)<\/w:t>/g) || [])
+      .map(t => t.replace(/<[^>]+>/g, ''))
+      .join('')
+  );
 }
 
 // Replace all text content in a cell, preserving the first run's formatting
@@ -36,7 +42,7 @@ function setCellText(cellXml: string, newText: string): string {
 }
 
 function escapeXml(str: string): string {
-  return str
+  return decodeXmlEntities(str)
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')

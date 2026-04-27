@@ -14,16 +14,17 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
   const signedUrlFor = new URL(req.url).searchParams.get('signedUrl');
 
   if (signedUrlFor) {
+    const forceDownload = new URL(req.url).searchParams.get('download') === 'true';
     const { data: row } = await supabase
       .from('action_evidence')
-      .select('storage_path')
+      .select('storage_path, file_name')
       .eq('id', signedUrlFor)
       .eq('action_id', params.id)
       .single();
     if (!row) return NextResponse.json({ error: 'Not found' }, { status: 404 });
     const { data, error } = await supabase.storage
       .from('client-uploads')
-      .createSignedUrl(row.storage_path, 3600);
+      .createSignedUrl(row.storage_path, 3600, forceDownload ? { download: row.file_name } : undefined);
     if (error || !data?.signedUrl) return NextResponse.json({ error: error?.message ?? 'Could not generate URL' }, { status: 500 });
     return NextResponse.json({ url: data.signedUrl });
   }
@@ -63,7 +64,15 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
       .from('action_evidence')
       .select('id', { count: 'exact', head: true })
       .eq('action_id', actionId);
-    const seqSuffix = existingCount && existingCount > 0 ? ` ${existingCount + 1}` : '';
+    const seqSuffix = existingCount && existingCount > 0 ? `${existingCount + 1}` : '';
+
+    // Build canonical filename used for DB, storage and Datto
+    const ext = fileName.includes('.') ? fileName.slice(fileName.lastIndexOf('.')) : '';
+    const docBase = sourceDocumentName ? sourceDocumentName.replace(/\.[^.]+$/, '') : null;
+    const now = new Date();
+    const ukDate = `${String(now.getDate()).padStart(2, '0')}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getFullYear()).slice(2)}`;
+    const parts = [docBase, hazardRef ? `Ref ${hazardRef}` : null, `Evidence${seqSuffix} ${ukDate}`].filter(Boolean);
+    const canonicalName = parts.length > 0 ? parts.join('-') + ext : fileName;
 
     // Insert DB row first to get the id for the storage path
     const { data: row, error: insertErr } = await supabase
@@ -72,7 +81,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
         action_id: actionId,
         site_id: siteId,
         uploaded_by: userId || null,
-        file_name: fileName,
+        file_name: canonicalName,
         file_size_bytes: fileSize || null,
         storage_path: 'pending', // placeholder, updated after upload
         hazard_ref: hazardRef || null,
@@ -83,7 +92,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
 
     if (insertErr) return NextResponse.json({ error: insertErr.message }, { status: 500 });
 
-    const storagePath = `evidence/${actionId}/${row.id}/${fileName}`;
+    const storagePath = `evidence/${actionId}/${row.id}/${canonicalName}`;
 
     const { error: storageErr } = await supabase.storage
       .from('client-uploads')
@@ -99,19 +108,16 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
 
     // Upload to Datto Evidence subfolder if sourceFolderId provided
     let dattoFileId: string | null = null;
+    let finalFileName = canonicalName;
     console.log('[evidence] sourceFolderId:', sourceFolderId || '(none)', '| hazardRef:', hazardRef || '(none)');
     if (sourceFolderId) {
       const { id: evidenceFolderId, error: folderErr } = await resolveSubfolder(sourceFolderId, 'Evidence');
       console.log('[evidence] evidenceFolderId:', evidenceFolderId ?? `(null — ${folderErr})`);
       if (evidenceFolderId) {
         try {
-          const docBase = sourceDocumentName ? sourceDocumentName.replace(/\.[^.]+$/, '') : null;
-          const ext = fileName.includes('.') ? fileName.slice(fileName.lastIndexOf('.')) : '';
-          const parts = [docBase, hazardRef || null, `Evidence${seqSuffix}`].filter(Boolean);
-          const dattoFileName = parts.join(' - ') + ext;
           const form = new FormData();
-          form.append('partData', new Blob([new Uint8Array(fileBuffer!)], { type: mimeType }), dattoFileName);
-          form.append('fileName', dattoFileName);
+          form.append('partData', new Blob([new Uint8Array(fileBuffer!)], { type: mimeType }), canonicalName);
+          form.append('fileName', canonicalName);
           form.append('makeUnique', 'true');
           const dattoRes = await fetch(`${BASE_URL}/file/${evidenceFolderId}/files`, {
             method: 'POST', headers: { Authorization: AUTH_HEADER }, body: form,
@@ -123,9 +129,18 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
             try { dattoJson = JSON.parse(dattoBody); } catch { /* non-JSON */ }
             const d = dattoJson.value ?? dattoJson;
             dattoFileId = String(d.fileID ?? d.fileId ?? d.id ?? '') || null;
-            if (dattoFileId) {
-              await supabase.from('action_evidence').update({ datto_file_id: dattoFileId }).eq('id', row.id);
-            } else {
+            // Capture actual filename Datto stored — makeUnique may have changed it (e.g. "Evidence.docx" → "Evidence (2).docx")
+            const actualDattoName: string | null = d.name ?? d.fileName ?? null;
+            const dbUpdates: Record<string, string> = {};
+            if (dattoFileId) dbUpdates.datto_file_id = dattoFileId;
+            if (actualDattoName && actualDattoName !== canonicalName) {
+              dbUpdates.file_name = actualDattoName;
+              finalFileName = actualDattoName;
+              console.log('[evidence] Datto renamed file via makeUnique:', canonicalName, '→', actualDattoName);
+            }
+            if (Object.keys(dbUpdates).length > 0) {
+              await supabase.from('action_evidence').update(dbUpdates).eq('id', row.id);
+            } else if (!dattoFileId) {
               console.warn('[evidence] Datto upload OK but no file ID in response:', dattoBody);
             }
           } else {
@@ -140,7 +155,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
     return NextResponse.json({
       evidence: {
         id: row.id,
-        fileName,
+        fileName: finalFileName,
         fileSizeBytes: fileSize || null,
         storagePath,
         uploadedAt: row.uploaded_at,
@@ -162,39 +177,85 @@ export async function DELETE(request: NextRequest, { params }: { params: { id: s
 
   const { data: row, error: fetchErr } = await supabase
     .from('action_evidence')
-    .select('storage_path, datto_file_id, file_name')
+    .select('storage_path, datto_file_id, file_name, site_id')
     .eq('id', evidenceId)
     .eq('action_id', params.id)
     .single();
 
   if (fetchErr || !row) return NextResponse.json({ error: 'Evidence not found' }, { status: 404 });
 
-  // Rename in Datto to flag as removed (preserves audit trail)
   if (row.datto_file_id) {
-    const removedDate = new Date().toISOString().slice(0, 10);
+    const now = new Date();
+    const dd = String(now.getDate()).padStart(2, '0');
+    const mm = String(now.getMonth() + 1).padStart(2, '0');
+    const yy = String(now.getFullYear()).slice(2);
     const ext = row.file_name.includes('.') ? row.file_name.slice(row.file_name.lastIndexOf('.')) : '';
     const base = row.file_name.slice(0, row.file_name.length - ext.length);
-    const newName = `${base} (${removedDate})${ext}`;
-    const patchRes = await fetch(`${BASE_URL}/file/${row.datto_file_id}?name=${encodeURIComponent(newName)}`, {
-      method: 'PATCH', headers: { Authorization: AUTH_HEADER },
-    });
-    if (!patchRes.ok) console.warn('[evidence delete] Datto rename failed:', patchRes.status, await patchRes.text());
+    const archivedName = row.file_name;
+
+    try {
+      const { data: site } = await supabase.from('sites').select('vault_folder_id').eq('id', row.site_id).single();
+
+      let movedToVault = false;
+      if (site?.vault_folder_id) {
+        const { id: vaultEvidenceFolderId, error: folderErr } = await resolveSubfolder(site.vault_folder_id, 'Evidence');
+        console.log('[evidence delete] vault Evidence folder:', vaultEvidenceFolderId ?? `(null — ${folderErr})`);
+
+        if (vaultEvidenceFolderId) {
+          console.log('[evidence delete] downloading file:', row.datto_file_id);
+          const downloadRes = await fetch(`${BASE_URL}/file/${row.datto_file_id}/data`, {
+            headers: { Authorization: AUTH_HEADER },
+          });
+          console.log('[evidence delete] download status:', downloadRes.status, 'content-type:', downloadRes.headers.get('content-type'));
+          if (downloadRes.ok) {
+            const fileData = await downloadRes.arrayBuffer();
+            console.log('[evidence delete] downloaded bytes:', fileData.byteLength);
+            const mimeType = downloadRes.headers.get('content-type') ?? 'application/octet-stream';
+            const form = new FormData();
+            form.append('partData', new Blob([new Uint8Array(fileData)], { type: mimeType }), archivedName);
+            form.append('fileName', archivedName);
+            form.append('makeUnique', 'true');
+            console.log('[evidence delete] uploading to vault folder:', vaultEvidenceFolderId, 'as:', archivedName);
+            const uploadRes = await fetch(`${BASE_URL}/file/${vaultEvidenceFolderId}/files`, {
+              method: 'POST', headers: { Authorization: AUTH_HEADER }, body: form,
+            });
+            const uploadBody = await uploadRes.text();
+            console.log('[evidence delete] vault upload status:', uploadRes.status, '| body:', uploadBody);
+            if (uploadRes.ok) {
+              movedToVault = true;
+              // Can't DELETE in Datto (permission denied) — rename original to mark it as moved
+              const movedName = `${base} (moved ${dd}-${mm}-${yy})${ext}`;
+              const renameRes = await fetch(`${BASE_URL}/file/${row.datto_file_id}?name=${encodeURIComponent(movedName)}`, {
+                method: 'PATCH', headers: { Authorization: AUTH_HEADER },
+              });
+              if (!renameRes.ok) console.warn('[evidence delete] Datto original rename failed:', renameRes.status, await renameRes.text());
+              else console.log('[evidence delete] original renamed to:', movedName);
+            } else {
+              console.warn('[evidence delete] vault upload failed:', uploadRes.status, uploadBody);
+            }
+          } else {
+            const errBody = await downloadRes.text();
+            console.warn('[evidence delete] Datto download failed:', downloadRes.status, errBody);
+          }
+        }
+      }
+
+      if (!movedToVault) {
+        // Fallback: rename in place with removal date
+        const patchRes = await fetch(`${BASE_URL}/file/${row.datto_file_id}?name=${encodeURIComponent(archivedName)}`, {
+          method: 'PATCH', headers: { Authorization: AUTH_HEADER },
+        });
+        if (!patchRes.ok) console.warn('[evidence delete] Datto rename fallback failed:', patchRes.status, await patchRes.text());
+      }
+    } catch (err) {
+      console.warn('[evidence delete] Datto vault move exception:', err);
+    }
   }
 
-  const { error: storageErr } = await supabase.storage
-    .from('client-uploads')
-    .remove([row.storage_path]);
+  const { error: storageErr } = await supabase.storage.from('client-uploads').remove([row.storage_path]);
+  if (storageErr) console.warn('[evidence delete] storage removal failed:', storageErr.message);
 
-  if (storageErr) {
-    console.warn('[evidence delete] storage removal failed:', storageErr.message);
-    // Continue to delete DB row even if storage removal failed
-  }
-
-  const { error: deleteErr } = await supabase
-    .from('action_evidence')
-    .delete()
-    .eq('id', evidenceId);
-
+  const { error: deleteErr } = await supabase.from('action_evidence').delete().eq('id', evidenceId);
   if (deleteErr) return NextResponse.json({ error: deleteErr.message }, { status: 500 });
   return NextResponse.json({ ok: true });
 }

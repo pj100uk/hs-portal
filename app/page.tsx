@@ -9,7 +9,7 @@ import {
   Zap, Shield, ArrowUpRight, X, Plus, LogOut, Lock, Mail,
   Folder, FolderOpen, File, Pencil, GraduationCap, Heart,
   Warehouse, ShoppingBag, Home, Sparkles, AlertCircle,
-  Upload, FileCheck, Trash2, Users, Search, KeyRound
+  Upload, FileCheck, Trash2, Users, Search, KeyRound, Download
 } from 'lucide-react';
 import mammoth from 'mammoth';
 import * as XLSX from 'xlsx';
@@ -456,6 +456,20 @@ function buildOfficeUri(basePath: string, folderPath: string, fileName: string):
   return `${scheme}:ofe|u|file:///${parts.map(encode).join('/')}`;
 }
 const toUKDate = (iso: string) => { if (!isIsoDate(iso)) return iso; const [y, m, d] = iso.split('-'); return `${d}/${m}/${y.slice(2)}`; };
+function highlight(text: string | null | undefined, query: string): React.ReactNode {
+  if (!query.trim() || !text) return text ?? '';
+  const escaped = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const parts = text.split(new RegExp(`(${escaped})`, 'gi'));
+  return parts.map((part, i) =>
+    part.toLowerCase() === query.toLowerCase()
+      ? <mark key={i} className="bg-yellow-200 text-yellow-900 rounded-sm px-0.5">{part}</mark>
+      : part
+  );
+}
+const daysLate = (resolvedDate: string, dueDate: string): number => {
+  if (!isIsoDate(resolvedDate) || !isIsoDate(dueDate)) return 0;
+  return Math.round((new Date(resolvedDate + 'T00:00:00').getTime() - new Date(dueDate + 'T00:00:00').getTime()) / 86400000);
+};
 
 function getFileHref(file: DattoItem, folderPath: string, role: string): string {
   const ext = file.name.split('.').pop()?.toLowerCase() || '';
@@ -482,8 +496,9 @@ function fileTypeBadge(name: string): { label: string; cls: string } {
 }
 
 // ─── Action Card ──────────────────────────────────────────────────────────────
-const ActionCard = ({ action, isResolved, onToggleResolve, onAddNote, onDelete, onUpdateIssueDate, onClientSubmit, onClientWithdraw, onAdvisorConfirm, onAdvisorReject, role, expanded, onExpand, siteId, userId, onFlash }: {
-  action: Action; isResolved: boolean; onToggleResolve: (id: string) => void; onAddNote: (id: string, note: string) => void; onDelete?: (id: string) => void; onUpdateIssueDate?: (id: string, date: string | null) => void; onClientSubmit?: (id: string) => void; onClientWithdraw?: (id: string) => void; onAdvisorConfirm?: (id: string) => void; onAdvisorReject?: (id: string, note: string) => void; role: string; expanded: boolean; onExpand: () => void; siteId?: string; userId?: string; onFlash?: (msg: string) => void;
+type ReadDiff = { actionText: string; responsiblePerson: string; targetDate: string; completedDate: string };
+const ActionCard = ({ action, isResolved, onToggleResolve, onAddNote, onDelete, onUpdateIssueDate, onClientSubmit, onClientWithdraw, onAdvisorConfirm, onAdvisorReject, onApplyFromWord, role, expanded, onExpand, siteId, userId, onFlash, searchQuery }: {
+  action: Action; isResolved: boolean; onToggleResolve: (id: string) => void; onAddNote: (id: string, note: string) => void; onDelete?: (id: string) => void; onUpdateIssueDate?: (id: string, date: string | null) => void; onClientSubmit?: (id: string) => void; onClientWithdraw?: (id: string) => void; onAdvisorConfirm?: (id: string) => void; onAdvisorReject?: (id: string, note: string) => void; onApplyFromWord?: (id: string, diff: ReadDiff) => void; role: string; expanded: boolean; onExpand: () => void; siteId?: string; userId?: string; onFlash?: (msg: string) => void; searchQuery?: string;
 }) => {
   const [noteText, setNoteText] = useState('');
   const [showNoteInput, setShowNoteInput] = useState(false);
@@ -491,6 +506,8 @@ const ActionCard = ({ action, isResolved, onToggleResolve, onAddNote, onDelete, 
   const [issueDateInput, setIssueDateInput] = useState(action.issueDate || '');
   const [syncing, setSyncing] = useState(false);
   const [syncResult, setSyncResult] = useState<{ ok: boolean; msg: string } | null>(null);
+  const [reading, setReading] = useState(false);
+  const [readDiff, setReadDiff] = useState<ReadDiff | null>(null);
   const [rejectNote, setRejectNote] = useState('');
   const [showRejectInput, setShowRejectInput] = useState(false);
   const [evidence, setEvidence] = useState<ActionEvidence[]>([]);
@@ -537,7 +554,7 @@ const ActionCard = ({ action, isResolved, onToggleResolve, onAddNote, onDelete, 
         }),
       });
       const data = await res.json();
-      if (res.ok) setSyncResult({ ok: true, msg: 'Document updated in Datto.' });
+      if (res.ok) setSyncResult({ ok: true, msg: 'Word document updated.' });
       else setSyncResult({ ok: false, msg: `${data.error || 'Sync failed.'}${data.detail ? ` — ${data.detail}` : ''}${data.status ? ` (HTTP ${data.status})` : ''}` });
     } catch {
       setSyncResult({ ok: false, msg: 'Network error.' });
@@ -547,8 +564,28 @@ const ActionCard = ({ action, isResolved, onToggleResolve, onAddNote, onDelete, 
   };
 
   const handleSyncToDoc = async () => {
-    if (!window.confirm('This will overwrite the original document in Datto with the current portal values. Continue?')) return;
+    if (!window.confirm('This will write the current portal values to the original Word document in Datto. Continue?')) return;
     doSync();
+  };
+
+  const handleReadFromWord = async () => {
+    setReading(true);
+    setSyncResult(null);
+    setReadDiff(null);
+    try {
+      const res = await fetch('/api/datto/file/readback', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fileId: action.source_document_id, hazardRef: action.hazardRef }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setSyncResult({ ok: false, msg: data.error || 'Read failed.' }); return; }
+      setReadDiff(data as ReadDiff);
+    } catch {
+      setSyncResult({ ok: false, msg: 'Network error.' });
+    } finally {
+      setReading(false);
+    }
   };
 
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -582,10 +619,27 @@ const ActionCard = ({ action, isResolved, onToggleResolve, onAddNote, onDelete, 
   };
 
   const openEvidence = async (ev: ActionEvidence) => {
-    const res = await fetch(`/api/actions/${action.id}/evidence?signedUrl=${ev.id}`);
+    // Advisors: open via W: drive if file is in Datto and folder path is known
+    if ((role === 'advisor' || role === 'superadmin') && ev.dattoFileId && action.sourceFolderPath) {
+      const href = getFileHref(
+        { id: ev.dattoFileId, name: ev.fileName, type: 'file' },
+        `${action.sourceFolderPath}/Evidence`,
+        role
+      );
+      if (href) { window.location.href = href; return; }
+    }
+    // Clients: force download. Advisors without W: drive path: open in new tab.
+    const isClient = role === 'client';
+    const res = await fetch(`/api/actions/${action.id}/evidence?signedUrl=${ev.id}${isClient ? '&download=true' : ''}`);
     const data = await res.json();
-    if (res.ok && data.url) window.open(data.url, '_blank');
-    else { console.error('[openEvidence]', data.error); onFlash?.('Could not open file — try again.'); }
+    if (res.ok && data.url) {
+      if (isClient) {
+        const a = document.createElement('a');
+        a.href = data.url; a.download = ev.fileName; document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      } else {
+        window.open(data.url, '_blank');
+      }
+    } else { console.error('[openEvidence]', data.error); onFlash?.('Could not open file — try again.'); }
   };
 
   const handleResolve = () => {
@@ -596,17 +650,36 @@ const ActionCard = ({ action, isResolved, onToggleResolve, onAddNote, onDelete, 
       doSync(today);
     }
   };
+
+  const docLinkEl = action.source ? (
+    (role === 'advisor' || role === 'superadmin') && action.sourceFolderPath ? (() => {
+      const href = getFileHref({ id: action.source_document_id || '', name: action.source, type: 'file' }, action.sourceFolderPath!, role);
+      const cls = 'flex items-center gap-1.5 text-[11px] font-bold text-indigo-600 hover:text-indigo-800 hover:underline flex-shrink-0';
+      return href.startsWith('ms-')
+        ? <a href={href} className={cls}><ExternalLink size={12} className="text-indigo-500 flex-shrink-0" /><span className="font-normal text-slate-400">Open Document:</span>{action.source}</a>
+        : <a href={href} target="_blank" rel="noopener noreferrer" className={cls}><ExternalLink size={12} className="text-indigo-500 flex-shrink-0" /><span className="font-normal text-slate-400">Open Document:</span>{action.source}</a>;
+    })()
+    : role === 'client' && action.source_document_id ? (() => {
+      const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(action.source_document_id!);
+      const viewerHref = isUUID
+        ? `/viewer?docId=${action.source_document_id}&fileName=${encodeURIComponent(action.source)}&role=${role}`
+        : `/viewer?fileId=${action.source_document_id}&fileName=${encodeURIComponent(action.source)}&role=${role}`;
+      return <a href={viewerHref} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 text-[11px] font-bold text-indigo-600 hover:text-indigo-800 hover:underline flex-shrink-0"><ExternalLink size={12} className="text-indigo-500 flex-shrink-0" /><span className="font-normal text-slate-400">Open Document:</span>{action.source}</a>;
+    })()
+    : <span className="flex items-center gap-1.5 text-[11px] font-bold text-slate-600 flex-shrink-0"><File size={12} className="text-slate-400 flex-shrink-0" /><span className="font-normal text-slate-400">Document:</span>{action.source}</span>
+  ) : null;
+
   return (
-    <div className={`rounded-lg border transition-all duration-300 overflow-hidden ${action.status === 'pending_review' ? 'bg-amber-50/60 border-amber-200' : action.status === 'open' && action.reviewNote ? 'bg-rose-50/60 border-rose-200' : isResolved ? 'bg-slate-50/60 border-slate-100 opacity-60' : `${cfg.bg} ${cfg.border}`}`}>
+    <div className={`rounded-lg border transition-all duration-300 overflow-hidden ${action.status === 'pending_review' ? 'bg-amber-50/60 border-amber-200' : action.status === 'open' && action.reviewNote ? 'bg-rose-50/60 border-rose-200' : `${cfg.bg} ${cfg.border}`}`}>
       <div className="px-4 py-3 flex flex-col md:flex-row md:items-center gap-3 cursor-pointer" onClick={onExpand}>
-        <div className={`w-1.5 rounded-full self-stretch hidden md:block flex-shrink-0 ${isResolved ? 'bg-slate-300' : cfg.bar}`} />
+        <div className={`w-1.5 rounded-full self-stretch hidden md:block flex-shrink-0 ${cfg.bar}`} />
         <div className="flex-1 min-w-0">
           <div className="flex items-start justify-between gap-3 flex-wrap">
             <div className="flex items-center gap-1.5 flex-wrap min-w-0">
-              <span className={`font-bold text-[12px] leading-snug ${isResolved ? 'text-slate-400 line-through' : 'text-slate-900'}`}>{(action.source || action.action).replace(/\.[^.]+$/, '')}</span>
-              {action.hazardRef && <><span className="text-slate-300 text-[11px]">|</span><span className="text-[12px] font-bold text-violet-500 flex-shrink-0">Hazard No. {action.hazardRef}</span></>}
+              <span className={`font-bold text-[12px] leading-snug ${isResolved ? 'text-slate-400' : 'text-slate-900'}`}>{highlight((action.source || action.action).replace(/\.[^.]+$/, ''), searchQuery ?? '')}</span>
+              {action.hazardRef && <><span className="text-slate-300 text-[11px]">|</span><span className="text-[12px] font-bold text-violet-500 flex-shrink-0">Hazard No. {highlight(action.hazardRef, searchQuery ?? '')}</span></>}
               {action.issueDate && <><span className="text-slate-300 text-[11px]">|</span><span className="text-[12px] font-medium text-slate-500 flex-shrink-0"><span className="text-slate-400 font-normal">Issued: </span>{toUKDate(action.issueDate)}</span></>}
-              {action.date && (
+              {action.date && !isResolved && (
                 <>
                   <span className="text-slate-300 text-[11px]">|</span>
                   <span className="text-[12px] font-medium text-slate-500 flex-shrink-0"><span className="text-slate-400 font-normal">Due: </span>{toUKDate(action.date)}</span>
@@ -615,7 +688,10 @@ const ActionCard = ({ action, isResolved, onToggleResolve, onAddNote, onDelete, 
               {action.resolvedDate && (
                 <>
                   <span className="text-slate-300 text-[11px]">|</span>
-                  <span className="text-[12px] font-medium text-emerald-600 flex-shrink-0"><span className="text-slate-400 font-normal">Resolved: </span>{toUKDate(action.resolvedDate)}</span>
+                  <span className="text-[12px] font-medium text-emerald-600 flex-shrink-0">
+                    <span className="text-slate-500 font-bold">Resolved: </span>{toUKDate(action.resolvedDate)}
+                    {(() => { const d = (action.date && isIsoDate(action.resolvedDate) && isIsoDate(action.date)) ? daysLate(action.resolvedDate, action.date) : 0; return d > 30 ? <span className="text-amber-600 font-semibold ml-1">({d} days late)</span> : null; })()}
+                  </span>
                 </>
               )}
               {(action as any).isSuggested &&<span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-lg border border-violet-200 text-violet-600 bg-violet-50 flex-shrink-0">AI Suggested</span>}
@@ -680,45 +756,14 @@ const ActionCard = ({ action, isResolved, onToggleResolve, onAddNote, onDelete, 
                   </span>
                 )}
               </span>
-              {action.date && <><span className="text-slate-300">|</span><span><span className="text-slate-500 font-normal">Due Date: </span>{toUKDate(action.date)}</span></>}
-              {action.resolvedDate && <><span className="text-slate-300">|</span><span className="text-emerald-600"><span className="text-slate-500 font-normal">Resolved: </span>{toUKDate(action.resolvedDate)}</span></>}
-              {action.who && <><span className="text-slate-300">|</span><span><span className="text-slate-500 font-normal">Responsible: </span>{action.who}</span></>}
+              {action.date && !isResolved && <><span className="text-slate-300">|</span><span><span className="text-slate-500 font-normal">Due Date: </span>{toUKDate(action.date)}</span></>}
+              {action.resolvedDate && <><span className="text-slate-300">|</span><span className="text-emerald-600"><span className="text-slate-500 font-bold">Resolved: </span>{toUKDate(action.resolvedDate)}{(() => { const d = (action.date && isIsoDate(action.resolvedDate) && isIsoDate(action.date)) ? daysLate(action.resolvedDate, action.date) : 0; return d > 30 ? <span className="text-amber-600 font-semibold ml-1">({d} days late)</span> : null; })()}</span></>}
+              {action.who && <><span className="text-slate-300">|</span><span><span className="text-slate-500 font-normal">Responsibility: </span>{highlight(action.who, searchQuery ?? '')}</span></>}
             </div>
-            {(action.source || (role === 'advisor' && !!onDelete)) && (
-              <div className="flex items-center gap-2 flex-shrink-0">
-                {action.source && (
-                  (role === 'advisor' || role === 'superadmin') && action.sourceFolderPath ? (() => {
-                    const href = getFileHref({ id: action.source_document_id || '', name: action.source, type: 'file' }, action.sourceFolderPath!, role);
-                    const isOffice = href.startsWith('ms-');
-                    return isOffice ? (
-                      <a href={href} className="flex items-center gap-1.5 text-[11px] font-bold text-indigo-600 hover:text-indigo-800 hover:underline flex-shrink-0" title="Open original file">
-                        <ExternalLink size={12} className="text-indigo-500 flex-shrink-0" /><span className="font-normal text-slate-400">Open Document:</span>{action.source.replace(/\.[^.]+$/, '')}
-                      </a>
-                    ) : (
-                      <a href={href} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 text-[11px] font-bold text-indigo-600 hover:text-indigo-800 hover:underline flex-shrink-0" title="View document">
-                        <ExternalLink size={12} className="text-indigo-500 flex-shrink-0" /><span className="font-normal text-slate-400">Open Document:</span>{action.source.replace(/\.[^.]+$/, '')}
-                      </a>
-                    );
-                  })() : role === 'client' && action.source_document_id ? (() => {
-                    const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(action.source_document_id!);
-                    const viewerHref = isUUID
-                      ? `/viewer?docId=${action.source_document_id}&fileName=${encodeURIComponent(action.source)}&role=${role}`
-                      : `/viewer?fileId=${action.source_document_id}&fileName=${encodeURIComponent(action.source)}&role=${role}`;
-                    return (
-                      <a href={viewerHref} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 text-[11px] font-bold text-indigo-600 hover:text-indigo-800 hover:underline flex-shrink-0" title="View document as PDF">
-                        <ExternalLink size={12} className="text-indigo-500 flex-shrink-0" /><span className="font-normal text-slate-400">Open Document:</span>{action.source.replace(/\.[^.]+$/, '')}
-                      </a>
-                    );
-                  })() : (
-                    <span className="flex items-center gap-1.5 text-[11px] font-bold text-slate-600 flex-shrink-0"><File size={12} className="text-slate-400 flex-shrink-0" /><span className="font-normal text-slate-400">Document:</span>{action.source.replace(/\.[^.]+$/, '')}</span>
-                  )
-                )}
-                {role === 'advisor' && onDelete && (
-                  <button onClick={e => { e.stopPropagation(); if (confirm('Delete this action? This cannot be undone.')) onDelete(action.id); }} className="p-1.5 rounded-lg border border-rose-200 text-rose-400 hover:text-rose-600 hover:border-rose-400 hover:bg-rose-50 transition-colors" title="Delete action">
-                    <Trash2 size={14} />
-                  </button>
-                )}
-              </div>
+            {role === 'advisor' && onDelete && (
+              <button onClick={e => { e.stopPropagation(); if (confirm('Delete this action? This cannot be undone.')) onDelete(action.id); }} className="flex items-center gap-1 text-[11px] text-slate-400 hover:text-rose-400 transition-colors flex-shrink-0">
+                <Trash2 size={11} />Delete from portal database
+              </button>
             )}
           </div>
           {/* Contractor + regulation row */}
@@ -750,7 +795,7 @@ const ActionCard = ({ action, isResolved, onToggleResolve, onAddNote, onDelete, 
           {action.action && (
             <div>
               <p className="text-[10px] font-black uppercase tracking-wider text-rose-600 mb-0.5">Action Required</p>
-              <p className="text-[12px] text-slate-700">{action.action}</p>
+              <p className="text-[12px] text-slate-700">{highlight(action.action, searchQuery ?? '')}</p>
             </div>
           )}
           {action.reviewNote && action.status === 'open' && (
@@ -793,16 +838,42 @@ const ActionCard = ({ action, isResolved, onToggleResolve, onAddNote, onDelete, 
               {evidenceLoading && <p className="text-[11px] text-slate-400 mt-2 text-center">Loading…</p>}
               {evidence.length > 0 && (
                 <div className="mt-2 space-y-1">
-                  {evidence.map(ev => (
+                  {(() => {
+                    const nameCounts: Record<string, number> = {};
+                    const nameDateCounts: Record<string, number> = {};
+                    const nameDateIdx: Record<string, number> = {};
+                    evidence.forEach(ev => {
+                      nameCounts[ev.fileName] = (nameCounts[ev.fileName] ?? 0) + 1;
+                      const d = toUKDate(ev.uploadedAt ?? '');
+                      const k = `${ev.fileName}::${d}`;
+                      nameDateCounts[k] = (nameDateCounts[k] ?? 0) + 1;
+                    });
+                    return evidence.map(ev => {
+                      const ext = ev.fileName.includes('.') ? ev.fileName.slice(ev.fileName.lastIndexOf('.')) : '';
+                      const base = ev.fileName.slice(0, ev.fileName.length - ext.length);
+                      const d = toUKDate(ev.uploadedAt ?? '');
+                      const k = `${ev.fileName}::${d}`;
+                      let displayName = ev.fileName;
+                      if (nameCounts[ev.fileName] > 1) {
+                        if (nameDateCounts[k] > 1) {
+                          nameDateIdx[k] = (nameDateIdx[k] ?? 0) + 1;
+                          displayName = `${base} (${d} ${nameDateIdx[k]})${ext}`;
+                        } else {
+                          displayName = `${base} (${d})${ext}`;
+                        }
+                      }
+                      return (
                     <div key={ev.id} className="flex items-center gap-2 py-0.5">
                       <Paperclip size={11} className="text-slate-400 flex-shrink-0" />
-                      <button onClick={() => openEvidence(ev)} className="text-[12px] text-indigo-600 hover:underline flex-1 text-left truncate">{ev.fileName}</button>
+                      <button onClick={() => openEvidence(ev)} className="text-[12px] text-indigo-600 hover:underline flex-1 text-left truncate">{displayName}</button>
                       {ev.fileSizeBytes && <span className="text-[10px] text-slate-400 flex-shrink-0">{Math.round(ev.fileSizeBytes / 1024)}KB</span>}
                       {(role === 'advisor' || role === 'superadmin' || ev.uploadedBy === userId) && (
                         <button onClick={() => handleDeleteEvidence(ev)} className="text-slate-300 hover:text-rose-400 flex-shrink-0 ml-1"><X size={12} /></button>
                       )}
                     </div>
-                  ))}
+                      );
+                    });
+                  })()}
                 </div>
               )}
               <div className="mt-3 pt-3 border-t border-slate-100 space-y-2">
@@ -858,22 +929,93 @@ const ActionCard = ({ action, isResolved, onToggleResolve, onAddNote, onDelete, 
           ) : (
             <button onClick={() => setShowNoteInput(true)} className="text-[11px] font-black uppercase tracking-wider text-indigo-500 hover:text-indigo-700 flex items-center gap-1.5"><Plus size={13} />Add Note</button>
           )}
-          {/* Sync to Doc */}
-          {canSync && (
-            <div className="flex items-center gap-3 pt-1 border-t border-slate-100">
-              <button
-                onClick={handleSyncToDoc}
-                disabled={syncing}
-                className="text-[11px] font-black uppercase tracking-wider text-emerald-600 hover:text-emerald-800 flex items-center gap-1.5 disabled:opacity-50"
-              >
-                <RefreshCw size={13} className={syncing ? 'animate-spin' : ''} />
-                {syncing ? 'Syncing…' : 'Sync to Doc'}
-              </button>
-              {syncResult && (
-                <span className={`text-[11px] font-bold ${syncResult.ok ? 'text-emerald-600' : 'text-rose-600'}`}>
-                  {syncResult.msg}
-                </span>
-              )}
+          {/* Sync Doc */}
+          {canSync && (role === 'advisor' || role === 'superadmin') && (
+            <div className="flex flex-col gap-2 pt-1 border-t border-slate-100">
+              <div className="flex items-center gap-3 flex-wrap">
+                <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">Sync Doc:</span>
+                <button
+                  onClick={handleSyncToDoc}
+                  disabled={syncing || reading}
+                  className="text-[11px] font-black uppercase tracking-wider text-emerald-600 hover:text-emerald-800 flex items-center gap-1.5 disabled:opacity-50"
+                >
+                  <RefreshCw size={13} className={syncing ? 'animate-spin' : ''} />
+                  {syncing ? 'Writing…' : 'Write to Word'}
+                </button>
+                <span className="text-slate-200">|</span>
+                <button
+                  onClick={handleReadFromWord}
+                  disabled={reading || syncing}
+                  className="text-[11px] font-black uppercase tracking-wider text-indigo-500 hover:text-indigo-700 flex items-center gap-1.5 disabled:opacity-50"
+                >
+                  <RefreshCw size={13} className={reading ? 'animate-spin' : ''} />
+                  {reading ? 'Reading…' : 'Read from Word'}
+                </button>
+                {syncResult && (
+                  <span className={`text-[11px] font-bold ${syncResult.ok ? 'text-emerald-600' : 'text-rose-600'}`}>
+                    {syncResult.msg}
+                  </span>
+                )}
+                {docLinkEl && <div className="ml-auto">{docLinkEl}</div>}
+              </div>
+              <p className="text-[10px] text-slate-400"><span className="font-bold">Write to Word</span> — pushes portal values into the source Word document.</p>
+              <p className="text-[10px] text-slate-400"><span className="font-bold">Read from Word</span> — pulls values from the Word document and shows a diff before applying.</p>
+              {readDiff && (() => {
+                const portalVals = {
+                  actionText: action.action || '',
+                  responsiblePerson: action.who || '',
+                  targetDate: action.date ? toUKDate(action.date) : '',
+                  completedDate: action.resolvedDate ? toUKDate(action.resolvedDate) : '',
+                };
+                const fields: { label: string; key: keyof ReadDiff }[] = [
+                  { label: 'Action Text',        key: 'actionText' },
+                  { label: 'Responsible Person', key: 'responsiblePerson' },
+                  { label: 'Target Date',        key: 'targetDate' },
+                  { label: 'Completed Date',     key: 'completedDate' },
+                ];
+                const hasDiffs = fields.some(f => readDiff[f.key] !== portalVals[f.key]);
+                return (
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 space-y-2">
+                    <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">Word Document vs Portal</p>
+                    <div className="space-y-1.5">
+                      {fields.map(({ label, key }) => {
+                        const wordVal = readDiff[key];
+                        const portalVal = portalVals[key];
+                        const differs = wordVal !== portalVal;
+                        return (
+                          <div key={key} className={`rounded-lg px-3 py-2 ${differs ? 'bg-amber-50 border border-amber-200' : 'bg-white border border-slate-100'}`}>
+                            <p className="text-[9px] font-black uppercase tracking-wider text-slate-400 mb-0.5">{label}</p>
+                            {differs ? (
+                              <div className="space-y-0.5 mt-0.5">
+                                <p className="text-[11px] text-rose-400">{portalVal || <em>empty</em>}</p>
+                                <p className="text-[11px] text-emerald-700 font-bold">{wordVal || <em className="font-normal">empty</em>} <span className="text-[9px] font-black uppercase tracking-wider text-emerald-500">(new)</span></p>
+                              </div>
+                            ) : (
+                              <p className="text-[11px] text-slate-500 mt-0.5">{wordVal || <em className="text-slate-300">empty</em>} <span className="text-emerald-500">✓</span></p>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                    {hasDiffs ? (
+                      <div className="flex gap-2">
+                        <button onClick={() => { onApplyFromWord?.(action.id, readDiff); setReadDiff(null); }} className="flex-1 px-3 py-2 rounded-xl font-black text-xs uppercase tracking-wider bg-indigo-600 text-white hover:bg-indigo-700 flex items-center justify-center gap-1.5"><RefreshCw size={11} />Apply Word Values</button>
+                        <button onClick={() => setReadDiff(null)} className="px-3 py-2 rounded-xl font-black text-xs uppercase bg-white border border-slate-200 text-slate-400 hover:text-slate-600">Cancel</button>
+                      </div>
+                    ) : (
+                      <div className="flex items-center justify-between">
+                        <p className="text-[11px] text-emerald-600 font-bold">Word document matches portal — nothing to apply.</p>
+                        <button onClick={() => setReadDiff(null)} className="text-[10px] font-black uppercase text-slate-400 hover:text-slate-600">Dismiss</button>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+            </div>
+          )}
+          {docLinkEl && !canSync && (
+            <div className="flex justify-end pt-1 border-t border-slate-100">
+              {docLinkEl}
             </div>
           )}
         </div>
@@ -1392,11 +1534,11 @@ const DocumentCard = ({ doc, role, userId, actions, onDelete, onRename, onToggle
                 const cfg = priorityConfig[a.priority as Priority] ?? priorityConfig.green;
                 const isResolved = a.status === 'resolved';
                 return (
-                  <div key={a.id} className={`rounded-xl border px-4 py-3 flex items-start gap-3 ${isResolved ? 'bg-slate-50 border-slate-100 opacity-60' : `${cfg.bg} ${cfg.border}`}`}>
-                    <div className={`w-1 rounded-full self-stretch flex-shrink-0 mt-0.5 ${isResolved ? 'bg-slate-300' : cfg.bar}`} style={{ minHeight: 28 }} />
+                  <div key={a.id} className={`rounded-xl border px-4 py-3 flex items-start gap-3 ${cfg.bg} ${cfg.border}`}>
+                    <div className={`w-1 rounded-full self-stretch flex-shrink-0 mt-0.5 ${cfg.bar}`} style={{ minHeight: 28 }} />
                     <div className="flex-1 min-w-0 space-y-1">
                       {a.hazard && <p className="text-[10px] font-black uppercase tracking-wide text-slate-500">{a.hazard}</p>}
-                      <p className={`text-[12px] font-bold leading-snug ${isResolved ? 'line-through text-slate-400' : 'text-slate-800'}`}>{a.action}</p>
+                      <p className={`text-[12px] font-bold leading-snug ${isResolved ? 'text-slate-400' : 'text-slate-800'}`}>{a.action}</p>
                       <div className="flex flex-wrap gap-1.5 mt-1">
                         {!isResolved && <span className={`text-[9px] font-black uppercase px-1.5 py-0.5 rounded border ${cfg.badge}`}>{cfg.label}</span>}
                         {(a as any).isSuggested && <span className="text-[9px] font-black uppercase px-1.5 py-0.5 rounded border border-violet-200 text-violet-600 bg-violet-50">AI Suggested</span>}
@@ -3736,7 +3878,9 @@ export default function App() {
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncLastRun, setSyncLastRun] = useState('2 hours ago');
   const [resolvedIds, setResolvedIds] = useState<string[]>([]);
-  const [filterPriority, setFilterPriority] = useState<Priority | 'all' | 'resolved' | 'pending_review' | 'rejected'>('all');
+  const [filterPriority, setFilterPriority] = useState<Priority | 'all' | 'open' | 'resolved' | 'pending_review' | 'rejected'>('all');
+  const [actionSearch, setActionSearch] = useState('');
+  const [showActionSearch, setShowActionSearch] = useState(false);
   const [actionNotes, setActionNotes] = useState<Record<string, string>>({});
   const [sites, setSites] = useState<Site[]>([]);
   const [organisations, setOrganisations] = useState<Organisation[]>([]);
@@ -3995,6 +4139,8 @@ export default function App() {
     setExpandedActionId(null);
     setExpandedDocGroups(new Set());
     setFilterPriority('all');
+    setActionSearch('');
+    setShowActionSearch(false);
     setSiteTab('actions');
   }, [selectedSite?.id]);
 
@@ -4029,8 +4175,46 @@ export default function App() {
     init();
   }, [siteTab, selectedSite?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const scheduleNextOccurrence = async (action: Action) => {
+    const { date: dueDate, issueDate } = action;
+    if (!dueDate || !issueDate || !isIsoDate(dueDate) || !isIsoDate(issueDate)
+        || ONGOING_RE.test(dueDate) || ONGOING_RE.test(issueDate)) return;
+    const due = new Date(dueDate + 'T00:00:00').getTime();
+    const issued = new Date(issueDate + 'T00:00:00').getTime();
+    const gapMs = due - issued;
+    if (gapMs <= 0) return;
+    const nextDue = new Date(due + gapMs).toLocaleDateString('en-CA');
+    const { data, error } = await supabase.from('actions').insert({
+      site_id: sites.find(s => s.name === action.site)?.id ?? null,
+      title: action.action, description: action.description ?? '', priority: action.priority ?? 'green',
+      status: 'open', due_date: nextDue, issue_date: dueDate, resolved_date: null, review_note: null,
+      regulation: action.regulation ?? null, contractor: action.contractor ?? null,
+      responsible_person: action.who ?? null, source_document_name: action.source ?? null,
+      source_document_id: action.source_document_id ?? null, source_folder_id: action.sourceFolderId ?? null,
+      source_folder_path: action.sourceFolderPath ?? null, hazard_ref: action.hazardRef ?? null,
+      hazard: action.hazard ?? null, existing_controls: action.existingControls ?? null,
+      risk_rating: action.riskRating ?? null, risk_level: action.riskLevel ?? null, is_suggested: false,
+    }).select().single();
+    if (error) { console.error('[scheduleNextOccurrence]', error); return; }
+    if (data) {
+      setAllActions(prev => [...prev, {
+        id: data.id, action: action.action, description: action.description ?? '', date: nextDue,
+        site: action.site, who: action.who ?? '', contractor: action.contractor ?? '',
+        source: action.source ?? '', source_document_id: action.source_document_id ?? '',
+        priority: action.priority ?? 'green', regulation: action.regulation ?? '', notes: '',
+        status: 'open' as ActionStatus, hazardRef: action.hazardRef ?? null, hazard: action.hazard ?? null,
+        existingControls: action.existingControls ?? null, riskRating: action.riskRating ?? null,
+        riskLevel: action.riskLevel ?? null, resolvedDate: null, sourceFolderId: action.sourceFolderId ?? null,
+        sourceFolderPath: action.sourceFolderPath ?? null, issueDate: dueDate, reviewNote: null,
+        updatedAt: data.updated_at ?? null, isSuggested: false,
+      }]);
+      showAppFlash(`Next occurrence scheduled — due ${toUKDate(nextDue)}`);
+    }
+  };
+
   const toggleResolve = async (id: string) => {
     const isCurrentlyResolved = resolvedIds.includes(id);
+    const action = allActions.find(a => a.id === id);
     setResolvedIds(prev => isCurrentlyResolved ? prev.filter(i => i !== id) : [...prev, id]);
     const today = new Date().toLocaleDateString('en-CA');
     await supabase.from('actions').update({
@@ -4038,9 +4222,9 @@ export default function App() {
       resolved_date: isCurrentlyResolved ? null : today,
     }).eq('id', id);
     setAllActions(prev => prev.map(a => a.id === id ? { ...a, status: isCurrentlyResolved ? 'open' : 'resolved', resolvedDate: isCurrentlyResolved ? null : today } : a));
-    const action = allActions.find(a => a.id === id);
     const siteId = sites.find(s => s.name === action?.site)?.id;
     if (siteId) recalcActionProgress(siteId);
+    if (!isCurrentlyResolved && action) await scheduleNextOccurrence({ ...action, resolvedDate: today });
   };
   const handleClientSubmit = async (id: string) => {
     const { error } = await supabase.from('actions').update({ status: 'pending_review', review_note: null }).eq('id', id);
@@ -4060,13 +4244,14 @@ export default function App() {
   };
   const handleAdvisorConfirm = async (id: string) => {
     const today = new Date().toLocaleDateString('en-CA');
+    const action = allActions.find(a => a.id === id);
     const { error } = await supabase.from('actions').update({ status: 'resolved', resolved_date: today, review_note: null }).eq('id', id);
     if (error) { console.error('[handleAdvisorConfirm] DB error:', error); showAppFlash('Failed to confirm — please try again.'); return; }
     setAllActions(prev => prev.map(a => a.id === id ? { ...a, status: 'resolved' as ActionStatus, resolvedDate: today, reviewNote: null } : a));
     setResolvedIds(prev => prev.includes(id) ? prev : [...prev, id]);
-    const action = allActions.find(a => a.id === id);
     const siteId = sites.find(s => s.name === action?.site)?.id;
     if (siteId) recalcActionProgress(siteId);
+    if (action) await scheduleNextOccurrence({ ...action, resolvedDate: today });
   };
   const handleAdvisorReject = async (id: string, note: string) => {
     const { error } = await supabase.from('actions').update({ status: 'open', review_note: note || null }).eq('id', id);
@@ -4075,6 +4260,29 @@ export default function App() {
     const action = allActions.find(a => a.id === id);
     const siteId = sites.find(s => s.name === action?.site)?.id;
     if (siteId) recalcActionProgress(siteId);
+  };
+  const handleApplyFromWord = async (id: string, diff: ReadDiff) => {
+    const fromUKDate = (s: string) => {
+      const m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
+      if (!m) return s;
+      const [, d, mo, y] = m;
+      return `${y.length === 2 ? `20${y}` : y}-${mo.padStart(2, '0')}-${d.padStart(2, '0')}`;
+    };
+    const updates: Record<string, string | null> = {
+      ...(diff.actionText        ? { title: diff.actionText } : {}),
+      responsible_person: diff.responsiblePerson || null,
+      due_date:           diff.targetDate    ? fromUKDate(diff.targetDate)    : null,
+      resolved_date:      diff.completedDate ? fromUKDate(diff.completedDate) : null,
+    };
+    const { error } = await supabase.from('actions').update(updates).eq('id', id);
+    if (error) { console.error('[handleApplyFromWord] DB error:', error); showAppFlash('Failed to apply Word values — please try again.'); return; }
+    setAllActions(prev => prev.map(a => a.id === id ? {
+      ...a,
+      ...(diff.actionText        ? { action: diff.actionText }                          : {}),
+      who:         diff.responsiblePerson || a.who,
+      date:        diff.targetDate    ? fromUKDate(diff.targetDate)    : a.date,
+      resolvedDate: diff.completedDate ? fromUKDate(diff.completedDate) : a.resolvedDate,
+    } : a));
   };
   const handleDeleteAction = async (id: string) => {
     const action = allActions.find(a => a.id === id);
@@ -4573,8 +4781,15 @@ export default function App() {
                 return portalActionsForRef.some(e => e.action === a.description || textSimilarity(e.action, a.description) > 0.8);
               }
               // No hazardRef or no portal match for this ref — fall back to text matching
+              // Also match across same-named documents (e.g. .docx and .pdf of same file)
+              const docBaseName = doc.name.replace(/\.[^.]+$/, '').toLowerCase();
               return currentActions.some(e => {
-                if (e.site !== site.name || e.source_document_id !== doc.id) return false;
+                if (e.site !== site.name) return false;
+                if (e.source_document_id !== doc.id) {
+                  // Only cross-doc match if the source document has the same base name
+                  const eBase = (e.source ?? '').replace(/\.[^.]+$/, '').toLowerCase();
+                  if (eBase !== docBaseName) return false;
+                }
                 if (e.action === a.description) return true;
                 if (textSimilarity(e.action, a.description) > 0.8) return true;
                 return false;
@@ -4755,12 +4970,25 @@ export default function App() {
   const viewActions = allActions.filter(a => viewSites.some(s => s.name === a.site));
   const siteActions = selectedSite ? allActions.filter(a => a.site === selectedSite.name) : allActions;
   const isActionResolved = (a: Action) => resolvedIds.includes(a.id) || a.status === 'resolved' || a.status === 'pending_review';
+  const searchedSiteActions = actionSearch.trim()
+    ? siteActions.filter(a => {
+        const q = actionSearch.toLowerCase();
+        return (
+          a.action?.toLowerCase().includes(q) ||
+          (a.hazardRef ?? '').toLowerCase().includes(q) ||
+          (a.who ?? '').toLowerCase().includes(q) ||
+          (a.source ?? '').toLowerCase().includes(q) ||
+          (a.hazard ?? '').toLowerCase().includes(q)
+        );
+      })
+    : siteActions;
   const filteredActions = (
-    filterPriority === 'all' ? siteActions.filter(a => !isActionResolved(a)) :
-    filterPriority === 'resolved' ? siteActions.filter(a => a.status === 'resolved' || resolvedIds.includes(a.id)) :
-    filterPriority === 'pending_review' ? siteActions.filter(a => a.status === 'pending_review') :
-    filterPriority === 'rejected' ? siteActions.filter(a => a.status === 'open' && !!a.reviewNote) :
-    siteActions.filter(a => !isActionResolved(a) && derivePriority(a).priority === filterPriority)
+    filterPriority === 'all'          ? searchedSiteActions.filter(a => !isActionResolved(a)) :
+    filterPriority === 'open'         ? searchedSiteActions.filter(a => !isActionResolved(a) && (derivePriority(a).priority === 'amber' || derivePriority(a).priority === 'green')) :
+    filterPriority === 'resolved'     ? searchedSiteActions.filter(a => a.status === 'resolved' || resolvedIds.includes(a.id)) :
+    filterPriority === 'pending_review' ? searchedSiteActions.filter(a => a.status === 'pending_review') :
+    filterPriority === 'rejected'     ? searchedSiteActions.filter(a => a.status === 'open' && !!a.reviewNote) :
+    searchedSiteActions.filter(a => !isActionResolved(a) && derivePriority(a).priority === filterPriority)
   )
     .slice()
     .sort((a, b) => {
@@ -4786,9 +5014,12 @@ export default function App() {
       if (bHasDate) return 1;
       return (a.updatedAt || '') < (b.updatedAt || '') ? -1 : 1;
     });
-  // Group filteredActions by source document
-  const docGroupMap = new Map<string, typeof filteredActions>();
-  for (const a of filteredActions) {
+  // When searching, show all matches regardless of active tab; otherwise respect tab filter
+  const displayedActions = actionSearch.trim() ? searchedSiteActions : filteredActions;
+
+  // Group by source document
+  const docGroupMap = new Map<string, typeof displayedActions>();
+  for (const a of displayedActions) {
     const key = a.source || 'Unknown Document';
     if (!docGroupMap.has(key)) docGroupMap.set(key, []);
     docGroupMap.get(key)!.push(a);
@@ -4819,17 +5050,16 @@ export default function App() {
     setExpandedDocGroups(prev => prev.has(source) ? new Set() : new Set([source]));
   };
 
-  const openActions = siteActions.filter(a => !isActionResolved(a));
+  const openActions = searchedSiteActions.filter(a => !isActionResolved(a));
   const openCount = openActions.length;
-  const resolvedCount = siteActions.filter(a => isActionResolved(a)).length;
-  const pendingReviewCount = siteActions.filter(a => a.status === 'pending_review').length;
-  const rejectedCount = siteActions.filter(a => a.status === 'open' && !!a.reviewNote).length;
+  const resolvedCount = searchedSiteActions.filter(a => isActionResolved(a)).length;
+  const pendingReviewCount = searchedSiteActions.filter(a => a.status === 'pending_review').length;
+  const rejectedCount = searchedSiteActions.filter(a => a.status === 'open' && !!a.reviewNote).length;
   const filterCounts: Record<string, number> = {
     all:            openCount,
     red:            openActions.filter(a => derivePriority(a).priority === 'red').length,
-    amber:          openActions.filter(a => derivePriority(a).priority === 'amber').length,
-    green:          openActions.filter(a => derivePriority(a).priority === 'green').length,
-    resolved:       siteActions.filter(a => a.status === 'resolved' || resolvedIds.includes(a.id)).length,
+    open:           openActions.filter(a => derivePriority(a).priority === 'amber' || derivePriority(a).priority === 'green').length,
+    resolved:       searchedSiteActions.filter(a => a.status === 'resolved' || resolvedIds.includes(a.id)).length,
     pending_review: pendingReviewCount,
     rejected:       rejectedCount,
   };
@@ -5089,6 +5319,23 @@ export default function App() {
                   </div>
                 </div>
               </div>
+              {/* ── Reports ── */}
+              {!isViewOnly && (
+                <div className="flex flex-wrap items-center gap-3 px-1 pb-1">
+                  <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">Reports:</span>
+                  <a href={`/report?type=site&siteId=${selectedSite.id}`} target="_blank" rel="noopener noreferrer" className="text-[11px] font-bold text-indigo-600 hover:text-indigo-800 hover:underline flex items-center gap-1"><ExternalLink size={11} />Site H&amp;S Report</a>
+                  <span className="text-slate-200 text-[11px]">|</span>
+                  <a href={`/api/reports/actions?siteId=${selectedSite.id}`} download className="text-[11px] font-bold text-indigo-600 hover:text-indigo-800 hover:underline flex items-center gap-1"><Download size={11} />Action Register</a>
+                  <span className="text-slate-200 text-[11px]">|</span>
+                  <a href={`/api/reports/documents?siteId=${selectedSite.id}`} download className="text-[11px] font-bold text-indigo-600 hover:text-indigo-800 hover:underline flex items-center gap-1"><Download size={11} />Document Register</a>
+                  {(profile?.role === 'advisor' || profile?.role === 'superadmin') && selectedSite.organisation_id && (
+                    <>
+                      <span className="text-slate-200 text-[11px]">|</span>
+                      <a href={`/report?type=org&orgId=${selectedSite.organisation_id}`} target="_blank" rel="noopener noreferrer" className="text-[11px] font-bold text-indigo-600 hover:text-indigo-800 hover:underline flex items-center gap-1"><ExternalLink size={11} />Organisation Summary</a>
+                    </>
+                  )}
+                </div>
+              )}
               {/* ── Score cards ── */}
               {!isViewOnly && <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 items-stretch">
                 {/* Compliance Score */}
@@ -5355,7 +5602,7 @@ export default function App() {
               }
               {!isViewOnly && scoreExplanationCard && <ScoreExplanationModal card={scoreExplanationCard} onClose={() => setScoreExplanationCard(null)} />}
               {/* Site tab toggle */}
-              <div className="flex bg-slate-100 p-1 rounded-xl overflow-x-auto gap-0.5 w-full md:w-fit">
+              <div className="flex flex-wrap bg-slate-100 p-1 rounded-xl gap-0.5 w-full">
                 {!isViewOnly && (() => {
                   const pendingCount = (profile?.role === 'advisor' || profile?.role === 'superadmin') ? siteActions.filter(a => a.status === 'pending_review').length : 0;
                   return (
@@ -5372,18 +5619,31 @@ export default function App() {
               </div>
 
               {effectiveSiteTab === 'actions' && !isViewOnly && (<>
-              <div className="flex items-center justify-between gap-2">
-                <div className="flex items-center gap-1">
-                  {(['all', 'red', 'amber', 'green', 'pending_review', 'resolved'] as const).map(f => (
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex flex-wrap items-center gap-1">
+                  <button onClick={() => { setActionSearch(''); setShowActionSearch(s => !s); }} className={`p-2 rounded-lg transition-colors ${showActionSearch || actionSearch ? 'text-indigo-600 bg-indigo-50' : 'text-slate-400 hover:text-slate-600'}`} title="Search actions"><Search size={13} /></button>
+                  {(showActionSearch || actionSearch) && (
+                    <div className="relative flex items-center">
+                      <input
+                        autoFocus
+                        type="text"
+                        value={actionSearch}
+                        onChange={e => setActionSearch(e.target.value)}
+                        placeholder="Search actions…"
+                        className="pl-2 pr-6 py-1 text-[11px] border border-slate-200 rounded-lg bg-white text-slate-700 placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-indigo-300 focus:border-indigo-300 w-44"
+                      />
+                      {actionSearch && <button onClick={() => setActionSearch('')} className="absolute right-1.5 text-slate-400 hover:text-slate-600"><X size={11} /></button>}
+                    </div>
+                  )}
+                  {(['all', 'red', 'open', 'pending_review', 'resolved'] as const).map(f => (
                     <button key={f} onClick={() => setFilterPriority(f)} className={`px-3 py-2 text-[11px] font-black uppercase tracking-wider transition-colors whitespace-nowrap ${
                       f === 'all'            ? filterPriority === f ? 'text-slate-800 underline underline-offset-4 decoration-2' : 'text-slate-400 hover:text-slate-600'
                     : f === 'red'            ? filterPriority === f ? 'text-rose-600 underline underline-offset-4 decoration-2'   : 'text-rose-400 hover:text-rose-600'
-                    : f === 'amber'          ? filterPriority === f ? 'text-amber-600 underline underline-offset-4 decoration-2' : 'text-amber-400 hover:text-amber-600'
-                    : f === 'green'          ? filterPriority === f ? 'text-emerald-600 underline underline-offset-4 decoration-2' : 'text-emerald-400 hover:text-emerald-600'
+                    : f === 'open'           ? filterPriority === f ? 'text-emerald-600 underline underline-offset-4 decoration-2' : 'text-emerald-400 hover:text-emerald-600'
                     : f === 'pending_review' ? filterPriority === f ? 'text-violet-700 underline underline-offset-4 decoration-2' : 'text-violet-400 hover:text-violet-700'
                     :                         filterPriority === f ? 'text-slate-600 underline underline-offset-4 decoration-2' : 'text-slate-400 hover:text-slate-600'
                     }`}>
-                      {f === 'all' ? 'All' : f === 'red' ? 'Overdue' : f === 'amber' ? 'Upcoming / Review Due' : f === 'green' ? 'Scheduled / Review' : f === 'pending_review' ? 'Pending Review' : 'Resolved'} ({filterCounts[f] ?? 0})
+                      {f === 'all' ? 'All' : f === 'red' ? 'Overdue' : f === 'open' ? 'Open' : f === 'pending_review' ? 'Pending Review' : 'Resolved'} ({filterCounts[f] ?? 0})
                     </button>
                   ))}
                   {rejectedCount > 0 && (
@@ -5391,10 +5651,11 @@ export default function App() {
                       Returned ({rejectedCount})
                     </button>
                   )}
-                  <span className="ml-3 text-[10px] font-bold text-slate-400 bg-slate-50 border border-slate-100 px-2.5 py-1 rounded-lg whitespace-nowrap">{openCount} open · {resolvedCount} resolved</span>
+                  <span className="text-[11px] font-bold text-slate-400 bg-slate-50 border border-slate-100 px-2.5 py-1 rounded-lg whitespace-nowrap">
+                    {actionSearch.trim() ? `${searchedSiteActions.length} of ${siteActions.length} matched` : `${openCount} open · ${resolvedCount} resolved`}
+                  </span>
                 </div>
                 <div className="flex items-center gap-2 flex-shrink-0">
-                  <span className="text-[11px] font-bold text-slate-400">{filteredActions.length} action{filteredActions.length !== 1 ? 's' : ''}</span>
                   {profile?.role === 'advisor' && <button onClick={() => setShowAddAction(true)} className="flex items-center gap-2 px-5 py-2 bg-indigo-600 text-white rounded-xl text-[11px] font-black uppercase tracking-wider hover:bg-indigo-700 shadow-sm"><Plus size={13} />Add Action</button>}
                 </div>
               </div>
@@ -5602,17 +5863,21 @@ export default function App() {
               )}
 
               <div className="space-y-4">
-                {filteredActions.length === 0 ? (
-                  <div className="bg-white rounded-lg border border-slate-200 p-12 text-center"><CheckCircle2 size={32} className="text-emerald-400 mx-auto mb-3" /><p className="font-black text-slate-700">No actions for this site</p><p className="text-sm text-slate-400 mt-1">All items resolved or filtered out.</p></div>
+                {displayedActions.length === 0 ? (
+                  actionSearch.trim() ? (
+                    <div className="bg-white rounded-lg border border-slate-200 p-12 text-center"><Search size={28} className="text-slate-300 mx-auto mb-3" /><p className="font-black text-slate-700">No actions match &ldquo;{actionSearch}&rdquo;</p><button onClick={() => setActionSearch('')} className="text-[11px] text-indigo-500 hover:underline mt-2">Clear search</button></div>
+                  ) : (
+                    <div className="bg-white rounded-lg border border-slate-200 p-12 text-center"><CheckCircle2 size={32} className="text-emerald-400 mx-auto mb-3" /><p className="font-black text-slate-700">No actions for this site</p><p className="text-sm text-slate-400 mt-1">All items resolved or filtered out.</p></div>
+                  )
                 ) : docGroups.map(({ source, fileId, displayName, actions, redCount, amberCount, highRiskCount, hasRed, hasAmber }) => {
-                  const isOpen = expandedDocGroups.has(source);
+                  const isOpen = actionSearch.trim() ? true : expandedDocGroups.has(source);
                   const isSyncingThis = syncingDocId === String(fileId);
                   return (
                     <div key={source}>
                       <div className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-xl border border-indigo-200 transition-colors ${isOpen ? 'bg-indigo-200' : 'bg-indigo-100'}`}>
                         <button onClick={() => toggleDocGroup(source)} className="flex items-center gap-3 flex-1 text-left min-w-0">
                           <ChevronDown size={14} className={`text-slate-400 flex-shrink-0 transition-transform ${isOpen ? '' : '-rotate-90'}`} />
-                          <span className="font-black text-[12px] text-slate-700 truncate flex-1">{displayName}</span>
+                          <span className="font-black text-[12px] text-slate-700 truncate flex-1">{highlight(displayName, actionSearch)}</span>
                         </button>
                         <div className="flex items-center gap-1.5 flex-shrink-0">
                           {redCount > 0 && <span className="text-[11px] font-black uppercase px-2 py-0.5 rounded-lg bg-rose-100 text-rose-700 border border-rose-200">{redCount} Overdue action{redCount !== 1 ? 's' : ''}</span>}
@@ -5633,7 +5898,7 @@ export default function App() {
                       </div>
                       {isOpen && (
                         <div className="space-y-3 mt-2 pl-2">
-                          {actions.map(action => <ActionCard key={action.id} action={{ ...action, notes: actionNotes[action.id] || action.notes }} isResolved={resolvedIds.includes(action.id) || action.status === 'resolved'} onToggleResolve={toggleResolve} onAddNote={handleAddNote} onDelete={handleDeleteAction} onUpdateIssueDate={handleUpdateIssueDate} onClientSubmit={handleClientSubmit} onClientWithdraw={handleClientWithdraw} onAdvisorConfirm={handleAdvisorConfirm} onAdvisorReject={handleAdvisorReject} role={profile?.role || 'client'} expanded={expandedActionId === action.id} onExpand={() => setExpandedActionId(prev => prev === action.id ? null : action.id)} siteId={selectedSite?.id} userId={user?.id} onFlash={showAppFlash} />)}
+                          {actions.map(action => <ActionCard key={action.id} action={{ ...action, notes: actionNotes[action.id] || action.notes }} isResolved={resolvedIds.includes(action.id) || action.status === 'resolved'} onToggleResolve={toggleResolve} onAddNote={handleAddNote} onDelete={handleDeleteAction} onUpdateIssueDate={handleUpdateIssueDate} onClientSubmit={handleClientSubmit} onClientWithdraw={handleClientWithdraw} onAdvisorConfirm={handleAdvisorConfirm} onAdvisorReject={handleAdvisorReject} onApplyFromWord={handleApplyFromWord} role={profile?.role || 'client'} expanded={expandedActionId === action.id} onExpand={() => setExpandedActionId(prev => prev === action.id ? null : action.id)} siteId={selectedSite?.id} userId={user?.id} onFlash={showAppFlash} searchQuery={actionSearch} />)}
                         </div>
                       )}
                     </div>
@@ -5738,7 +6003,7 @@ export default function App() {
 
                 return (
                   <div className="space-y-2">
-                    <p className="text-[11px] text-slate-400 font-medium px-1">Search, view and download your H&amp;S documents. Files open as PDF in your browser.</p>
+                    <p className="text-[11px] text-slate-400 font-medium px-1">{(profile?.role === 'advisor' || profile?.role === 'superadmin') ? 'Search and open your H&S documents. Office files open locally via W: drive.' : 'Search, view and download your H&S documents. Files open as PDF in your browser.'}</p>
                     {/* Search bar */}
                     <div className="bg-white rounded-lg border border-slate-200 shadow-sm px-4 py-3 flex items-center gap-3">
                       <Search size={14} className="text-slate-400 flex-shrink-0" />

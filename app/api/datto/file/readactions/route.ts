@@ -6,10 +6,16 @@ const CLIENT_SECRET = '8228393f-1323-4d80-8dbe-e3e87c291158';
 const BASE_URL = 'https://eu.workplace.datto.com/2/api/v1';
 const AUTH_HEADER = 'Basic ' + Buffer.from(`${CLIENT_ID}:${CLIENT_SECRET}`).toString('base64');
 
+function decodeXmlEntities(s: string): string {
+  return s.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'");
+}
+
 function cellText(cellXml: string): string {
-  return (Array.from(cellXml.matchAll(/<w:t[^>]*>([^<]*)<\/w:t>/g)))
-    .map(t => t[0].replace(/<[^>]+>/g, ''))
-    .join('');
+  return decodeXmlEntities(
+    (Array.from(cellXml.matchAll(/<w:t[^>]*>([^<]*)<\/w:t>/g)))
+      .map(t => t[0].replace(/<[^>]+>/g, ''))
+      .join('')
+  );
 }
 
 function normaliseHeader(text: string): string {
