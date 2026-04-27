@@ -597,7 +597,7 @@ const ActionCard = ({ action, isResolved, onToggleResolve, onAddNote, onDelete, 
     }
   };
   return (
-    <div className={`rounded-lg border transition-all duration-300 overflow-hidden ${action.status === 'pending_review' ? 'bg-amber-50/60 border-amber-200' : isResolved ? 'bg-slate-50/60 border-slate-100 opacity-60' : `${cfg.bg} ${cfg.border}`}`}>
+    <div className={`rounded-lg border transition-all duration-300 overflow-hidden ${action.status === 'pending_review' ? 'bg-amber-50/60 border-amber-200' : action.status === 'open' && action.reviewNote ? 'bg-rose-50/60 border-rose-200' : isResolved ? 'bg-slate-50/60 border-slate-100 opacity-60' : `${cfg.bg} ${cfg.border}`}`}>
       <div className="px-4 py-3 flex flex-col md:flex-row md:items-center gap-3 cursor-pointer" onClick={onExpand}>
         <div className={`w-1.5 rounded-full self-stretch hidden md:block flex-shrink-0 ${isResolved ? 'bg-slate-300' : cfg.bar}`} />
         <div className="flex-1 min-w-0">
@@ -612,6 +612,12 @@ const ActionCard = ({ action, isResolved, onToggleResolve, onAddNote, onDelete, 
                   <span className="text-[12px] font-medium text-slate-500 flex-shrink-0"><span className="text-slate-400 font-normal">Due: </span>{toUKDate(action.date)}</span>
                 </>
               )}
+              {action.resolvedDate && (
+                <>
+                  <span className="text-slate-300 text-[11px]">|</span>
+                  <span className="text-[12px] font-medium text-emerald-600 flex-shrink-0"><span className="text-slate-400 font-normal">Resolved: </span>{toUKDate(action.resolvedDate)}</span>
+                </>
+              )}
               {(action as any).isSuggested &&<span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-lg border border-violet-200 text-violet-600 bg-violet-50 flex-shrink-0">AI Suggested</span>}
             </div>
             <div className="flex items-center gap-2 flex-shrink-0">
@@ -621,7 +627,9 @@ const ActionCard = ({ action, isResolved, onToggleResolve, onAddNote, onDelete, 
                   : 'bg-emerald-200 text-emerald-800 border-emerald-300';
                 return <span className={`text-[10px] font-black uppercase w-28 py-1 rounded-full border text-center ${riskDarkCls}`}>{action.riskLevel} Risk</span>;
               })()}
-              {action.status === 'pending_review' ? (
+              {action.status === 'open' && action.reviewNote ? (
+                <span className="text-[10px] font-black uppercase w-28 py-1 rounded-full border text-center bg-rose-100 border-rose-300 text-rose-700 flex items-center justify-center gap-1"><X size={9} />Returned</span>
+              ) : action.status === 'pending_review' ? (
                 <span className="text-[10px] font-black uppercase w-28 py-1 rounded-full border text-center bg-amber-100 border-amber-300 text-amber-700 flex items-center justify-center gap-1"><Clock size={9} />Pending</span>
               ) : isResolved ? (
                 <span className="text-[10px] font-black uppercase w-28 py-1 rounded-full border text-center bg-white border-slate-200 text-slate-400">Resolved</span>
@@ -673,6 +681,7 @@ const ActionCard = ({ action, isResolved, onToggleResolve, onAddNote, onDelete, 
                 )}
               </span>
               {action.date && <><span className="text-slate-300">|</span><span><span className="text-slate-500 font-normal">Due Date: </span>{toUKDate(action.date)}</span></>}
+              {action.resolvedDate && <><span className="text-slate-300">|</span><span className="text-emerald-600"><span className="text-slate-500 font-normal">Resolved: </span>{toUKDate(action.resolvedDate)}</span></>}
               {action.who && <><span className="text-slate-300">|</span><span><span className="text-slate-500 font-normal">Responsible: </span>{action.who}</span></>}
             </div>
             {(action.source || (role === 'advisor' && !!onDelete)) && (
@@ -807,7 +816,7 @@ const ActionCard = ({ action, isResolved, onToggleResolve, onAddNote, onDelete, 
                 )}
                 {action.status === 'pending_review' && (role === 'advisor' || role === 'superadmin') && (
                   <>
-                    <button onClick={e => { e.stopPropagation(); onAdvisorConfirm?.(action.id); }} className="w-full px-4 py-2 rounded-xl font-black text-xs uppercase tracking-wider active:scale-95 bg-emerald-600 text-white hover:bg-emerald-700 flex items-center justify-center gap-2"><CheckCircle size={13} />Confirm Resolved</button>
+                    <button onClick={e => { e.stopPropagation(); onAdvisorConfirm?.(action.id); if (canSync) { doSync(new Date().toLocaleDateString('en-CA')); } }} className="w-full px-4 py-2 rounded-xl font-black text-xs uppercase tracking-wider active:scale-95 bg-emerald-600 text-white hover:bg-emerald-700 flex items-center justify-center gap-2"><CheckCircle size={13} />Confirm Resolved</button>
                     {showRejectInput ? (
                       <div className="space-y-2">
                         <textarea value={rejectNote} onChange={e => setRejectNote(e.target.value)} placeholder="Reason for rejection…" rows={2} className="w-full text-sm border border-slate-200 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-rose-200 resize-none bg-white" />
@@ -3727,7 +3736,7 @@ export default function App() {
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncLastRun, setSyncLastRun] = useState('2 hours ago');
   const [resolvedIds, setResolvedIds] = useState<string[]>([]);
-  const [filterPriority, setFilterPriority] = useState<Priority | 'all' | 'resolved' | 'pending_review'>('all');
+  const [filterPriority, setFilterPriority] = useState<Priority | 'all' | 'resolved' | 'pending_review' | 'rejected'>('all');
   const [actionNotes, setActionNotes] = useState<Record<string, string>>({});
   const [sites, setSites] = useState<Site[]>([]);
   const [organisations, setOrganisations] = useState<Organisation[]>([]);
@@ -4750,6 +4759,7 @@ export default function App() {
     filterPriority === 'all' ? siteActions.filter(a => !isActionResolved(a)) :
     filterPriority === 'resolved' ? siteActions.filter(a => a.status === 'resolved' || resolvedIds.includes(a.id)) :
     filterPriority === 'pending_review' ? siteActions.filter(a => a.status === 'pending_review') :
+    filterPriority === 'rejected' ? siteActions.filter(a => a.status === 'open' && !!a.reviewNote) :
     siteActions.filter(a => !isActionResolved(a) && derivePriority(a).priority === filterPriority)
   )
     .slice()
@@ -4813,6 +4823,7 @@ export default function App() {
   const openCount = openActions.length;
   const resolvedCount = siteActions.filter(a => isActionResolved(a)).length;
   const pendingReviewCount = siteActions.filter(a => a.status === 'pending_review').length;
+  const rejectedCount = siteActions.filter(a => a.status === 'open' && !!a.reviewNote).length;
   const filterCounts: Record<string, number> = {
     all:            openCount,
     red:            openActions.filter(a => derivePriority(a).priority === 'red').length,
@@ -4820,6 +4831,7 @@ export default function App() {
     green:          openActions.filter(a => derivePriority(a).priority === 'green').length,
     resolved:       siteActions.filter(a => a.status === 'resolved' || resolvedIds.includes(a.id)).length,
     pending_review: pendingReviewCount,
+    rejected:       rejectedCount,
   };
   const criticalCount = viewActions.filter(a => a.status !== 'resolved' && a.status !== 'pending_review' && derivePriority(a).priority === 'red').length;
   const upcomingCount = viewActions.filter(a => a.status !== 'resolved' && a.status !== 'pending_review' && derivePriority(a).priority === 'amber').length;
@@ -5141,6 +5153,14 @@ export default function App() {
                               </button>
                             </>
                           )}
+                          {rejectedCount > 0 && (
+                            <>
+                              <span className="text-slate-300">|</span>
+                              <button onClick={e => { e.stopPropagation(); setSiteTab('actions'); setFilterPriority('rejected'); }} className="text-[11px] font-medium text-rose-500 hover:text-rose-700 transition-colors">
+                                {rejectedCount} Action{rejectedCount !== 1 ? 's' : ''} Returned
+                              </button>
+                            </>
+                          )}
                         </div>
                         <button onClick={e => { e.stopPropagation(); setScoreExplanationCard('implementation'); }} className="flex items-center gap-1 text-slate-300 hover:text-indigo-500 transition-colors" title="How is this calculated?"><AlertCircle size={14} /><span className="text-[9px] font-black uppercase tracking-wider">Help</span></button>
                       </div>
@@ -5366,6 +5386,11 @@ export default function App() {
                       {f === 'all' ? 'All' : f === 'red' ? 'Overdue' : f === 'amber' ? 'Upcoming / Review Due' : f === 'green' ? 'Scheduled / Review' : f === 'pending_review' ? 'Pending Review' : 'Resolved'} ({filterCounts[f] ?? 0})
                     </button>
                   ))}
+                  {rejectedCount > 0 && (
+                    <button onClick={() => setFilterPriority('rejected')} className={`px-3 py-2 text-[11px] font-black uppercase tracking-wider transition-colors whitespace-nowrap ${filterPriority === 'rejected' ? 'text-rose-600 underline underline-offset-4 decoration-2' : 'text-rose-400 hover:text-rose-600'}`}>
+                      Returned ({rejectedCount})
+                    </button>
+                  )}
                   <span className="ml-3 text-[10px] font-bold text-slate-400 bg-slate-50 border border-slate-100 px-2.5 py-1 rounded-lg whitespace-nowrap">{openCount} open · {resolvedCount} resolved</span>
                 </div>
                 <div className="flex items-center gap-2 flex-shrink-0">
