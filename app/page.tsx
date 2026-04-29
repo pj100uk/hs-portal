@@ -9,7 +9,8 @@ import {
   Zap, Shield, ArrowUpRight, X, Plus, LogOut, Lock, Mail,
   Folder, FolderOpen, File, Pencil, GraduationCap, Heart,
   Warehouse, ShoppingBag, Home, Sparkles, AlertCircle,
-  Upload, FileCheck, Trash2, Users, Search, KeyRound, Download
+  Upload, FileCheck, Trash2, Users, Search, KeyRound, Download,
+  Archive, Copy
 } from 'lucide-react';
 import mammoth from 'mammoth';
 import * as XLSX from 'xlsx';
@@ -1996,37 +1997,50 @@ const SiteDocumentsTab = ({ site, profile, userId, onComplianceUpdate, onActions
 };
 
 // ─── Document Health Tab ──────────────────────────────────────────────────────
-const DocHealthTab = ({ siteId, onComplianceUpdate, onJumpToActions, role }: { siteId: string; onComplianceUpdate?: (score: number) => void; onJumpToActions?: (docName: string) => void; role?: string }) => {
-  const [rows, setRows] = useState<{ docName: string; issueDate: string | null; actionCount: number; reviewDue: string | null; fileId: string | null; folderPath: string | null }[]>([]);
+const DocHealthTab = ({ siteId, onComplianceUpdate, onJumpToActions, role, onArchive, onClone }: {
+  siteId: string;
+  onComplianceUpdate?: (score: number) => void;
+  onJumpToActions?: (docName: string) => void;
+  role?: string;
+  onArchive?: (docName: string, folderPath: string, issueDate: string | null, siteId: string) => Promise<void>;
+  onClone?: (fileId: string, docName: string, folderId: string) => Promise<void>;
+}) => {
+  const [rows, setRows] = useState<{ docName: string; issueDate: string | null; actionCount: number; reviewDue: string | null; fileId: string | null; folderPath: string | null; folderId: string | null }[]>([]);
   const [loading, setLoading] = useState(true);
   const [editingDoc, setEditingDoc] = useState<string | null>(null);
   const [reviewInput, setReviewInput] = useState('');
   const [showHelper, setShowHelper] = useState(false);
+  const [confirmingArchive, setConfirmingArchive] = useState<string | null>(null);
+  const [archiveWithClone, setArchiveWithClone] = useState(false);
+  const [archivingDoc, setArchivingDoc] = useState<string | null>(null);
+  const [cloningDoc, setCloningDoc] = useState<string | null>(null);
 
   useEffect(() => {
     setLoading(true);
     Promise.all([
-      supabase.from('actions').select('source_document_name, issue_date, source_document_id, source_folder_path').eq('site_id', siteId).not('source_document_name', 'is', null).is('site_document_id', null),
+      supabase.from('actions').select('source_document_name, issue_date, source_document_id, source_folder_path, source_folder_id').eq('site_id', siteId).not('source_document_name', 'is', null).is('site_document_id', null),
       supabase.from('document_health').select('document_name, review_due').eq('site_id', siteId),
     ]).then(([actRes, healthRes]) => {
       const actions = actRes.data ?? [];
       const health = healthRes.data ?? [];
       // Group actions by source document name
-      const map = new Map<string, { issueDate: string | null; count: number; fileId: string | null; folderPath: string | null }>();
+      const map = new Map<string, { issueDate: string | null; count: number; fileId: string | null; folderPath: string | null; folderId: string | null }>();
       for (const a of actions) {
         const name: string = a.source_document_name;
         const existing = map.get(name);
         const d = a.issue_date as string | null;
         const fid = (a.source_document_id as string | null) ?? null;
         const fp = (a.source_folder_path as string | null) ?? null;
+        const folderId = (a.source_folder_id as string | null) ?? null;
         if (!existing) {
-          map.set(name, { issueDate: d, count: 1, fileId: fid, folderPath: fp });
+          map.set(name, { issueDate: d, count: 1, fileId: fid, folderPath: fp, folderId });
         } else {
           map.set(name, {
             count: existing.count + 1,
             issueDate: d && (!existing.issueDate || d > existing.issueDate) ? d : existing.issueDate,
             fileId: existing.fileId ?? fid,
             folderPath: existing.folderPath ?? fp,
+            folderId: existing.folderId ?? folderId,
           });
         }
       }
@@ -2038,6 +2052,7 @@ const DocHealthTab = ({ siteId, onComplianceUpdate, onJumpToActions, role }: { s
         reviewDue: reviewMap.get(docName) ?? null,
         fileId: v.fileId,
         folderPath: v.folderPath,
+        folderId: v.folderId,
       }));
       // Sort: red first, then amber, then grey, then green
       const statusOrder = (r: typeof built[0]) => {
@@ -2132,6 +2147,29 @@ const DocHealthTab = ({ siteId, onComplianceUpdate, onJumpToActions, role }: { s
 
   const counts = { red: rows.filter(r => docStatus(r.issueDate, r.reviewDue, today) === 'red').length, amber: rows.filter(r => docStatus(r.issueDate, r.reviewDue, today) === 'amber').length, green: rows.filter(r => docStatus(r.issueDate, r.reviewDue, today) === 'green').length, grey: rows.filter(r => docStatus(r.issueDate, r.reviewDue, today) === 'grey').length };
 
+  const doArchive = async (row: typeof rows[0], withClone = false) => {
+    if (!onArchive) return;
+    setConfirmingArchive(null);
+    setArchivingDoc(row.docName);
+    try {
+      await onArchive(row.docName, row.folderPath ?? '', row.issueDate, siteId);
+      setRows(prev => prev.filter(r => r.docName !== row.docName));
+      if (withClone && onClone && row.fileId && row.folderId) {
+        await onClone(row.fileId, row.docName, row.folderId);
+      }
+    } catch { /* error already shown by parent */ }
+    finally { setArchivingDoc(null); }
+  };
+
+  const doClone = async (row: typeof rows[0]) => {
+    if (!onClone || !row.fileId || !row.folderId) return;
+    setCloningDoc(row.docName);
+    try {
+      await onClone(row.fileId, row.docName, row.folderId);
+    } catch { /* error already shown by parent */ }
+    finally { setCloningDoc(null); }
+  };
+
   if (loading) return <div className="py-8 text-center text-slate-400 text-sm font-bold animate-pulse">Loading…</div>;
 
   return (
@@ -2172,12 +2210,17 @@ const DocHealthTab = ({ siteId, onComplianceUpdate, onJumpToActions, role }: { s
           <div className="p-12 text-center"><FileText size={28} className="text-slate-300 mx-auto mb-3" /><p className="font-black text-slate-700 text-sm">No AI-synced documents found for this site</p><p className="text-sm text-slate-400 mt-1">Run an AI sync to populate document health data.</p></div>
         ) : (
           <table className="w-full text-left">
-            <thead><tr className="bg-slate-50 text-[10px] uppercase font-black text-slate-400 border-b border-slate-100"><th className="px-5 py-3 w-[40%]">Document</th><th className="px-3 py-3 w-[19%]">Last Assessed</th><th className="px-3 py-3 w-[16%]">Review Due</th><th className="px-3 py-3 w-[17%]">Status</th><th className="px-3 py-3 w-[8%] text-right">Actions</th></tr></thead>
+            <thead><tr className="bg-slate-50 text-[10px] uppercase font-black text-slate-400 border-b border-slate-100"><th className="px-5 py-3 w-[36%]">Document</th><th className="px-3 py-3 w-[17%]">Last Assessed</th><th className="px-3 py-3 w-[15%]">Review Due</th><th className="px-3 py-3 w-[15%]">Status</th><th className="px-3 py-3 w-[8%] text-center">Actions</th><th className="px-3 py-3 w-[9%]"></th></tr></thead>
             <tbody className="divide-y divide-slate-100">
               {rows.map(row => {
                 const s = docStatus(row.issueDate, row.reviewDue, today);
+                const isArchiving = archivingDoc === row.docName;
+                const isCloning = cloningDoc === row.docName;
+                const isConfirming = confirmingArchive === row.docName;
+                const isDocx = row.docName.toLowerCase().endsWith('.docx');
                 return (
-                  <tr key={row.docName} className={s === 'red' ? 'bg-rose-50/40' : s === 'amber' ? 'bg-amber-50/30' : ''}>
+                  <React.Fragment key={row.docName}>
+                  <tr className={s === 'red' ? 'bg-rose-50/40' : s === 'amber' ? 'bg-amber-50/30' : ''}>
                     <td className="px-5 py-3.5 text-sm max-w-xs">
                       <button
                         onClick={() => onJumpToActions?.(row.docName)}
@@ -2214,28 +2257,49 @@ const DocHealthTab = ({ siteId, onComplianceUpdate, onJumpToActions, role }: { s
                       )}
                     </td>
                     <td className="px-3 py-3.5">{statusBadge(s, row.reviewDue)}</td>
-                    <td className="px-3 py-3.5 text-right text-[11px] font-bold text-slate-400">
-                      <div className="flex items-center justify-end gap-3">
-                        <span>{row.actionCount}</span>
+                    <td className="px-3 py-3.5 text-center text-[11px] font-bold text-slate-400">{row.actionCount}</td>
+                    <td className="px-3 py-3.5 text-right">
+                      <div className="flex items-center justify-end gap-2">
                         {row.fileId && (() => {
                           const href = getFileHref({ id: row.fileId!, name: row.docName, type: 'file' }, row.folderPath || '', role ?? 'advisor');
                           const isOffice = href.startsWith('ms-');
                           return (
-                            <a
-                              href={href}
-                              target={isOffice ? undefined : '_blank'}
-                              rel={isOffice ? undefined : 'noopener noreferrer'}
-                              className="text-slate-300 hover:text-indigo-500 transition-colors"
-                              title={isOffice ? 'Open in Word/Excel' : 'Open document'}
-                              onClick={e => e.stopPropagation()}
-                            >
+                            <a href={href} target={isOffice ? undefined : '_blank'} rel={isOffice ? undefined : 'noopener noreferrer'} className="text-slate-400 hover:text-indigo-500 transition-colors" title={isOffice ? 'Open in Word/Excel' : 'Open document'} onClick={e => e.stopPropagation()}>
                               <ExternalLink size={13} />
                             </a>
                           );
                         })()}
+                        {onArchive && row.folderPath && (
+                          <button onClick={() => { setArchiveWithClone(false); setConfirmingArchive(isConfirming ? null : row.docName); }} disabled={isArchiving} title="Archive this document" className={`transition-colors ${isArchiving ? 'text-amber-500 animate-pulse' : isConfirming ? 'text-amber-600' : 'text-slate-400 hover:text-amber-500'} disabled:opacity-40`}>
+                            <Archive size={13} />
+                          </button>
+                        )}
+                        {onClone && row.fileId && row.folderId && isDocx && (
+                          <button onClick={() => doClone(row)} disabled={isCloning} title="Clone blank copy" className={`transition-colors ${isCloning ? 'text-indigo-500 animate-pulse' : 'text-slate-400 hover:text-indigo-500'} disabled:opacity-40`}>
+                            <Copy size={13} />
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>
+                  {isConfirming && (
+                    <tr className="bg-amber-50">
+                      <td colSpan={6} className="px-5 py-2.5">
+                        <div className="flex items-center gap-3 text-[12px]">
+                          <span className="flex-1 text-amber-800 font-medium">Move to Z-Archived Documents and remove all actions for this document?</span>
+                          {onClone && row.fileId && row.folderId && isDocx && (
+                            <label className="flex items-center gap-1.5 text-[11px] font-bold text-amber-800 cursor-pointer select-none">
+                              <input type="checkbox" checked={archiveWithClone} onChange={e => setArchiveWithClone(e.target.checked)} className="accent-indigo-600" />
+                              Clone existing
+                            </label>
+                          )}
+                          <button onClick={() => doArchive(row, archiveWithClone)} className="px-3 py-1 bg-amber-500 text-white rounded-lg font-black text-[11px] hover:bg-amber-600">Confirm</button>
+                          <button onClick={() => setConfirmingArchive(null)} className="px-3 py-1 bg-white border border-slate-200 text-slate-600 rounded-lg font-black text-[11px] hover:bg-slate-50">Cancel</button>
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                  </React.Fragment>
                 );
               })}
             </tbody>
@@ -3867,7 +3931,7 @@ export default function App() {
   const [showChangePassword, setShowChangePassword] = useState(false);
   const [appFlash, setAppFlash] = useState('');
   const appFlashRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
-  const showAppFlash = (msg: string) => { setAppFlash(msg); if (appFlashRef.current) clearTimeout(appFlashRef.current); appFlashRef.current = setTimeout(() => setAppFlash(''), 3500); };
+  const showAppFlash = (msg: string, durationMs = 3500) => { setAppFlash(msg); if (appFlashRef.current) clearTimeout(appFlashRef.current); appFlashRef.current = setTimeout(() => setAppFlash(''), durationMs); };
   const [view, setView] = useState<AppView>('portfolio');
   const [siteTab, setSiteTab] = useState<'actions' | 'documents' | 'dochealth' | 'iag' | 'files'>('actions');
   const effectiveSiteTab = isViewOnly && (siteTab === 'actions' || siteTab === 'documents') ? 'files' : siteTab;
@@ -3893,6 +3957,7 @@ export default function App() {
   const [expandedActionId, setExpandedActionId] = useState<string | null>(null);
   const [expandedDocGroups, setExpandedDocGroups] = useState<Set<string>>(new Set());
   const pendingExpandDocRef = React.useRef<string | null>(null);
+  const pathRefreshedSites = React.useRef<Set<string>>(new Set());
   const [aiSyncing, setAiSyncing] = useState(false);
   const [aiSyncProgress, setAiSyncProgress] = useState('');
   // File browser state
@@ -4148,6 +4213,35 @@ export default function App() {
   React.useEffect(() => {
     if (selectedSite?.id) loadIagServices(selectedSite.id);
   }, [selectedSite?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Background path refresh: keep source_folder_path in sync with live Datto folder names.
+  // Fires once per site per session so renamed folders fix themselves without needing an AI sync.
+  React.useEffect(() => {
+    const site = selectedSite;
+    if (!site?.id || !site.datto_folder_id || pathRefreshedSites.current.has(site.id)) return;
+    const siteActions = allActions.filter(a => a.site === site.name && a.source_document_id && !a.dattoFileId);
+    if (siteActions.length === 0) return;
+    pathRefreshedSites.current.add(site.id);
+    (async () => {
+      try {
+        const rootPath = await resolvePathFromRoot(site);
+        const allFiles = await fetchAllFiles(site.datto_folder_id!, new Set(site.excluded_datto_folder_ids ?? []), rootPath);
+        const livePathMap = new Map<string, string>(allFiles.map(f => [String(f.id), f.folderPath ?? ''] as [string, string]));
+        const stale = siteActions.filter(a =>
+          livePathMap.has(String(a.source_document_id)) &&
+          livePathMap.get(String(a.source_document_id)) !== a.sourceFolderPath
+        );
+        if (stale.length === 0) return;
+        await Promise.all(stale.map(a =>
+          supabase.from('actions').update({ source_folder_path: livePathMap.get(String(a.source_document_id)) }).eq('id', a.id)
+        ));
+        setAllActions(prev => prev.map(a => {
+          const newPath = livePathMap.get(String(a.source_document_id));
+          return newPath !== undefined && newPath !== a.sourceFolderPath ? { ...a, sourceFolderPath: newPath } : a;
+        }));
+      } catch { /* silent — path refresh is best-effort */ }
+    })();
+  }, [selectedSite?.id, allActions.length]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Collapse open actions when switching tabs or filters (honour pending expansion from doc-health jump)
   React.useEffect(() => {
@@ -4489,6 +4583,27 @@ export default function App() {
         const userExcludedIds = new Set(site.excluded_datto_folder_ids ?? []);
         allItems = await fetchAllFiles(site.datto_folder_id, userExcludedIds, rootPath);
       }
+
+      // Refresh stale source_folder_path for actions whose Datto folder was renamed since last sync.
+      // Uses source_document_id (Datto file ID) to match actions to their current live folder path.
+      {
+        const livePathMap = new Map<string, string>(allItems.map(f => [String(f.id), f.folderPath ?? ''] as [string, string]));
+        const staleActions = currentActions.filter(a =>
+          a.source_document_id &&
+          livePathMap.has(String(a.source_document_id)) &&
+          livePathMap.get(String(a.source_document_id)) !== a.sourceFolderPath
+        );
+        if (staleActions.length > 0) {
+          await Promise.all(staleActions.map(a =>
+            supabase.from('actions').update({ source_folder_path: livePathMap.get(String(a.source_document_id)) }).eq('id', a.id)
+          ));
+          setAllActions(prev => prev.map(a => {
+            const newPath = livePathMap.get(String(a.source_document_id));
+            return newPath !== undefined && newPath !== a.sourceFolderPath ? { ...a, sourceFolderPath: newPath } : a;
+          }));
+        }
+      }
+
       const SUPPORTED_EXTS = ['.docx', '.doc', '.pdf', '.xlsx', '.xls'];
       let docxFiles = allItems.filter(i =>
         SUPPORTED_EXTS.some(ext => i.name.toLowerCase().endsWith(ext)) &&
@@ -4964,6 +5079,30 @@ export default function App() {
   const handleSingleDocSync = (site: Site, fileId: string) => {
     setSyncingDocId(fileId);
     handleAiSync(site, true, fileId).finally(() => setSyncingDocId(null));
+  };
+
+  const handleArchiveDoc = async (docName: string, folderPath: string, issueDate: string | null, siteId: string): Promise<void> => {
+    const res = await fetch('/api/datto/archive-document', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sourceFolderPath: folderPath, fileName: docName, assessmentDate: issueDate }),
+    });
+    const data = await res.json();
+    if (!res.ok) { showAppFlash(data.error ?? 'Archive failed', 8000); throw new Error(data.error); }
+    await supabase.from('actions').delete().eq('site_id', siteId).eq('source_document_name', docName);
+    setAllActions(prev => prev.filter(a => a.source !== docName));
+    showAppFlash(`Archived to: ${data.targetPath ?? data.archivedFileName}`, 8000);
+  };
+
+  const handleCloneDoc = async (fileId: string, fileName: string, folderId: string): Promise<void> => {
+    const res = await fetch('/api/datto/clone-document', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fileId, fileName, folderId }),
+    });
+    const data = await res.json();
+    if (!res.ok) { showAppFlash(data.error ?? 'Clone failed', 8000); throw new Error(data.error); }
+    showAppFlash(`Blank copy created: ${data.newFileName}`);
   };
 
   const viewSites = filterOrgId ? sites.filter(s => s.organisation_id === filterOrgId) : sites;
@@ -5872,6 +6011,7 @@ export default function App() {
                 ) : docGroups.map(({ source, fileId, displayName, actions, redCount, amberCount, highRiskCount, hasRed, hasAmber }) => {
                   const isOpen = actionSearch.trim() ? true : expandedDocGroups.has(source);
                   const isSyncingThis = syncingDocId === String(fileId);
+                  const isAdvisor = profile?.role === 'advisor' || profile?.role === 'superadmin';
                   return (
                     <div key={source}>
                       <div className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-xl border border-indigo-200 transition-colors ${isOpen ? 'bg-indigo-200' : 'bg-indigo-100'}`}>
@@ -5884,7 +6024,7 @@ export default function App() {
                           {highRiskCount > 0 && <span className="text-[11px] font-black uppercase px-2 py-0.5 rounded-lg bg-rose-600 text-white border border-rose-700">{highRiskCount} High Risk</span>}
                           {amberCount > 0 && !hasRed && <span className="text-[11px] font-black uppercase px-2 py-0.5 rounded-lg bg-amber-100 text-amber-700 border border-amber-200">{amberCount} upcoming</span>}
                           {!hasRed && !hasAmber && <span className="text-[11px] font-black uppercase px-2 py-0.5 rounded-lg bg-emerald-100 text-emerald-700 border border-emerald-200">{actions.length} scheduled</span>}
-                          {profile?.role === 'advisor' && fileId && (
+                          {isAdvisor && fileId && (
                             <button
                               onClick={e => { e.stopPropagation(); if (!isSyncingThis && !aiSyncing) handleSingleDocSync(selectedSite, String(fileId)); }}
                               disabled={isSyncingThis || aiSyncing}
@@ -5929,7 +6069,7 @@ export default function App() {
                 }} onJumpToActions={(docName) => {
                   pendingExpandDocRef.current = docName;
                   setSiteTab('actions');
-                }} role={profile?.role} />
+                }} role={profile?.role} onArchive={handleArchiveDoc} onClone={handleCloneDoc} />
               )}
 
               {/* ── Files browser tab — accordion style ── */}
