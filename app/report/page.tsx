@@ -300,7 +300,7 @@ function OrgReport({ orgId }: { orgId: string }) {
 }
 
 // ─── Report Shell ─────────────────────────────────────────────────────────────
-export default function ReportPage() {
+function ReportPageInner() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const type   = searchParams.get('type');
@@ -389,5 +389,13 @@ export default function ReportPage() {
         </p>
       </div>
     </>
+  );
+}
+
+export default function ReportPage() {
+  return (
+    <React.Suspense fallback={null}>
+      <ReportPageInner />
+    </React.Suspense>
   );
 }

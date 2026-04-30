@@ -202,7 +202,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
 
   const buffer = await Packer.toBuffer(doc);
   const safeDocName = docName.replace(/[^a-zA-Z0-9 \-_.]/g, '').trim();
-  const filename = `${safeDocName} - Acknowledgement Form.docx`;
+  const filename = `${safeDocName} - Evidence.docx`;
 
   return new NextResponse(buffer as unknown as BodyInit, {
     headers: {
