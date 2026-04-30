@@ -4254,6 +4254,7 @@ export default function App() {
     }
   }, [siteTab, filterPriority]);
 
+
   // Init file browser when Files tab is opened (preserves state on tab toggle, only re-inits for new site)
   React.useEffect(() => {
     if (siteTab !== 'files' || !selectedSite?.datto_folder_id) return;
@@ -6013,7 +6014,7 @@ export default function App() {
                   const isSyncingThis = syncingDocId === String(fileId);
                   const isAdvisor = profile?.role === 'advisor' || profile?.role === 'superadmin';
                   return (
-                    <div key={source}>
+                    <div key={source} data-doc-source={source}>
                       <div className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-xl border border-indigo-200 transition-colors ${isOpen ? 'bg-indigo-200' : 'bg-indigo-100'}`}>
                         <button onClick={() => toggleDocGroup(source)} className="flex items-center gap-3 flex-1 text-left min-w-0">
                           <ChevronDown size={14} className={`text-slate-400 flex-shrink-0 transition-transform ${isOpen ? '' : '-rotate-90'}`} />
@@ -6069,6 +6070,13 @@ export default function App() {
                 }} onJumpToActions={(docName) => {
                   pendingExpandDocRef.current = docName;
                   setSiteTab('actions');
+                  setTimeout(() => {
+                    const el = Array.from(document.querySelectorAll<HTMLElement>('[data-doc-source]'))
+                      .find(e => e.getAttribute('data-doc-source') === docName);
+                    if (!el) return;
+                    const top = el.getBoundingClientRect().top + window.scrollY - 90;
+                    window.scrollTo({ top, behavior: 'smooth' });
+                  }, 300);
                 }} role={profile?.role} onArchive={handleArchiveDoc} onClone={handleCloneDoc} />
               )}
 
