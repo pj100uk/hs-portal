@@ -10,7 +10,7 @@ import {
   Folder, FolderOpen, File, Pencil, GraduationCap, Heart,
   Warehouse, ShoppingBag, Home, Sparkles, AlertCircle,
   Upload, FileCheck, Trash2, Users, Search, KeyRound, Download,
-  Archive, Copy
+  Archive, Copy, RotateCcw
 } from 'lucide-react';
 import mammoth from 'mammoth';
 import * as XLSX from 'xlsx';
@@ -18,7 +18,7 @@ import { supabase } from './lib/supabase';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 type Priority = 'red' | 'amber' | 'green';
-type ActionStatus = 'open' | 'resolved' | 'pending_review';
+type ActionStatus = 'open' | 'resolved' | 'pending_review' | 'archived';
 type AppView = 'portfolio' | 'site' | 'admin';
 type AdminTab = 'organisations' | 'sites' | 'users' | 'requirements' | 'usage';
 
@@ -260,7 +260,7 @@ const DERIVE_ONGOING_RE = /on.?going|continuous|continual|continued|continuing|r
 const DERIVE_IMMEDIATE_RE = /\b(immediately?|urgent(ly)?|asap|a\.?s\.?a\.?p\.?|as\s+soon\s+as\s+(possible|practicable)|right\s+away|straight\s+away|without\s+delay|at\s+once|now|today)\b/i;
 
 function derivePriority(action: Action): { priority: Priority; label: string } {
-  if (action.status === 'resolved') return { priority: 'green', label: 'Resolved' };
+  if (action.status === 'resolved' || action.status === 'archived') return { priority: 'green', label: action.status === 'archived' ? 'Archived' : 'Resolved' };
   const today = new Date().toLocaleDateString('en-CA');
   const date = action.date;
   const isOngoing = !!date && DERIVE_ONGOING_RE.test(date);
@@ -316,7 +316,7 @@ const computeActionProgress = (actions: Action[]): number => {
   let onTrackPoints = 0, totalPoints = 0;
   for (const a of actions) {
     const d = a.date ?? null;
-    const isResolved = a.status === 'resolved' || a.status === 'pending_review';
+    const isResolved = a.status === 'resolved' || a.status === 'pending_review' || a.status === 'archived';
     const isImmediate = !isResolved && !!d && IMMEDIATE_RE.test(d) && !ONGOING_RE.test(d);
     const isOverdue = !isResolved && !isImmediate && !!d && !ONGOING_RE.test(d) && /^\d{4}-\d{2}-\d{2}$/.test(d) && d < today;
     const isUpcoming = !isResolved && !isImmediate && !isOverdue && !!d && !ONGOING_RE.test(d) && /^\d{4}-\d{2}-\d{2}$/.test(d)
@@ -399,7 +399,7 @@ const ScoreExplanationModal = ({ card, onClose }: { card: 'implementation' | 'ia
       ),
     },
     documentation: {
-      title: 'Documentation Health',
+      title: 'Document Management',
       color: 'bg-amber-500',
       body: (
         <>
@@ -490,7 +490,8 @@ function getFileHref(file: DattoItem, folderPath: string, role: string): string 
 function fileTypeBadge(name: string): { label: string; cls: string } {
   const ext = name.split('.').pop()?.toLowerCase() || '';
   if (ext === 'pdf') return { label: 'PDF', cls: 'bg-rose-100 text-rose-700' };
-  if (ext === 'docx' || ext === 'doc') return { label: 'DOC', cls: 'bg-blue-100 text-blue-700' };
+  if (ext === 'docx') return { label: 'DOCX', cls: 'bg-blue-100 text-blue-700' };
+  if (ext === 'doc') return { label: 'DOC', cls: 'bg-blue-200 text-blue-800' };
   if (ext === 'xlsx' || ext === 'xls') return { label: 'XLS', cls: 'bg-emerald-100 text-emerald-700' };
   if (ext === 'pptx' || ext === 'ppt') return { label: 'PPT', cls: 'bg-orange-100 text-orange-700' };
   return { label: ext.toUpperCase() || 'FILE', cls: 'bg-slate-100 text-slate-500' };
@@ -498,8 +499,8 @@ function fileTypeBadge(name: string): { label: string; cls: string } {
 
 // ─── Action Card ──────────────────────────────────────────────────────────────
 type ReadDiff = { actionText: string; responsiblePerson: string; targetDate: string; completedDate: string };
-const ActionCard = ({ action, isResolved, onToggleResolve, onAddNote, onDelete, onUpdateIssueDate, onClientSubmit, onClientWithdraw, onAdvisorConfirm, onAdvisorReject, onApplyFromWord, role, expanded, onExpand, siteId, userId, onFlash, searchQuery }: {
-  action: Action; isResolved: boolean; onToggleResolve: (id: string) => void; onAddNote: (id: string, note: string) => void; onDelete?: (id: string) => void; onUpdateIssueDate?: (id: string, date: string | null) => void; onClientSubmit?: (id: string) => void; onClientWithdraw?: (id: string) => void; onAdvisorConfirm?: (id: string) => void; onAdvisorReject?: (id: string, note: string) => void; onApplyFromWord?: (id: string, diff: ReadDiff) => void; role: string; expanded: boolean; onExpand: () => void; siteId?: string; userId?: string; onFlash?: (msg: string) => void; searchQuery?: string;
+const ActionCard = ({ action, isResolved, onToggleResolve, onAddNote, onDelete, onUpdateIssueDate, onClientSubmit, onClientWithdraw, onAdvisorConfirm, onAdvisorReject, onApplyFromWord, onRestore, role, canDelete, expanded, onExpand, siteId, userId, onFlash, searchQuery }: {
+  action: Action; isResolved: boolean; onToggleResolve: (id: string) => void; onAddNote: (id: string, note: string) => void; onDelete?: (id: string) => void; onUpdateIssueDate?: (id: string, date: string | null) => void; onClientSubmit?: (id: string) => void; onClientWithdraw?: (id: string) => void; onAdvisorConfirm?: (id: string) => void; onAdvisorReject?: (id: string, note: string) => void; onApplyFromWord?: (id: string, diff: ReadDiff) => void; onRestore?: (id: string) => void; role: string; canDelete?: boolean; expanded: boolean; onExpand: () => void; siteId?: string; userId?: string; onFlash?: (msg: string) => void; searchQuery?: string;
 }) => {
   const [noteText, setNoteText] = useState('');
   const [showNoteInput, setShowNoteInput] = useState(false);
@@ -670,8 +671,9 @@ const ActionCard = ({ action, isResolved, onToggleResolve, onAddNote, onDelete, 
     : <span className="flex items-center gap-1.5 text-[11px] font-bold text-slate-600 flex-shrink-0"><File size={12} className="text-slate-400 flex-shrink-0" /><span className="font-normal text-slate-400">Document:</span>{action.source}</span>
   ) : null;
 
+  const isArchived = action.status === 'archived';
   return (
-    <div className={`rounded-lg border transition-all duration-300 overflow-hidden ${action.status === 'pending_review' ? 'bg-amber-50/60 border-amber-200' : action.status === 'open' && action.reviewNote ? 'bg-rose-50/60 border-rose-200' : `${cfg.bg} ${cfg.border}`}`}>
+    <div className={`rounded-lg border transition-all duration-300 overflow-hidden ${isArchived ? 'bg-slate-50 border-slate-200 opacity-60' : action.status === 'pending_review' ? 'bg-amber-50/60 border-amber-200' : action.status === 'open' && action.reviewNote ? 'bg-rose-50/60 border-rose-200' : `${cfg.bg} ${cfg.border}`}`}>
       <div className="px-4 py-3 flex flex-col md:flex-row md:items-center gap-3 cursor-pointer" onClick={onExpand}>
         <div className={`w-1.5 rounded-full self-stretch hidden md:block flex-shrink-0 ${cfg.bar}`} />
         <div className="flex-1 min-w-0">
@@ -704,7 +706,9 @@ const ActionCard = ({ action, isResolved, onToggleResolve, onAddNote, onDelete, 
                   : 'bg-emerald-200 text-emerald-800 border-emerald-300';
                 return <span className={`text-[10px] font-black uppercase w-28 py-1 rounded-full border text-center ${riskDarkCls}`}>{action.riskLevel} Risk</span>;
               })()}
-              {action.status === 'open' && action.reviewNote ? (
+              {isArchived ? (
+                <span className="text-[10px] font-black uppercase w-28 py-1 rounded-full border text-center bg-slate-100 border-slate-300 text-slate-500 flex items-center justify-center gap-1"><Archive size={9} />Archived</span>
+              ) : action.status === 'open' && action.reviewNote ? (
                 <span className="text-[10px] font-black uppercase w-28 py-1 rounded-full border text-center bg-rose-100 border-rose-300 text-rose-700 flex items-center justify-center gap-1"><X size={9} />Returned</span>
               ) : action.status === 'pending_review' ? (
                 <span className="text-[10px] font-black uppercase w-28 py-1 rounded-full border text-center bg-amber-100 border-amber-300 text-amber-700 flex items-center justify-center gap-1"><Clock size={9} />Pending</span>
@@ -761,7 +765,7 @@ const ActionCard = ({ action, isResolved, onToggleResolve, onAddNote, onDelete, 
               {action.resolvedDate && <><span className="text-slate-300">|</span><span className="text-emerald-600"><span className="text-slate-500 font-bold">Resolved: </span>{toUKDate(action.resolvedDate)}{(() => { const d = (action.date && isIsoDate(action.resolvedDate) && isIsoDate(action.date)) ? daysLate(action.resolvedDate, action.date) : 0; return d > 30 ? <span className="text-amber-600 font-semibold ml-1">({d} days late)</span> : null; })()}</span></>}
               {action.who && <><span className="text-slate-300">|</span><span><span className="text-slate-500 font-normal">Responsibility: </span>{highlight(action.who, searchQuery ?? '')}</span></>}
             </div>
-            {role === 'advisor' && onDelete && (
+            {canDelete && onDelete && (
               <button onClick={e => { e.stopPropagation(); if (confirm('Delete this action? This cannot be undone.')) onDelete(action.id); }} className="flex items-center gap-1 text-[11px] text-slate-400 hover:text-rose-400 transition-colors flex-shrink-0">
                 <Trash2 size={11} />Delete from portal database
               </button>
@@ -878,42 +882,58 @@ const ActionCard = ({ action, isResolved, onToggleResolve, onAddNote, onDelete, 
                 </div>
               )}
               <div className="mt-3 pt-3 border-t border-slate-100 space-y-2">
-                {action.status === 'pending_review' && role === 'client' && (
-                  <>
-                    <div className="w-full px-4 py-2 rounded-xl font-black text-xs uppercase tracking-wider bg-amber-50 border border-amber-200 text-amber-700 flex items-center justify-center gap-2">
-                      <Clock size={13} />Awaiting Confirmation
+                {isArchived ? (
+                  <div className="space-y-2">
+                    <div className="w-full px-4 py-3 rounded-xl bg-slate-50 border border-slate-200 text-slate-500 text-xs flex items-start gap-2">
+                      <Archive size={13} className="flex-shrink-0 mt-0.5 text-slate-400" />
+                      <span>This action was closed when its source document was archived. It was not manually resolved.</span>
                     </div>
-                    <button onClick={e => { e.stopPropagation(); onClientWithdraw?.(action.id); }} className="w-full px-4 py-2 rounded-xl font-black text-xs uppercase tracking-wider border border-slate-200 text-slate-400 hover:border-rose-200 hover:text-rose-400 bg-white flex items-center justify-center gap-2"><X size={13} />Withdraw</button>
-                  </>
-                )}
-                {action.status === 'pending_review' && (role === 'advisor' || role === 'superadmin') && (
-                  <>
-                    <button onClick={e => { e.stopPropagation(); onAdvisorConfirm?.(action.id); if (canSync) { doSync(new Date().toLocaleDateString('en-CA')); } }} className="w-full px-4 py-2 rounded-xl font-black text-xs uppercase tracking-wider active:scale-95 bg-emerald-600 text-white hover:bg-emerald-700 flex items-center justify-center gap-2"><CheckCircle size={13} />Confirm Resolved</button>
-                    {showRejectInput ? (
-                      <div className="space-y-2">
-                        <textarea value={rejectNote} onChange={e => setRejectNote(e.target.value)} placeholder="Reason for rejection…" rows={2} className="w-full text-sm border border-slate-200 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-rose-200 resize-none bg-white" />
-                        <div className="flex gap-2">
-                          <button onClick={e => { e.stopPropagation(); onAdvisorReject?.(action.id, rejectNote); setRejectNote(''); setShowRejectInput(false); }} className="flex-1 px-4 py-2 rounded-xl font-black text-xs uppercase bg-rose-600 text-white hover:bg-rose-700 flex items-center justify-center gap-2"><X size={13} />Send Back</button>
-                          <button onClick={() => { setShowRejectInput(false); setRejectNote(''); }} className="px-4 py-2 rounded-xl font-black text-xs bg-white border border-slate-200 text-slate-400">Cancel</button>
-                        </div>
-                      </div>
-                    ) : (
-                      <button onClick={e => { e.stopPropagation(); setShowRejectInput(true); }} className="w-full px-4 py-2 rounded-xl font-black text-xs uppercase tracking-wider border border-rose-200 text-rose-500 hover:bg-rose-50 flex items-center justify-center gap-2"><X size={13} />Reject</button>
+                    {(role === 'advisor' || role === 'superadmin') && onRestore && (
+                      <button onClick={e => { e.stopPropagation(); onRestore(action.id); }} className="w-full px-4 py-2 rounded-xl font-black text-xs uppercase tracking-wider border border-slate-200 text-slate-400 hover:border-indigo-200 hover:text-indigo-500 bg-white flex items-center justify-center gap-2">
+                        <RotateCcw size={13} />Restore Action
+                      </button>
                     )}
-                  </>
-                )}
-                {action.status !== 'pending_review' && role === 'client' && !isResolved && (
-                  <button onClick={e => { e.stopPropagation(); onClientSubmit?.(action.id); }} className="w-full px-4 py-2 rounded-xl font-black text-xs uppercase tracking-wider active:scale-95 shadow-sm bg-slate-900 text-white hover:bg-indigo-700 flex items-center justify-center gap-2"><Clock size={13} />Submit for Review</button>
-                )}
-                {action.status !== 'pending_review' && role === 'client' && isResolved && (
-                  <div className="w-full px-4 py-2 rounded-xl font-black text-xs uppercase tracking-wider bg-white border border-slate-200 text-slate-400 flex items-center justify-center gap-2"><CheckCircle size={13} />Confirmed</div>
-                )}
-                {action.status !== 'pending_review' && (role === 'advisor' || role === 'superadmin') && (
+                  </div>
+                ) : (
                   <>
-                    <button onClick={handleResolve} className={`w-full px-4 py-2 rounded-xl font-black text-xs uppercase tracking-wider active:scale-95 shadow-sm flex items-center justify-center gap-2 ${isResolved ? 'bg-white border border-slate-200 text-slate-400 hover:border-rose-200 hover:text-rose-400' : 'bg-slate-900 text-white hover:bg-indigo-700'}`}>
-                      {isResolved ? <><X size={13} />Undo Resolve</> : <><CheckCircle size={13} />Mark as Resolved</>}
-                    </button>
-                    {!isResolved && <p className="text-[11px] text-slate-400 italic mt-1.5 text-center">Add a note or upload evidence to demonstrate how this was resolved.</p>}
+                    {action.status === 'pending_review' && role === 'client' && (
+                      <>
+                        <div className="w-full px-4 py-2 rounded-xl font-black text-xs uppercase tracking-wider bg-amber-50 border border-amber-200 text-amber-700 flex items-center justify-center gap-2">
+                          <Clock size={13} />Awaiting Confirmation
+                        </div>
+                        <button onClick={e => { e.stopPropagation(); onClientWithdraw?.(action.id); }} className="w-full px-4 py-2 rounded-xl font-black text-xs uppercase tracking-wider border border-slate-200 text-slate-400 hover:border-rose-200 hover:text-rose-400 bg-white flex items-center justify-center gap-2"><X size={13} />Withdraw</button>
+                      </>
+                    )}
+                    {action.status === 'pending_review' && (role === 'advisor' || role === 'superadmin') && (
+                      <>
+                        <button onClick={e => { e.stopPropagation(); onAdvisorConfirm?.(action.id); if (canSync) { doSync(new Date().toLocaleDateString('en-CA')); } }} className="w-full px-4 py-2 rounded-xl font-black text-xs uppercase tracking-wider active:scale-95 bg-emerald-600 text-white hover:bg-emerald-700 flex items-center justify-center gap-2"><CheckCircle size={13} />Confirm Resolved</button>
+                        {showRejectInput ? (
+                          <div className="space-y-2">
+                            <textarea value={rejectNote} onChange={e => setRejectNote(e.target.value)} placeholder="Reason for rejection…" rows={2} className="w-full text-sm border border-slate-200 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-rose-200 resize-none bg-white" />
+                            <div className="flex gap-2">
+                              <button onClick={e => { e.stopPropagation(); onAdvisorReject?.(action.id, rejectNote); setRejectNote(''); setShowRejectInput(false); }} className="flex-1 px-4 py-2 rounded-xl font-black text-xs uppercase bg-rose-600 text-white hover:bg-rose-700 flex items-center justify-center gap-2"><X size={13} />Send Back</button>
+                              <button onClick={() => { setShowRejectInput(false); setRejectNote(''); }} className="px-4 py-2 rounded-xl font-black text-xs bg-white border border-slate-200 text-slate-400">Cancel</button>
+                            </div>
+                          </div>
+                        ) : (
+                          <button onClick={e => { e.stopPropagation(); setShowRejectInput(true); }} className="w-full px-4 py-2 rounded-xl font-black text-xs uppercase tracking-wider border border-rose-200 text-rose-500 hover:bg-rose-50 flex items-center justify-center gap-2"><X size={13} />Reject</button>
+                        )}
+                      </>
+                    )}
+                    {action.status !== 'pending_review' && role === 'client' && !isResolved && (
+                      <button onClick={e => { e.stopPropagation(); onClientSubmit?.(action.id); }} className="w-full px-4 py-2 rounded-xl font-black text-xs uppercase tracking-wider active:scale-95 shadow-sm bg-slate-900 text-white hover:bg-indigo-700 flex items-center justify-center gap-2"><Clock size={13} />Submit for Review</button>
+                    )}
+                    {action.status !== 'pending_review' && role === 'client' && isResolved && (
+                      <div className="w-full px-4 py-2 rounded-xl font-black text-xs uppercase tracking-wider bg-white border border-slate-200 text-slate-400 flex items-center justify-center gap-2"><CheckCircle size={13} />Confirmed</div>
+                    )}
+                    {action.status !== 'pending_review' && (role === 'advisor' || role === 'superadmin') && (
+                      <>
+                        <button onClick={handleResolve} className={`w-full px-4 py-2 rounded-xl font-black text-xs uppercase tracking-wider active:scale-95 shadow-sm flex items-center justify-center gap-2 ${isResolved ? 'bg-white border border-slate-200 text-slate-400 hover:border-rose-200 hover:text-rose-400' : 'bg-slate-900 text-white hover:bg-indigo-700'}`}>
+                          {isResolved ? <><X size={13} />Undo Resolve</> : <><CheckCircle size={13} />Mark as Resolved</>}
+                        </button>
+                        {!isResolved && <p className="text-[11px] text-slate-400 italic mt-1.5 text-center">Add a note or upload evidence to demonstrate how this was resolved.</p>}
+                      </>
+                    )}
                   </>
                 )}
               </div>
@@ -1997,15 +2017,18 @@ const SiteDocumentsTab = ({ site, profile, userId, onComplianceUpdate, onActions
 };
 
 // ─── Document Health Tab ──────────────────────────────────────────────────────
-const DocHealthTab = ({ siteId, onComplianceUpdate, onJumpToActions, role, onArchive, onClone }: {
+const DocHealthTab = ({ siteId, onComplianceUpdate, onJumpToActions, role, onArchive, onClone, onUnarchive }: {
   siteId: string;
   onComplianceUpdate?: (score: number) => void;
   onJumpToActions?: (docName: string) => void;
   role?: string;
-  onArchive?: (docName: string, folderPath: string, issueDate: string | null, siteId: string) => Promise<void>;
-  onClone?: (fileId: string, docName: string, folderId: string) => Promise<void>;
+  onArchive?: (docName: string, folderPath: string, issueDate: string | null, siteId: string, silent?: boolean) => Promise<{ archivedFilePath?: string; originalFolderPath?: string } | void>;
+  onClone?: (fileId: string, docName: string, folderId: string) => Promise<{ newFileId: string | null; newFileName: string } | void>;
+  onUnarchive?: (docName: string) => void;
 }) => {
-  const [rows, setRows] = useState<{ docName: string; issueDate: string | null; actionCount: number; reviewDue: string | null; fileId: string | null; folderPath: string | null; folderId: string | null }[]>([]);
+  type DocRow = { docName: string; issueDate: string | null; actionCount: number; reviewDue: string | null; fileId: string | null; folderPath: string | null; folderId: string | null };
+  type BulkLogEntry = { docName: string; success: boolean; error?: string; archivedFilePath?: string; originalFolderPath?: string; cloneFileId?: string | null; savedRow?: DocRow; undone?: boolean };
+  const [rows, setRows] = useState<DocRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [editingDoc, setEditingDoc] = useState<string | null>(null);
   const [reviewInput, setReviewInput] = useState('');
@@ -2014,11 +2037,18 @@ const DocHealthTab = ({ siteId, onComplianceUpdate, onJumpToActions, role, onArc
   const [archiveWithClone, setArchiveWithClone] = useState(false);
   const [archivingDoc, setArchivingDoc] = useState<string | null>(null);
   const [cloningDoc, setCloningDoc] = useState<string | null>(null);
+  const [selectedDocs, setSelectedDocs] = useState<Set<string>>(new Set());
+  const [bulkWithClone, setBulkWithClone] = useState(false);
+  const [showBulkConfirm, setShowBulkConfirm] = useState(false);
+  const [bulkRunning, setBulkRunning] = useState(false);
+  const [bulkProgress, setBulkProgress] = useState('');
+  const [bulkLog, setBulkLog] = useState<BulkLogEntry[]>([]);
+  const [showBulkLog, setShowBulkLog] = useState(false);
 
   useEffect(() => {
     setLoading(true);
     Promise.all([
-      supabase.from('actions').select('source_document_name, issue_date, source_document_id, source_folder_path, source_folder_id').eq('site_id', siteId).not('source_document_name', 'is', null).is('site_document_id', null),
+      supabase.from('actions').select('source_document_name, issue_date, source_document_id, source_folder_path, source_folder_id').eq('site_id', siteId).not('source_document_name', 'is', null).is('site_document_id', null).neq('status', 'archived'),
       supabase.from('document_health').select('document_name, review_due').eq('site_id', siteId),
     ]).then(([actRes, healthRes]) => {
       const actions = actRes.data ?? [];
@@ -2147,27 +2177,105 @@ const DocHealthTab = ({ siteId, onComplianceUpdate, onJumpToActions, role, onArc
 
   const counts = { red: rows.filter(r => docStatus(r.issueDate, r.reviewDue, today) === 'red').length, amber: rows.filter(r => docStatus(r.issueDate, r.reviewDue, today) === 'amber').length, green: rows.filter(r => docStatus(r.issueDate, r.reviewDue, today) === 'green').length, grey: rows.filter(r => docStatus(r.issueDate, r.reviewDue, today) === 'grey').length };
 
+  const allSelected = rows.length > 0 && rows.every(r => selectedDocs.has(r.docName));
+  const someSelected = selectedDocs.size > 0;
+  const selectedRows = rows.filter(r => selectedDocs.has(r.docName));
+  const hasCloneable = someSelected && selectedRows.every(r => r.fileId && r.folderId && r.docName.toLowerCase().endsWith('.docx'));
+  const toggleDoc = (name: string) => setSelectedDocs(prev => { const n = new Set(prev); n.has(name) ? n.delete(name) : n.add(name); return n; });
+  const toggleAll = () => setSelectedDocs(allSelected ? new Set() : new Set(rows.map(r => r.docName)));
+
+  const runBulkArchive = async (withClone: boolean) => {
+    if (!onArchive) return;
+    setShowBulkConfirm(false);
+    setBulkRunning(true);
+    const log: BulkLogEntry[] = [];
+    const selected = rows.filter(r => selectedDocs.has(r.docName));
+    for (let i = 0; i < selected.length; i++) {
+      const row = selected[i];
+      setBulkProgress(`${i + 1} / ${selected.length}: ${row.docName.replace(/\.[^.]+$/, '')}`);
+      try {
+        let cloneFileId: string | null = null;
+        if (withClone && onClone && row.fileId && row.folderId && row.docName.toLowerCase().endsWith('.docx')) {
+          const cloneResult = await onClone(row.fileId, row.docName, row.folderId);
+          cloneFileId = (cloneResult as any)?.newFileId ?? null;
+        }
+        const result = await onArchive(row.docName, row.folderPath ?? '', row.issueDate, siteId, true);
+        const r = result as { archivedFilePath?: string; originalFolderPath?: string } | undefined;
+        log.push({ docName: row.docName, success: true, archivedFilePath: r?.archivedFilePath, originalFolderPath: r?.originalFolderPath, cloneFileId, savedRow: row });
+        setRows(prev => prev.filter(p => p.docName !== row.docName));
+      } catch (err: any) {
+        log.push({ docName: row.docName, success: false, error: err.message ?? 'Failed', savedRow: row });
+      }
+    }
+    setSelectedDocs(new Set());
+    setBulkRunning(false);
+    setBulkProgress('');
+    setBulkLog(log);
+    setShowBulkLog(true);
+  };
+
+  const undoBulkEntry = async (entry: BulkLogEntry, idx: number) => {
+    if (entry.undone || (!entry.archivedFilePath && !entry.cloneFileId)) return;
+    if (entry.archivedFilePath && entry.originalFolderPath) {
+      const res = await fetch('/api/datto/unarchive-document', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ archivedFilePath: entry.archivedFilePath, originalFolderPath: entry.originalFolderPath, originalFileName: entry.savedRow?.docName ?? entry.docName }),
+      });
+      const data = await res.json();
+      if (!res.ok) { alert(data.error ?? 'Undo failed'); return; }
+      await supabase.from('actions').update({ status: 'open', resolved_date: null }).eq('site_id', siteId).eq('source_document_name', entry.savedRow?.docName ?? entry.docName);
+      if (entry.savedRow) {
+        const todayStr = new Date().toISOString().slice(0, 10);
+        const statusOrder = (r: DocRow) => { const s = docStatus(r.issueDate, r.reviewDue, todayStr); return s === 'red' ? 0 : s === 'amber' ? 1 : s === 'grey' ? 2 : 3; };
+        setRows(prev => [...prev, entry.savedRow!].sort((a, b) => statusOrder(a) - statusOrder(b)));
+      }
+      onUnarchive?.(entry.savedRow?.docName ?? entry.docName);
+    }
+    if (entry.cloneFileId) {
+      await fetch('/api/datto/delete-file', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fileId: entry.cloneFileId }),
+      });
+    }
+    setBulkLog(prev => prev.map((e, i) => i === idx ? { ...e, undone: true } : e));
+  };
+
   const doArchive = async (row: typeof rows[0], withClone = false) => {
     if (!onArchive) return;
     setConfirmingArchive(null);
     setArchivingDoc(row.docName);
     try {
-      await onArchive(row.docName, row.folderPath ?? '', row.issueDate, siteId);
-      setRows(prev => prev.filter(r => r.docName !== row.docName));
+      let cloneFileId: string | null = null;
       if (withClone && onClone && row.fileId && row.folderId) {
-        await onClone(row.fileId, row.docName, row.folderId);
+        const cloneResult = await onClone(row.fileId, row.docName, row.folderId);
+        cloneFileId = (cloneResult as any)?.newFileId ?? null;
       }
-    } catch { /* error already shown by parent */ }
-    finally { setArchivingDoc(null); }
+      const result = await onArchive(row.docName, row.folderPath ?? '', row.issueDate, siteId, true);
+      const r = result as { archivedFilePath?: string; originalFolderPath?: string } | undefined;
+      setRows(prev => prev.filter(p => p.docName !== row.docName));
+      setBulkLog([{ docName: row.docName, success: true, archivedFilePath: r?.archivedFilePath, originalFolderPath: r?.originalFolderPath, cloneFileId, savedRow: row }]);
+    } catch (err: any) {
+      setBulkLog([{ docName: row.docName, success: false, error: err.message ?? 'Failed', savedRow: row }]);
+    } finally {
+      setArchivingDoc(null);
+      setShowBulkLog(true);
+    }
   };
 
   const doClone = async (row: typeof rows[0]) => {
     if (!onClone || !row.fileId || !row.folderId) return;
     setCloningDoc(row.docName);
     try {
-      await onClone(row.fileId, row.docName, row.folderId);
-    } catch { /* error already shown by parent */ }
-    finally { setCloningDoc(null); }
+      const result = await onClone(row.fileId, row.docName, row.folderId);
+      const cloneFileId = (result as any)?.newFileId ?? null;
+      const cloneName = (result as any)?.newFileName ?? row.docName;
+      setBulkLog([{ docName: cloneName, success: true, cloneFileId, savedRow: row }]);
+    } catch (err: any) {
+      setBulkLog([{ docName: row.docName, success: false, error: err.message ?? 'Failed', savedRow: row }]);
+    } finally {
+      setCloningDoc(null);
+      setShowBulkLog(true);
+    }
   };
 
   if (loading) return <div className="py-8 text-center text-slate-400 text-sm font-bold animate-pulse">Loading…</div>;
@@ -2198,7 +2306,7 @@ const DocHealthTab = ({ siteId, onComplianceUpdate, onJumpToActions, role, onArc
       {/* Table */}
       <div className="bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden">
         <div className="bg-amber-500 px-6 py-4 flex items-center justify-between">
-          <h3 className="font-black text-white uppercase tracking-widest text-sm flex items-center gap-2"><FileCheck size={14} />Document Health — {rows.length} assessed document{rows.length !== 1 ? 's' : ''}</h3>
+          <h3 className="font-black text-white uppercase tracking-widest text-sm flex items-center gap-2"><FileCheck size={14} />Document Management — {rows.length} assessed document{rows.length !== 1 ? 's' : ''}</h3>
           <div className="flex items-center gap-3 text-[11px] font-bold">
             {counts.red > 0 && <span className="text-white">{counts.red} overdue</span>}
             {counts.amber > 0 && <span className="text-amber-100">{counts.amber} review due</span>}
@@ -2206,11 +2314,31 @@ const DocHealthTab = ({ siteId, onComplianceUpdate, onJumpToActions, role, onArc
             {counts.green > 0 && <span className="text-amber-200">{counts.green} current</span>}
           </div>
         </div>
+        {someSelected && !bulkRunning && !showBulkConfirm && (
+          <div className="bg-amber-50 border-b border-amber-200 px-5 py-2.5 flex items-center gap-3">
+            <span className="text-[12px] font-bold text-amber-800 flex-1">{selectedDocs.size} document{selectedDocs.size !== 1 ? 's' : ''} selected</span>
+            {onArchive && <button onClick={() => { setBulkWithClone(false); setShowBulkConfirm(true); }} className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-500 text-white rounded-lg text-[11px] font-black hover:bg-amber-600"><Archive size={11} />Archive</button>}
+            {onArchive && hasCloneable && <button onClick={() => { setBulkWithClone(true); setShowBulkConfirm(true); }} className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-500 text-white rounded-lg text-[11px] font-black hover:bg-indigo-600"><Copy size={11} />Archive + Clone</button>}
+            <button onClick={() => setSelectedDocs(new Set())} className="text-[11px] font-bold text-slate-500 hover:text-slate-700">Clear</button>
+          </div>
+        )}
+        {showBulkConfirm && (
+          <div className="bg-amber-100 border-b border-amber-200 px-5 py-2.5 flex items-center gap-3">
+            <span className="flex-1 text-[12px] font-medium text-amber-900">Archive {selectedDocs.size} document{selectedDocs.size !== 1 ? 's' : ''}?{bulkWithClone ? ' A blank clone will be created for each.' : ' They will be moved to Z-Archived Documents.'}</span>
+            <button onClick={() => runBulkArchive(bulkWithClone)} className="px-3 py-1.5 bg-amber-500 text-white rounded-lg font-black text-[11px] hover:bg-amber-600">Confirm</button>
+            <button onClick={() => setShowBulkConfirm(false)} className="px-3 py-1.5 bg-white border border-slate-200 text-slate-600 rounded-lg font-black text-[11px] hover:bg-slate-50">Cancel</button>
+          </div>
+        )}
+        {bulkRunning && (
+          <div className="bg-violet-50 border-b border-violet-100 px-5 py-2.5">
+            <p className="text-[11px] font-bold text-violet-700 animate-pulse">Archiving… {bulkProgress}</p>
+          </div>
+        )}
         {rows.length === 0 ? (
           <div className="p-12 text-center"><FileText size={28} className="text-slate-300 mx-auto mb-3" /><p className="font-black text-slate-700 text-sm">No AI-synced documents found for this site</p><p className="text-sm text-slate-400 mt-1">Run an AI sync to populate document health data.</p></div>
         ) : (
           <table className="w-full text-left">
-            <thead><tr className="bg-slate-50 text-[10px] uppercase font-black text-slate-400 border-b border-slate-100"><th className="px-5 py-3 w-[36%]">Document</th><th className="px-3 py-3 w-[17%]">Last Assessed</th><th className="px-3 py-3 w-[15%]">Review Due</th><th className="px-3 py-3 w-[15%]">Status</th><th className="px-3 py-3 w-[8%] text-center">Actions</th><th className="px-3 py-3 w-[9%]"></th></tr></thead>
+            <thead><tr className="bg-slate-50 text-[10px] uppercase font-black text-slate-400 border-b border-slate-100"><th className="px-3 py-3 w-[4%]"><input type="checkbox" checked={allSelected} ref={el => { if (el) el.indeterminate = someSelected && !allSelected; }} onChange={toggleAll} className="accent-indigo-600 cursor-pointer" disabled={bulkRunning} /></th><th className="px-4 py-3 w-[32%]">Document</th><th className="px-3 py-3 w-[16%]">Last Assessed</th><th className="px-3 py-3 w-[13%]">Review Due</th><th className="px-3 py-3 w-[14%]">Status</th><th className="px-3 py-3 w-[8%] text-center">Actions</th><th className="px-3 py-3 w-[13%]"></th></tr></thead>
             <tbody className="divide-y divide-slate-100">
               {rows.map(row => {
                 const s = docStatus(row.issueDate, row.reviewDue, today);
@@ -2221,7 +2349,10 @@ const DocHealthTab = ({ siteId, onComplianceUpdate, onJumpToActions, role, onArc
                 return (
                   <React.Fragment key={row.docName}>
                   <tr className={s === 'red' ? 'bg-rose-50/40' : s === 'amber' ? 'bg-amber-50/30' : ''}>
-                    <td className="px-5 py-3.5 text-sm max-w-xs">
+                    <td className="px-3 py-3.5">
+                      <input type="checkbox" checked={selectedDocs.has(row.docName)} onChange={() => toggleDoc(row.docName)} className="accent-indigo-600 cursor-pointer" disabled={bulkRunning} />
+                    </td>
+                    <td className="px-4 py-3.5 text-sm max-w-xs">
                       <button
                         onClick={() => onJumpToActions?.(row.docName)}
                         className="font-bold text-indigo-600 hover:text-indigo-800 hover:underline truncate w-full text-left block"
@@ -2284,7 +2415,7 @@ const DocHealthTab = ({ siteId, onComplianceUpdate, onJumpToActions, role, onArc
                   </tr>
                   {isConfirming && (
                     <tr className="bg-amber-50">
-                      <td colSpan={6} className="px-5 py-2.5">
+                      <td colSpan={7} className="px-5 py-2.5">
                         <div className="flex items-center gap-3 text-[12px]">
                           <span className="flex-1 text-amber-800 font-medium">Move to Z-Archived Documents and remove all actions for this document?</span>
                           {onClone && row.fileId && row.folderId && isDocx && (
@@ -2306,12 +2437,45 @@ const DocHealthTab = ({ siteId, onComplianceUpdate, onJumpToActions, role, onArc
           </table>
         )}
       </div>
+      {showBulkLog && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg mx-4 flex flex-col" style={{ maxHeight: '80vh' }}>
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
+              <h3 className="font-black text-slate-800 text-sm uppercase tracking-widest flex items-center gap-2"><Archive size={14} />Archive Log</h3>
+              <button onClick={() => setShowBulkLog(false)} className="text-slate-400 hover:text-slate-600"><X size={16} /></button>
+            </div>
+            <div className="overflow-y-auto flex-1 divide-y divide-slate-100">
+              {bulkLog.map((entry, idx) => (
+                <div key={entry.docName} className={`px-5 py-3 flex items-center gap-3 ${entry.undone ? 'opacity-40' : ''}`}>
+                  {entry.success
+                    ? <CheckCircle2 size={14} className="text-emerald-500 flex-shrink-0" />
+                    : <X size={14} className="text-rose-500 flex-shrink-0" />}
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[13px] font-bold text-slate-700 truncate">{entry.docName.replace(/\.[^.]+$/, '')}</p>
+                    {entry.success && entry.archivedFilePath && !entry.undone && <p className="text-[11px] text-slate-400 truncate" title={entry.archivedFilePath}>→ {entry.archivedFilePath}</p>}
+                    {entry.error && <p className="text-[11px] text-rose-500">{entry.error}</p>}
+                    {entry.undone && <p className="text-[11px] text-slate-400 italic">Restored to original location</p>}
+                  </div>
+                  {entry.success && !entry.undone && (entry.archivedFilePath || entry.cloneFileId) && (
+                    <button onClick={() => undoBulkEntry(entry, idx)} className="flex items-center gap-1.5 text-[11px] font-bold text-indigo-600 hover:text-indigo-800 flex-shrink-0">
+                      <RotateCcw size={11} />Undo
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+            <div className="px-6 py-3 border-t border-slate-100 flex justify-end">
+              <button onClick={() => setShowBulkLog(false)} className="px-5 py-2 bg-slate-800 text-white rounded-xl text-[11px] font-black uppercase tracking-wider hover:bg-slate-700">Done</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
 
 // ─── Superadmin Panel ─────────────────────────────────────────────────────────
-const SuperadminPanel = () => {
+const SuperadminPanel = ({ onViewSite, onViewOrg }: { onViewSite: (site: any, role: 'advisor' | 'client') => void; onViewOrg: (orgSites: any[], orgId: string, role: 'advisor' | 'client') => void }) => {
   const [activeTab, setActiveTab] = useState<AdminTab>('organisations');
   const [organisations, setOrganisations] = useState<Organisation[]>([]);
   const [sites, setSites] = useState<any[]>([]);
@@ -2776,7 +2940,16 @@ const SuperadminPanel = () => {
                               ? <div className="bg-white border border-slate-100 rounded-lg p-1 w-16 h-8 flex items-center justify-center"><img src={org.logo_url} alt="" className="max-h-6 max-w-full object-contain" /></div>
                               : <span className="text-slate-300 text-xs">—</span>}
                           </td>
-                          <td className="px-6 py-4 font-bold text-slate-800"><button onClick={e => { e.stopPropagation(); setSelectedOrgFilter(org.id); setActiveTab('sites'); setEditingOrgId(null); setEditingSiteId(null); setShowEditOrgPicker(false); }} className="hover:text-indigo-600 hover:underline text-left">{org.name}</button></td>
+                          <td className="px-6 py-4 font-bold text-slate-800">
+                            <button onClick={e => { e.stopPropagation(); setSelectedOrgFilter(org.id); setActiveTab('sites'); setEditingOrgId(null); setEditingSiteId(null); setShowEditOrgPicker(false); }} className="hover:text-indigo-600 hover:underline text-left">{org.name}</button>
+                            {(() => { const orgSites = sites.filter(s => s.organisation_id === org.id); if (orgSites.length === 0) return null; return (
+                              <div className="flex gap-2 mt-0.5">
+                                <button onClick={e => { e.stopPropagation(); onViewOrg(orgSites, org.id, 'advisor'); }} className="text-[10px] font-bold text-indigo-500 hover:text-indigo-700 hover:underline">View as advisor</button>
+                                <span className="text-slate-300 text-[10px]">|</span>
+                                <button onClick={e => { e.stopPropagation(); onViewOrg(orgSites, org.id, 'client'); }} className="text-[10px] font-bold text-indigo-500 hover:text-indigo-700 hover:underline">View as client</button>
+                              </div>
+                            ); })()}
+                          </td>
                           <td className="px-6 py-4 text-sm text-slate-600">{(() => { const a = assignments.find((a: any) => a.organisation_id === org.id); return a ? (advisors.find(adv => adv.id === a.advisor_id)?.email || '—') : <span className="text-slate-300">Unassigned</span>; })()}</td>
                           <td className="px-6 py-4 text-xs">{org.datto_folder_id ? (
                             <span className="flex flex-col gap-0.5">
@@ -3029,7 +3202,14 @@ const SuperadminPanel = () => {
                     {filteredSites.map(site => (
                       <React.Fragment key={site.id}>
                         <tr className={`cursor-pointer select-none ${editingSiteId === site.id ? 'bg-indigo-50/60' : 'hover:bg-slate-50'}`} onClick={() => editingSiteId === site.id ? (setEditingSiteId(null), setShowEditSitePicker(false), setSiteServices([]), setSiteAdvisorSearch(''), setSiteClientSearch('')) : startEditSite(site)}>
-                          <td className="px-6 py-4 font-bold text-slate-800">{site.name}</td>
+                          <td className="px-6 py-4 font-bold text-slate-800">
+                            {site.name}
+                            <div className="flex gap-2 mt-0.5">
+                              <button onClick={e => { e.stopPropagation(); onViewSite(site, 'advisor'); }} className="text-[10px] font-bold text-indigo-500 hover:text-indigo-700 hover:underline">View as advisor</button>
+                              <span className="text-slate-300 text-[10px]">|</span>
+                              <button onClick={e => { e.stopPropagation(); onViewSite(site, 'client'); }} className="text-[10px] font-bold text-indigo-500 hover:text-indigo-700 hover:underline">View as client</button>
+                            </div>
+                          </td>
                           <td className="px-6 py-4 text-sm text-slate-500">{site.organisations?.name || '—'}</td>
                           <td className="px-6 py-4 text-sm text-slate-600">{(() => { const orgAdvisorId = assignments.find((a: any) => a.organisation_id === site.organisation_id)?.advisor_id; const effectiveId = site.advisor_id || orgAdvisorId; const advisor = effectiveId ? advisors.find(a => a.id === effectiveId) : null; return advisor ? <span className={site.advisor_id ? '' : 'text-slate-400 italic'}>{advisor.email}{!site.advisor_id && ' (org)'}</span> : <span className="text-slate-300">Unassigned</span>; })()}</td>
                           <td className="px-6 py-4"><span className="text-[10px] font-black uppercase tracking-wider text-slate-500 bg-slate-50 border border-slate-100 px-2 py-1 rounded-lg">{getSiteLabel(site.type)}</span></td>
@@ -3095,10 +3275,6 @@ const SuperadminPanel = () => {
                                     )}
                                   </div>
                                   <div><label className={labelClass}>Employee Count (optional)</label><input type="number" min="1" value={editSiteEmployeeCount} onChange={e => setEditSiteEmployeeCount(e.target.value)} placeholder="e.g. 25" className={inputClass} /></div>
-                                  <div className="flex gap-2 pt-1">
-                                    <button onClick={() => handleUpdateSite(site.id)} className="px-4 py-2 bg-indigo-600 text-white rounded-xl text-[11px] font-black uppercase tracking-wider hover:bg-indigo-700">Save Changes</button>
-                                    <button onClick={() => { setEditingSiteId(null); setShowEditSitePicker(false); setSiteServices([]); setSiteAdvisorSearch(''); setSiteClientSearch(''); }} className="px-4 py-2 bg-white border border-slate-200 text-slate-500 rounded-xl text-[11px] font-black uppercase tracking-wider">Cancel</button>
-                                  </div>
                                 </div>
                                 {/* Right: user assignment */}
                                 <div className="space-y-4">
@@ -3162,23 +3338,29 @@ const SuperadminPanel = () => {
                                   </div>
                                   <div className="border border-slate-200 rounded-xl overflow-hidden divide-y divide-slate-100">
                                     {siteServices.map(svc => (
-                                      <div key={svc.id} className="flex items-center gap-3 px-4 py-2.5 hover:bg-slate-50">
-                                        <input type="checkbox" id={`svc-${svc.id}`} checked={svc.purchased} onChange={async e => {
+                                      <div key={svc.id} className="flex items-center gap-2.5 px-3 py-1.5 hover:bg-slate-50">
+                                        <input type="checkbox" id={`svc-${svc.id}`} checked={svc.purchased} onChange={e => {
                                           const newVal = e.target.checked;
                                           setSiteServices(prev => prev.map(s => s.id === svc.id ? { ...s, purchased: newVal } : s));
-                                          await fetch(`/api/sites/${site.id}/services`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ requirementId: svc.id, purchased: newVal }) });
                                         }} className="rounded" />
-                                        <label htmlFor={`svc-${svc.id}`} className="flex-1 text-sm font-bold text-slate-700 cursor-pointer">{svc.requirement_name}</label>
+                                        <label htmlFor={`svc-${svc.id}`} className="flex-1 text-xs font-bold text-slate-700 cursor-pointer">{svc.requirement_name}</label>
                                         {svc.is_mandatory
-                                          ? <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-rose-100 text-rose-700 border border-rose-200">Mandatory</span>
-                                          : <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-slate-100 text-slate-400 border border-slate-200">Recommended</span>
+                                          ? <span className="text-[10px] font-black uppercase px-1.5 py-0.5 rounded-full bg-rose-100 text-rose-700 border border-rose-200">Mandatory</span>
+                                          : <span className="text-[10px] font-black uppercase px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-400 border border-slate-200">Recommended</span>
                                         }
                                       </div>
                                     ))}
                                   </div>
                                   {siteServices.some(s => s.is_mandatory && !s.purchased) && (
-                                    <p className="text-[11px] font-bold text-rose-600 mt-2 flex items-center gap-1.5"><AlertCircle size={12} />{siteServices.filter(s => s.is_mandatory && !s.purchased).length} mandatory service(s) not covered — IAG score will show Red</p>
+                                    <p className="text-[11px] font-bold text-rose-600 mt-1.5 flex items-center gap-1.5"><AlertCircle size={12} />{siteServices.filter(s => s.is_mandatory && !s.purchased).length} mandatory service(s) not covered — IAG score will show Red</p>
                                   )}
+                                  <div className="flex gap-2 pt-2">
+                                    <button onClick={async () => {
+                                      await handleUpdateSite(site.id);
+                                      await Promise.all(siteServices.map(svc => fetch(`/api/sites/${site.id}/services`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ requirementId: svc.id, purchased: svc.purchased }) })));
+                                    }} className="px-4 py-2 bg-indigo-600 text-white rounded-xl text-[11px] font-black uppercase tracking-wider hover:bg-indigo-700">Save Changes</button>
+                                    <button onClick={() => { setEditingSiteId(null); setShowEditSitePicker(false); setSiteServices([]); setSiteAdvisorSearch(''); setSiteClientSearch(''); }} className="px-4 py-2 bg-white border border-slate-200 text-slate-500 rounded-xl text-[11px] font-black uppercase tracking-wider">Cancel</button>
+                                  </div>
                                 </div>
                               ) : null}
                             </div>
@@ -3933,6 +4115,8 @@ export default function App() {
   const appFlashRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const showAppFlash = (msg: string, durationMs = 3500) => { setAppFlash(msg); if (appFlashRef.current) clearTimeout(appFlashRef.current); appFlashRef.current = setTimeout(() => setAppFlash(''), durationMs); };
   const [view, setView] = useState<AppView>('portfolio');
+  const [viewAsRole, setViewAsRole] = useState<'advisor' | 'client' | null>(null);
+  const effectiveRole = viewAsRole ?? profile?.role ?? 'client';
   const [siteTab, setSiteTab] = useState<'actions' | 'documents' | 'dochealth' | 'iag' | 'files'>('actions');
   const effectiveSiteTab = isViewOnly && (siteTab === 'actions' || siteTab === 'documents') ? 'files' : siteTab;
   const [iagServices, setIagServices] = useState<any[]>([]);
@@ -3943,6 +4127,7 @@ export default function App() {
   const [syncLastRun, setSyncLastRun] = useState('2 hours ago');
   const [resolvedIds, setResolvedIds] = useState<string[]>([]);
   const [filterPriority, setFilterPriority] = useState<Priority | 'all' | 'open' | 'resolved' | 'pending_review' | 'rejected'>('all');
+  const [showArchivedActions, setShowArchivedActions] = useState(false);
   const [actionSearch, setActionSearch] = useState('');
   const [showActionSearch, setShowActionSearch] = useState(false);
   const [actionNotes, setActionNotes] = useState<Record<string, string>>({});
@@ -4227,17 +4412,29 @@ export default function App() {
         const rootPath = await resolvePathFromRoot(site);
         const allFiles = await fetchAllFiles(site.datto_folder_id!, new Set(site.excluded_datto_folder_ids ?? []), rootPath);
         const livePathMap = new Map<string, string>(allFiles.map(f => [String(f.id), f.folderPath ?? ''] as [string, string]));
+        const liveNameMap = new Map<string, string>(allFiles.map(f => [String(f.id), f.name] as [string, string]));
         const stale = siteActions.filter(a =>
-          livePathMap.has(String(a.source_document_id)) &&
-          livePathMap.get(String(a.source_document_id)) !== a.sourceFolderPath
+          livePathMap.has(String(a.source_document_id)) && (
+            livePathMap.get(String(a.source_document_id)) !== a.sourceFolderPath ||
+            liveNameMap.get(String(a.source_document_id)) !== a.source
+          )
         );
         if (stale.length === 0) return;
-        await Promise.all(stale.map(a =>
-          supabase.from('actions').update({ source_folder_path: livePathMap.get(String(a.source_document_id)) }).eq('id', a.id)
-        ));
+        await Promise.all(stale.map(a => {
+          const updates: Record<string, string> = {};
+          const newPath = livePathMap.get(String(a.source_document_id));
+          const newName = liveNameMap.get(String(a.source_document_id));
+          if (newPath !== undefined && newPath !== a.sourceFolderPath) updates.source_folder_path = newPath;
+          if (newName !== undefined && newName !== a.source) updates.source_document_name = newName;
+          return supabase.from('actions').update(updates).eq('id', a.id);
+        }));
         setAllActions(prev => prev.map(a => {
           const newPath = livePathMap.get(String(a.source_document_id));
-          return newPath !== undefined && newPath !== a.sourceFolderPath ? { ...a, sourceFolderPath: newPath } : a;
+          const newName = liveNameMap.get(String(a.source_document_id));
+          const pathChanged = newPath !== undefined && newPath !== a.sourceFolderPath;
+          const nameChanged = newName !== undefined && newName !== a.source;
+          if (!pathChanged && !nameChanged) return a;
+          return { ...a, ...(pathChanged ? { sourceFolderPath: newPath! } : {}), ...(nameChanged ? { source: newName! } : {}) };
         }));
       } catch { /* silent — path refresh is best-effort */ }
     })();
@@ -4406,6 +4603,27 @@ export default function App() {
   const handleAddReviewAction = async (actionId: string) => {
     const ra = reviewActions.find(a => a.id === actionId);
     if (!ra || !selectedSite) return;
+
+    // Dedup check: skip insert if a matching action already exists in any status.
+    // Match on site + (file ID or doc name as fallback) + normalised title + hazard_ref.
+    {
+      let dupQuery = supabase.from('actions')
+        .select('id', { count: 'exact', head: true })
+        .eq('site_id', selectedSite.id)
+        .ilike('title', ra.description.trim());
+      dupQuery = ra.docFileId
+        ? dupQuery.eq('source_document_id', ra.docFileId)
+        : dupQuery.eq('source_document_name', ra.docName);
+      dupQuery = ra.hazardRef
+        ? dupQuery.eq('hazard_ref', ra.hazardRef)
+        : dupQuery.is('hazard_ref', null);
+      const { count: dupCount } = await dupQuery;
+      if ((dupCount ?? 0) > 0) {
+        setReviewActions(prev => prev.map(a => a.id === actionId ? { ...a, added: true } : a));
+        return;
+      }
+    }
+
     const { data, error: insertErr } = await supabase.from('actions').insert({
       site_id: selectedSite.id,
       title: ra.description,
@@ -4589,18 +4807,30 @@ export default function App() {
       // Uses source_document_id (Datto file ID) to match actions to their current live folder path.
       {
         const livePathMap = new Map<string, string>(allItems.map(f => [String(f.id), f.folderPath ?? ''] as [string, string]));
+        const liveNameMap = new Map<string, string>(allItems.map(f => [String(f.id), f.name] as [string, string]));
         const staleActions = currentActions.filter(a =>
           a.source_document_id &&
-          livePathMap.has(String(a.source_document_id)) &&
-          livePathMap.get(String(a.source_document_id)) !== a.sourceFolderPath
+          livePathMap.has(String(a.source_document_id)) && (
+            livePathMap.get(String(a.source_document_id)) !== a.sourceFolderPath ||
+            liveNameMap.get(String(a.source_document_id)) !== a.source
+          )
         );
         if (staleActions.length > 0) {
-          await Promise.all(staleActions.map(a =>
-            supabase.from('actions').update({ source_folder_path: livePathMap.get(String(a.source_document_id)) }).eq('id', a.id)
-          ));
+          await Promise.all(staleActions.map(a => {
+            const updates: Record<string, string> = {};
+            const newPath = livePathMap.get(String(a.source_document_id));
+            const newName = liveNameMap.get(String(a.source_document_id));
+            if (newPath !== undefined && newPath !== a.sourceFolderPath) updates.source_folder_path = newPath;
+            if (newName !== undefined && newName !== a.source) updates.source_document_name = newName;
+            return supabase.from('actions').update(updates).eq('id', a.id);
+          }));
           setAllActions(prev => prev.map(a => {
             const newPath = livePathMap.get(String(a.source_document_id));
-            return newPath !== undefined && newPath !== a.sourceFolderPath ? { ...a, sourceFolderPath: newPath } : a;
+            const newName = liveNameMap.get(String(a.source_document_id));
+            const pathChanged = newPath !== undefined && newPath !== a.sourceFolderPath;
+            const nameChanged = newName !== undefined && newName !== a.source;
+            if (!pathChanged && !nameChanged) return a;
+            return { ...a, ...(pathChanged ? { sourceFolderPath: newPath! } : {}), ...(nameChanged ? { source: newName! } : {}) };
           }));
         }
       }
@@ -4611,11 +4841,23 @@ export default function App() {
         !i.name.toLowerCase().includes('draft')
       );
 
-      // Deduplicate: if both a PDF and an Office doc share the same base name, keep the Office doc
+      // Deduplicate: prefer Office docs over PDFs when both exist for the same RA.
+      // Pass 1 — exact stem match (same folder + same base name, different extension).
+      // Pass 2 — fuzzy match: within the same folder, if a PDF shares ≥50% of its
+      //           meaningful words with an Office doc, drop the PDF.
       const OFFICE_EXTS = new Set(['.docx', '.doc', '.xlsx', '.xls']);
+      const stemWords = (name: string): string[] =>
+        name.toLowerCase().replace(/\.[^.]+$/, '').replace(/[^a-z0-9\s]/g, ' ').split(/\s+/).filter(w => w.length > 2);
+      const wordOverlap = (a: string[], b: string[]): number => {
+        const setB = new Set(b);
+        const matches = a.filter(w => setB.has(w)).length;
+        return matches / Math.min(a.length, b.length);
+      };
+
+      // Pass 1: exact stem dedup (folder + base name)
       const stemMap = new Map<string, typeof docxFiles[0]>();
       for (const f of docxFiles) {
-        const stem = f.name.toLowerCase().replace(/\.[^.]+$/, '');
+        const stem = `${(f.folderPath ?? '').toLowerCase()}::${f.name.toLowerCase().replace(/\.[^.]+$/, '')}`;
         const ext = (f.name.toLowerCase().match(/\.[^.]+$/) ?? [''])[0];
         const prev = stemMap.get(stem);
         if (!prev) {
@@ -4625,7 +4867,27 @@ export default function App() {
           if (!prevIsOffice && OFFICE_EXTS.has(ext)) stemMap.set(stem, f);
         }
       }
-      docxFiles = Array.from(stemMap.values());
+      let deduped = Array.from(stemMap.values());
+
+      // Pass 2: fuzzy dedup — drop PDFs that overlap with an Office doc in the same folder
+      const officeByFolder = new Map<string, (typeof deduped[0])[]>();
+      for (const f of deduped) {
+        const ext = (f.name.toLowerCase().match(/\.[^.]+$/) ?? [''])[0];
+        if (!OFFICE_EXTS.has(ext)) continue;
+        const folder = (f.folderPath ?? '').toLowerCase();
+        if (!officeByFolder.has(folder)) officeByFolder.set(folder, []);
+        officeByFolder.get(folder)!.push(f);
+      }
+      deduped = deduped.filter(f => {
+        const ext = (f.name.toLowerCase().match(/\.[^.]+$/) ?? [''])[0];
+        if (OFFICE_EXTS.has(ext)) return true; // always keep Office docs
+        const folder = (f.folderPath ?? '').toLowerCase();
+        const officeDocs = officeByFolder.get(folder);
+        if (!officeDocs?.length) return true; // no Office docs in this folder — keep the PDF
+        const pdfWords = stemWords(f.name);
+        return !officeDocs.some(od => wordOverlap(pdfWords, stemWords(od.name)) >= 0.5);
+      });
+      docxFiles = deduped;
 
       // True two-way sync: remove portal actions for docs no longer present in Datto.
       // Covers AI-sync-only docs (no site_documents entry) — the site_documents cascade in
@@ -5082,20 +5344,59 @@ export default function App() {
     handleAiSync(site, true, fileId).finally(() => setSyncingDocId(null));
   };
 
-  const handleArchiveDoc = async (docName: string, folderPath: string, issueDate: string | null, siteId: string): Promise<void> => {
+  const handleArchiveDoc = async (docName: string, folderPath: string, issueDate: string | null, siteId: string, silent = false): Promise<{ archivedFilePath?: string; originalFolderPath?: string } | void> => {
+    // Prefer fresh path from allActions — background refresh keeps this current even after folder renames
+    const freshPath = allActions.find(a => a.source === docName && a.sourceFolderPath)?.sourceFolderPath;
+    const effectiveFolderPath = freshPath ?? folderPath;
+    // Write all syncable actions back to the Word doc as resolved before the file moves
+    const today = new Date().toLocaleDateString('en-CA');
+    const syncable = allActions.filter(a =>
+      a.source === docName && a.source_document_id && a.sourceFolderId && a.hazardRef
+    );
+    if (syncable.length > 0) {
+      await Promise.allSettled(syncable.map(a =>
+        fetch('/api/datto/file/writeback', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            fileId: a.source_document_id,
+            folderId: a.sourceFolderId,
+            fileName: a.source,
+            hazardRef: a.hazardRef,
+            actionText: a.action,
+            responsiblePerson: a.who || undefined,
+            targetDate: a.date ? toUKDate(a.date) : undefined,
+            completedDate: toUKDate(today),
+          }),
+        })
+      ));
+    }
     const res = await fetch('/api/datto/archive-document', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ sourceFolderPath: folderPath, fileName: docName, assessmentDate: issueDate }),
+      body: JSON.stringify({ sourceFolderPath: effectiveFolderPath, fileName: docName, assessmentDate: issueDate }),
     });
     const data = await res.json();
     if (!res.ok) { showAppFlash(data.error ?? 'Archive failed', 8000); throw new Error(data.error); }
-    await supabase.from('actions').delete().eq('site_id', siteId).eq('source_document_name', docName);
-    setAllActions(prev => prev.filter(a => a.source !== docName));
-    showAppFlash(`Archived to: ${data.targetPath ?? data.archivedFileName}`, 8000);
+    await supabase.from('actions').update({ status: 'archived', resolved_date: today }).eq('site_id', siteId).eq('source_document_name', docName);
+    setAllActions(prev => prev.map(a => a.source === docName ? { ...a, status: 'archived' as ActionStatus, resolvedDate: today } : a));
+    recalcActionProgress(siteId);
+    refreshComplianceScore(siteId);
+    if (!silent) showAppFlash(`Archived to: ${data.targetPath ?? data.archivedFileName}`, 8000);
+    return { archivedFilePath: data.targetPath, originalFolderPath: effectiveFolderPath };
   };
 
-  const handleCloneDoc = async (fileId: string, fileName: string, folderId: string): Promise<void> => {
+  const handleRestoreAction = async (id: string) => {
+    const { error } = await supabase.from('actions').update({ status: 'open', resolved_date: null }).eq('id', id);
+    if (error) { showAppFlash('Restore failed: ' + error.message, 6000); return; }
+    const siteName = allActions.find(a => a.id === id)?.site;
+    setAllActions(prev => prev.map(a => a.id === id ? { ...a, status: 'open' as ActionStatus, resolvedDate: null } : a));
+    const siteId = sites.find(s => s.name === siteName)?.id;
+    if (siteId) { recalcActionProgress(siteId); refreshComplianceScore(siteId); }
+    showAppFlash('Action restored to open.');
+  };
+
+  const handleCloneDoc = async (fileId: string, fileName: string, folderId: string): Promise<{ newFileId: string | null; newFileName: string } | void> => {
     const res = await fetch('/api/datto/clone-document', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -5104,12 +5405,13 @@ export default function App() {
     const data = await res.json();
     if (!res.ok) { showAppFlash(data.error ?? 'Clone failed', 8000); throw new Error(data.error); }
     showAppFlash(`Blank copy created: ${data.newFileName}`);
+    return { newFileId: data.newFileId ?? null, newFileName: data.newFileName };
   };
 
   const viewSites = filterOrgId ? sites.filter(s => s.organisation_id === filterOrgId) : sites;
   const viewActions = allActions.filter(a => viewSites.some(s => s.name === a.site));
   const siteActions = selectedSite ? allActions.filter(a => a.site === selectedSite.name) : allActions;
-  const isActionResolved = (a: Action) => resolvedIds.includes(a.id) || a.status === 'resolved' || a.status === 'pending_review';
+  const isActionResolved = (a: Action) => resolvedIds.includes(a.id) || a.status === 'resolved' || a.status === 'pending_review' || a.status === 'archived';
   const searchedSiteActions = actionSearch.trim()
     ? siteActions.filter(a => {
         const q = actionSearch.toLowerCase();
@@ -5125,7 +5427,7 @@ export default function App() {
   const filteredActions = (
     filterPriority === 'all'          ? searchedSiteActions.filter(a => !isActionResolved(a)) :
     filterPriority === 'open'         ? searchedSiteActions.filter(a => !isActionResolved(a) && (derivePriority(a).priority === 'amber' || derivePriority(a).priority === 'green')) :
-    filterPriority === 'resolved'     ? searchedSiteActions.filter(a => a.status === 'resolved' || resolvedIds.includes(a.id)) :
+    filterPriority === 'resolved'     ? searchedSiteActions.filter(a => (a.status === 'resolved' || resolvedIds.includes(a.id)) || (showArchivedActions && a.status === 'archived')) :
     filterPriority === 'pending_review' ? searchedSiteActions.filter(a => a.status === 'pending_review') :
     filterPriority === 'rejected'     ? searchedSiteActions.filter(a => a.status === 'open' && !!a.reviewNote) :
     searchedSiteActions.filter(a => !isActionResolved(a) && derivePriority(a).priority === filterPriority)
@@ -5192,9 +5494,10 @@ export default function App() {
 
   const openActions = searchedSiteActions.filter(a => !isActionResolved(a));
   const openCount = openActions.length;
-  const resolvedCount = searchedSiteActions.filter(a => isActionResolved(a)).length;
+  const resolvedCount = searchedSiteActions.filter(a => isActionResolved(a) && a.status !== 'archived').length;
   const pendingReviewCount = searchedSiteActions.filter(a => a.status === 'pending_review').length;
   const rejectedCount = searchedSiteActions.filter(a => a.status === 'open' && !!a.reviewNote).length;
+  const archivedCount = searchedSiteActions.filter(a => a.status === 'archived').length;
   const filterCounts: Record<string, number> = {
     all:            openCount,
     red:            openActions.filter(a => derivePriority(a).priority === 'red').length,
@@ -5203,8 +5506,9 @@ export default function App() {
     pending_review: pendingReviewCount,
     rejected:       rejectedCount,
   };
-  const criticalCount = viewActions.filter(a => a.status !== 'resolved' && a.status !== 'pending_review' && derivePriority(a).priority === 'red').length;
-  const upcomingCount = viewActions.filter(a => a.status !== 'resolved' && a.status !== 'pending_review' && derivePriority(a).priority === 'amber').length;
+  const isActive = (a: Action) => a.status !== 'resolved' && a.status !== 'pending_review' && a.status !== 'archived';
+  const criticalCount = viewActions.filter(a => isActive(a) && derivePriority(a).priority === 'red').length;
+  const upcomingCount = viewActions.filter(a => isActive(a) && derivePriority(a).priority === 'amber').length;
 
   if (authLoading) return <div className="min-h-screen bg-indigo-950 flex items-center justify-center"><div className="text-indigo-300 font-black text-sm uppercase tracking-widest animate-pulse">Loading…</div></div>;
   if (!user) return <LoginScreen onLogin={() => {}} />;
@@ -5254,9 +5558,40 @@ export default function App() {
         </header>
 
         <div className="p-4 md:p-6 lg:p-8 max-w-7xl mx-auto">
-          {view === 'admin' && profile?.role === 'superadmin' && <SuperadminPanel />}
+          {view === 'admin' && profile?.role === 'superadmin' && <SuperadminPanel
+            onViewSite={(s, viewRole) => {
+              setSelectedSite({
+                id: s.id, name: s.name, type: s.type ?? 'SCHOOL', organisation_id: s.organisation_id ?? null,
+                compliance: s.compliance_score ?? 0, trend: s.trend ?? 0, actionProgress: s.action_progress ?? 100,
+                iagScore: s.iag_score ?? null, iagWeightedScore: s.iag_weighted_score ?? null,
+                employeeCount: s.employee_count ?? null, red: 0, amber: 0, green: 0, lastReview: '—',
+                datto_folder_id: s.datto_folder_id ?? null, datto_folder_path: s.datto_folder_path ?? null,
+                advisor_id: s.advisor_id ?? null, last_ai_sync: s.last_ai_sync ?? null,
+                excluded_datto_folder_ids: s.excluded_datto_folder_ids ?? [],
+                included_datto_folder_ids: s.included_datto_folder_ids ?? null,
+              });
+              setViewAsRole(viewRole);
+              setView('site');
+            }}
+            onViewOrg={(orgSites, orgId, viewRole) => {
+              const mapped = orgSites.map((s: any) => ({
+                id: s.id, name: s.name, type: s.type ?? 'SCHOOL', organisation_id: s.organisation_id ?? null,
+                compliance: s.compliance_score ?? 0, trend: s.trend ?? 0, actionProgress: s.action_progress ?? 100,
+                iagScore: s.iag_score ?? null, iagWeightedScore: s.iag_weighted_score ?? null,
+                employeeCount: s.employee_count ?? null, red: 0, amber: 0, green: 0, lastReview: '—',
+                datto_folder_id: s.datto_folder_id ?? null, datto_folder_path: s.datto_folder_path ?? null,
+                advisor_id: s.advisor_id ?? null, last_ai_sync: s.last_ai_sync ?? null,
+                excluded_datto_folder_ids: s.excluded_datto_folder_ids ?? [],
+                included_datto_folder_ids: s.included_datto_folder_ids ?? null,
+              }));
+              setSites(mapped);
+              setFilterOrgId(orgId);
+              setViewAsRole(viewRole);
+              setView('portfolio');
+            }}
+          />}
 
-          {view === 'portfolio' && (profile?.role === 'advisor' || profile?.role === 'client') && (
+          {view === 'portfolio' && (profile?.role === 'advisor' || profile?.role === 'client' || profile?.role === 'superadmin') && (
             <div className="space-y-8 animate-in fade-in duration-500">
               <div className="bg-gradient-to-br from-indigo-900 via-indigo-950 to-slate-900 rounded-xl p-6 md:p-10 text-white flex flex-col lg:flex-row justify-between items-start lg:items-center gap-6 md:gap-8 shadow-2xl relative overflow-hidden">
                 <div className="absolute top-0 right-0 w-96 h-96 bg-indigo-500 rounded-full -mr-32 -mt-32 blur-[100px] opacity-20 pointer-events-none" />
@@ -5288,13 +5623,17 @@ export default function App() {
               </div>
               {/* Org / site filter bar */}
               <div className="flex items-center gap-3 flex-wrap">
-                {organisations.length > 1 && (
+                {profile?.role === 'superadmin' && (
+                  <button onClick={() => { setView('admin'); setViewAsRole(null); setFilterOrgId(''); setSites([]); }} className="flex items-center gap-1 text-xs font-bold text-slate-500 hover:text-indigo-600 transition-colors">← Back to Admin</button>
+                )}
+                {viewAsRole && <span className="text-[10px] font-black uppercase tracking-wider text-indigo-500 bg-indigo-50 border border-indigo-100 px-2 py-0.5 rounded-full">Viewing as {viewAsRole}</span>}
+                {organisations.length > 1 && profile?.role !== 'superadmin' && (
                   <select value={filterOrgId} onChange={e => { setFilterOrgId(e.target.value); }} className="px-3 py-2 border border-slate-200 rounded-xl text-xs font-bold text-slate-600 focus:outline-none bg-white">
                     <option value="">All Organisations</option>
                     {organisations.map(o => <option key={o.id} value={o.id}>{o.name}</option>)}
                   </select>
                 )}
-                {filterOrgId && <button onClick={() => setFilterOrgId('')} className="text-xs font-bold text-indigo-500 hover:text-indigo-700 flex items-center gap-1"><X size={12} />Clear filter</button>}
+                {filterOrgId && profile?.role !== 'superadmin' && <button onClick={() => setFilterOrgId('')} className="text-xs font-bold text-indigo-500 hover:text-indigo-700 flex items-center gap-1"><X size={12} />Clear filter</button>}
               </div>
               <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 items-start">
                   <div className="lg:col-span-3 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
@@ -5356,7 +5695,7 @@ export default function App() {
                       {(() => {
                         const circ = 2 * Math.PI * 70;
                         const total = viewActions.length;
-                        const scheduledCnt = viewActions.filter(a => derivePriority(a).priority === 'green').length;
+                        const scheduledCnt = viewActions.filter(a => isActive(a) && derivePriority(a).priority === 'green').length;
                         const segs = [
                           { count: criticalCount, color: '#f43f5e' },
                           { count: upcomingCount, color: '#fbbf24' },
@@ -5389,7 +5728,7 @@ export default function App() {
                         );
                       })()}
                       <div className="w-full space-y-2.5">
-                        {[{ label: 'Overdue', count: criticalCount, color: 'bg-rose-50 text-rose-700 border-rose-100' }, { label: 'Upcoming / Review Due', count: upcomingCount, color: 'bg-amber-50 text-amber-700 border-amber-100' }, { label: 'Scheduled / Review', count: viewActions.filter(a => derivePriority(a).priority === 'green').length, color: 'bg-emerald-50 text-emerald-700 border-emerald-100' }].map(item => (
+                        {[{ label: 'Overdue', count: criticalCount, color: 'bg-rose-50 text-rose-700 border-rose-100' }, { label: 'Upcoming / Review Due', count: upcomingCount, color: 'bg-amber-50 text-amber-700 border-amber-100' }, { label: 'Scheduled / Review', count: viewActions.filter(a => isActive(a) && derivePriority(a).priority === 'green').length, color: 'bg-emerald-50 text-emerald-700 border-emerald-100' }].map(item => (
                           <div key={item.label} className={`flex items-center justify-between text-xs font-black px-4 py-2.5 rounded-xl border ${item.color}`}><span>{item.label}</span><span className="text-base font-black">{item.count}</span></div>
                         ))}
                       </div>
@@ -5416,6 +5755,12 @@ export default function App() {
                         {viewSites.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
                       </select>
                     )}
+                    {profile?.role === 'superadmin' && (
+                      <div className="flex items-center gap-3 mt-2">
+                        <button onClick={() => { setView('admin'); setSelectedSite(null); setViewAsRole(null); }} className="flex items-center gap-1 text-xs font-bold text-slate-500 hover:text-indigo-600 transition-colors">← Back to Admin</button>
+                        {viewAsRole && <span className="text-[10px] font-black uppercase tracking-wider text-indigo-500 bg-indigo-50 border border-indigo-100 px-2 py-0.5 rounded-full">Viewing as {viewAsRole}</span>}
+                      </div>
+                    )}
                   </div>
                   <div className="flex gap-3 flex-wrap items-start">
                     {siteOrg?.logo_url && (
@@ -5435,7 +5780,7 @@ export default function App() {
                         )}
                       </button>
                     )}
-                    {profile?.role === 'advisor' && (
+                    {effectiveRole === 'advisor' && (
                       <div className="flex items-center gap-2">
                         <button
                           onClick={() => handleAiSync(selectedSite)}
@@ -5468,7 +5813,7 @@ export default function App() {
                   <a href={`/api/reports/actions?siteId=${selectedSite.id}`} download className="text-[11px] font-bold text-indigo-600 hover:text-indigo-800 hover:underline flex items-center gap-1"><Download size={11} />Action Register</a>
                   <span className="text-slate-200 text-[11px]">|</span>
                   <a href={`/api/reports/documents?siteId=${selectedSite.id}`} download className="text-[11px] font-bold text-indigo-600 hover:text-indigo-800 hover:underline flex items-center gap-1"><Download size={11} />Document Register</a>
-                  {(profile?.role === 'advisor' || profile?.role === 'superadmin') && selectedSite.organisation_id && (
+                  {(effectiveRole === 'advisor' || effectiveRole === 'superadmin') && selectedSite.organisation_id && (
                     <>
                       <span className="text-slate-200 text-[11px]">|</span>
                       <a href={`/report?type=org&orgId=${selectedSite.organisation_id}`} target="_blank" rel="noopener noreferrer" className="text-[11px] font-bold text-indigo-600 hover:text-indigo-800 hover:underline flex items-center gap-1"><ExternalLink size={11} />Organisation Summary</a>
@@ -5484,7 +5829,7 @@ export default function App() {
                   const s = computeActionProgress(siteActions);
                   const c = scoreColor(s);
                   const today = new Date().toLocaleDateString('en-CA');
-                  const unresolved = siteActions.filter(a => a.status !== 'resolved' && a.status !== 'pending_review');
+                  const unresolved = siteActions.filter(a => a.status !== 'resolved' && a.status !== 'pending_review' && a.status !== 'archived');
                   const overdueCount = unresolved.filter(a => derivePriority(a).priority === 'red').length;
                   const upcomingCount = unresolved.filter(a => derivePriority(a).priority === 'amber').length;
                   const ongoingCount = unresolved.length - overdueCount - upcomingCount;
@@ -5664,7 +6009,7 @@ export default function App() {
                     const hasScore = iagAllTotal > 0 || selectedSite.iagScore !== null;
                     const docS = selectedSite.compliance;
                     const docC = scoreColor(docS);
-                    const isClient = profile?.role === 'client';
+                    const isClient = effectiveRole === 'client';
                     return (
                       <div className="col-span-2 lg:col-span-1 flex flex-col gap-3">
                         {/* IAG card */}
@@ -5719,7 +6064,7 @@ export default function App() {
                           <div className="flex-1 flex flex-col bg-white rounded-lg border border-slate-200 shadow-sm cursor-pointer hover:border-amber-300 hover:shadow-md transition-all" onClick={() => setSiteTab('dochealth')}>
                             <div className="px-5 py-2.5 border-b border-slate-100 flex items-center justify-between">
                               <div className="group flex items-center cursor-default">
-                                <p className="text-[11px] font-black uppercase tracking-widest text-slate-500">Documentation Health</p>
+                                <p className="text-[11px] font-black uppercase tracking-widest text-slate-500">Document Management</p>
                                 <InlineTip text="Percentage of required documents that are present and up to date. Managed by your advisor based on what's uploaded in the H&S documents folder." />
                               </div>
                               <button onClick={e => { e.stopPropagation(); setScoreExplanationCard('documentation'); }} className="flex items-center gap-1 text-slate-300 hover:text-amber-500 transition-colors" title="How is this calculated?"><AlertCircle size={14} /><span className="text-[9px] font-black uppercase tracking-wider">Help</span></button>
@@ -5744,7 +6089,7 @@ export default function App() {
               {/* Site tab toggle */}
               <div className="flex flex-wrap bg-slate-100 p-1 rounded-xl gap-0.5 w-full">
                 {!isViewOnly && (() => {
-                  const pendingCount = (profile?.role === 'advisor' || profile?.role === 'superadmin') ? siteActions.filter(a => a.status === 'pending_review').length : 0;
+                  const pendingCount = (effectiveRole === 'advisor' || effectiveRole === 'superadmin') ? siteActions.filter(a => a.status === 'pending_review').length : 0;
                   return (
                     <button onClick={() => setSiteTab('actions')} className={`flex items-center gap-1.5 px-4 py-2 text-[11px] font-black uppercase tracking-widest rounded-lg transition-all whitespace-nowrap ${effectiveSiteTab === 'actions' ? 'bg-white shadow-sm text-indigo-600' : 'text-slate-400 hover:text-slate-600'}`}>
                       Assigned Actions
@@ -5755,7 +6100,7 @@ export default function App() {
                 {selectedSite.datto_folder_id && <button onClick={() => setSiteTab('files')} className={`px-4 py-2 text-[11px] font-black uppercase tracking-widest rounded-lg transition-all whitespace-nowrap ${effectiveSiteTab === 'files' ? 'bg-white shadow-sm text-sky-600' : 'text-slate-400 hover:text-slate-600'}`}>H&S Documents</button>}
                 {!isViewOnly && <button onClick={() => setSiteTab('documents')} className={`px-4 py-2 text-[11px] font-black uppercase tracking-widest rounded-lg transition-all whitespace-nowrap ${effectiveSiteTab === 'documents' ? 'bg-white shadow-sm text-amber-600' : 'text-slate-400 hover:text-slate-600'}`}>Client Documents</button>}
                 <button onClick={() => { setSiteTab('iag'); loadIagServices(selectedSite.id); }} className={`px-4 py-2 text-[11px] font-black uppercase tracking-widest rounded-lg transition-all whitespace-nowrap ${effectiveSiteTab === 'iag' ? 'bg-white shadow-sm text-violet-600' : 'text-slate-400 hover:text-slate-600'}`}>Industry Alignment</button>
-                {profile?.role !== 'client' && <button onClick={() => setSiteTab('dochealth')} className={`px-4 py-2 text-[11px] font-black uppercase tracking-widest rounded-lg transition-all whitespace-nowrap ${effectiveSiteTab === 'dochealth' ? 'bg-white shadow-sm text-amber-600' : 'text-slate-400 hover:text-slate-600'}`}>Advisor Actions</button>}
+                {effectiveRole !== 'client' && <button onClick={() => setSiteTab('dochealth')} className={`px-4 py-2 text-[11px] font-black uppercase tracking-widest rounded-lg transition-all whitespace-nowrap ${effectiveSiteTab === 'dochealth' ? 'bg-white shadow-sm text-amber-600' : 'text-slate-400 hover:text-slate-600'}`}>Management</button>}
               </div>
 
               {effectiveSiteTab === 'actions' && !isViewOnly && (<>
@@ -5791,12 +6136,17 @@ export default function App() {
                       Returned ({rejectedCount})
                     </button>
                   )}
+                  {filterPriority === 'resolved' && archivedCount > 0 && (
+                    <button onClick={() => setShowArchivedActions(v => !v)} className={`flex items-center gap-1.5 px-3 py-2 text-[11px] font-black uppercase tracking-wider transition-colors whitespace-nowrap border rounded-lg ${showArchivedActions ? 'border-slate-300 bg-slate-100 text-slate-600' : 'border-slate-200 text-slate-400 hover:text-slate-600'}`}>
+                      <Archive size={11} />Archived ({archivedCount})
+                    </button>
+                  )}
                   <span className="text-[11px] font-bold text-slate-400 bg-slate-50 border border-slate-100 px-2.5 py-1 rounded-lg whitespace-nowrap">
                     {actionSearch.trim() ? `${searchedSiteActions.length} of ${siteActions.length} matched` : `${openCount} open · ${resolvedCount} resolved`}
                   </span>
                 </div>
                 <div className="flex items-center gap-2 flex-shrink-0">
-                  {profile?.role === 'advisor' && <button onClick={() => setShowAddAction(true)} className="flex items-center gap-2 px-5 py-2 bg-indigo-600 text-white rounded-xl text-[11px] font-black uppercase tracking-wider hover:bg-indigo-700 shadow-sm"><Plus size={13} />Add Action</button>}
+                  {effectiveRole === 'advisor' && <button onClick={() => setShowAddAction(true)} className="flex items-center gap-2 px-5 py-2 bg-indigo-600 text-white rounded-xl text-[11px] font-black uppercase tracking-wider hover:bg-indigo-700 shadow-sm"><Plus size={13} />Add Action</button>}
                 </div>
               </div>
               {showAddAction && selectedSite && <AddActionForm site={selectedSite} onSave={handleActionSaved} onCancel={() => setShowAddAction(false)} />}
@@ -5838,7 +6188,7 @@ export default function App() {
                       {reviewActions.filter(a => a.isError).map(ra => (
                         <div key={ra.id} className="px-5 py-2.5 bg-rose-50 border-b border-rose-100 text-[11px] font-bold text-rose-600 flex items-center gap-1.5">
                           <AlertCircle size={11} className="text-rose-500 flex-shrink-0" />
-                          <span><a href={getFileHref({ id: ra.docFileId ?? '', name: ra.docName ?? '', type: 'file' }, ra.docFolderPath ?? '', profile?.role ?? 'advisor')} target={profile?.role === 'advisor' ? undefined : '_blank'} rel="noreferrer" className="text-rose-700 underline hover:text-rose-500">{ra.docName}</a> could not be processed. <span className="font-normal text-rose-400">{ra.errorMessage}</span></span>
+                          <span><a href={getFileHref({ id: ra.docFileId ?? '', name: ra.docName ?? '', type: 'file' }, ra.docFolderPath ?? '', effectiveRole)} target={effectiveRole === 'advisor' ? undefined : '_blank'} rel="noreferrer" className="text-rose-700 underline hover:text-rose-500">{ra.docName}</a> could not be processed. <span className="font-normal text-rose-400">{ra.errorMessage}</span></span>
                         </div>
                       ))}
                       {(() => {
@@ -6012,7 +6362,7 @@ export default function App() {
                 ) : docGroups.map(({ source, fileId, displayName, actions, redCount, amberCount, highRiskCount, hasRed, hasAmber }) => {
                   const isOpen = actionSearch.trim() ? true : expandedDocGroups.has(source);
                   const isSyncingThis = syncingDocId === String(fileId);
-                  const isAdvisor = profile?.role === 'advisor' || profile?.role === 'superadmin';
+                  const isAdvisor = effectiveRole === 'advisor' || effectiveRole === 'superadmin';
                   return (
                     <div key={source} data-doc-source={source}>
                       <div className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-xl border border-indigo-200 transition-colors ${isOpen ? 'bg-indigo-200' : 'bg-indigo-100'}`}>
@@ -6039,7 +6389,7 @@ export default function App() {
                       </div>
                       {isOpen && (
                         <div className="space-y-3 mt-2 pl-2">
-                          {actions.map(action => <ActionCard key={action.id} action={{ ...action, notes: actionNotes[action.id] || action.notes }} isResolved={resolvedIds.includes(action.id) || action.status === 'resolved'} onToggleResolve={toggleResolve} onAddNote={handleAddNote} onDelete={handleDeleteAction} onUpdateIssueDate={handleUpdateIssueDate} onClientSubmit={handleClientSubmit} onClientWithdraw={handleClientWithdraw} onAdvisorConfirm={handleAdvisorConfirm} onAdvisorReject={handleAdvisorReject} onApplyFromWord={handleApplyFromWord} role={profile?.role || 'client'} expanded={expandedActionId === action.id} onExpand={() => setExpandedActionId(prev => prev === action.id ? null : action.id)} siteId={selectedSite?.id} userId={user?.id} onFlash={showAppFlash} searchQuery={actionSearch} />)}
+                          {actions.map(action => <ActionCard key={action.id} action={{ ...action, notes: actionNotes[action.id] || action.notes }} isResolved={resolvedIds.includes(action.id) || action.status === 'resolved' || action.status === 'archived'} onToggleResolve={toggleResolve} onAddNote={handleAddNote} onDelete={handleDeleteAction} onUpdateIssueDate={handleUpdateIssueDate} onClientSubmit={handleClientSubmit} onClientWithdraw={handleClientWithdraw} onAdvisorConfirm={handleAdvisorConfirm} onAdvisorReject={handleAdvisorReject} onApplyFromWord={handleApplyFromWord} onRestore={handleRestoreAction} role={effectiveRole} canDelete={profile?.role === 'superadmin'} expanded={expandedActionId === action.id} onExpand={() => setExpandedActionId(prev => prev === action.id ? null : action.id)} siteId={selectedSite?.id} userId={user?.id} onFlash={showAppFlash} searchQuery={actionSearch} />)}
                         </div>
                       )}
                     </div>
@@ -6063,7 +6413,7 @@ export default function App() {
               )}
 
               {/* ── Document Health tab (advisor only) ── */}
-              {effectiveSiteTab === 'dochealth' && profile?.role !== 'client' && (
+              {effectiveSiteTab === 'dochealth' && effectiveRole !== 'client' && (
                 <DocHealthTab siteId={selectedSite.id} onComplianceUpdate={(score) => {
                   setSelectedSite(prev => prev ? { ...prev, compliance: score } : prev);
                   setSites(prev => prev.map(s => s.id === selectedSite.id ? { ...s, compliance: score } : s));
@@ -6077,12 +6427,14 @@ export default function App() {
                     const top = el.getBoundingClientRect().top + window.scrollY - 90;
                     window.scrollTo({ top, behavior: 'smooth' });
                   }, 300);
-                }} role={profile?.role} onArchive={handleArchiveDoc} onClone={handleCloneDoc} />
+                }} role={effectiveRole} onArchive={handleArchiveDoc} onClone={handleCloneDoc} onUnarchive={(docName) => {
+                  setAllActions(prev => prev.map(a => a.source === docName ? { ...a, status: 'open' as ActionStatus, resolvedDate: null } : a));
+                }} />
               )}
 
               {/* ── Files browser tab — accordion style ── */}
               {effectiveSiteTab === 'files' && selectedSite.datto_folder_id && (() => {
-                const role = profile?.role || 'client';
+                const role = effectiveRole;
                 const rootEntry = folderData.get(selectedSite.datto_folder_id!);
                 const rootItems = rootEntry ? [...rootEntry.items].sort((a, b) =>
                   a.type === b.type ? a.name.localeCompare(b.name) : a.type === 'folder' ? -1 : 1
@@ -6151,7 +6503,7 @@ export default function App() {
 
                 return (
                   <div className="space-y-2">
-                    <p className="text-[11px] text-slate-400 font-medium px-1">{(profile?.role === 'advisor' || profile?.role === 'superadmin') ? 'Search and open your H&S documents. Office files open locally via W: drive.' : 'Search, view and download your H&S documents. Files open as PDF in your browser.'}</p>
+                    <p className="text-[11px] text-slate-400 font-medium px-1">{(effectiveRole === 'advisor' || effectiveRole === 'superadmin') ? 'Search and open your H&S documents. Office files open locally via W: drive.' : 'Search, view and download your H&S documents. Files open as PDF in your browser.'}</p>
                     {/* Search bar */}
                     <div className="bg-white rounded-lg border border-slate-200 shadow-sm px-4 py-3 flex items-center gap-3">
                       <Search size={14} className="text-slate-400 flex-shrink-0" />

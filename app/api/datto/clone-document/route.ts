@@ -26,7 +26,7 @@ function isActionTableTitle(text: string): boolean {
     ACTION_TITLE_SECONDARY.some(w => norm.includes(w));
 }
 
-const STRIP_LABEL_RE = /assessment.?date|completed.?by|persons?.?consulted|assessor|date.?of.?assessment/i;
+const STRIP_LABEL_RE = /assessment.?date|completed.?by|person.{0,5}consulted|assessor|date.?of.?assessment|\bdate\b/i;
 
 /** Clear all <w:t> text content inside a cell XML string */
 function clearCellText(cellXml: string): string {
