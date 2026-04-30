@@ -13,7 +13,7 @@ export async function POST(request: NextRequest) {
 
   const { data: actions, error } = await supabase
     .from('actions')
-    .select('status, due_date, updated_at, site_document_id')
+    .select('status, due_date, site_document_id')
     .eq('site_id', body.site_id)
     .is('site_document_id', null); // exclude client-managed doc actions
 
@@ -24,7 +24,6 @@ export async function POST(request: NextRequest) {
   }
 
   const today = new Date().toISOString().slice(0, 10);
-  const sixMonthsAgo = new Date(Date.now() - 180 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
   const ONGOING_RE = /on.?going|continuous|continual|continued|continuing|rolling|recurring|recurrent|regular|permanent|indefinite|open.?ended|as.?required|as.?needed|periodic|routine|always/i;
   const IMMEDIATE_RE = /\b(immediately?|urgent(ly)?|asap|a\.?s\.?a\.?p\.?|as\s+soon\s+as\s+(possible|practicable)|right\s+away|straight\s+away|without\s+delay|at\s+once|now|today)\b/i;
   let resolvedPoints = 0;
@@ -47,9 +46,6 @@ export async function POST(request: NextRequest) {
         const daysAway = Math.ceil((new Date(date!).getTime() - Date.now()) / 86400000);
         w = daysAway <= 30 ? 1 : 1;
       }
-    } else {
-      const lastUpdated = (a.updated_at as string | null)?.slice(0, 10) ?? null;
-      w = (lastUpdated && lastUpdated < sixMonthsAgo) ? 1 : 1;
     }
 
     if (isResolved) {
