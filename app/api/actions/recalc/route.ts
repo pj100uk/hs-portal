@@ -30,7 +30,7 @@ export async function POST(request: NextRequest) {
   let totalPoints = 0;
 
   for (const a of actions) {
-    const isResolved = a.status === 'resolved' || a.status === 'pending_review';
+    const isResolved = a.status === 'resolved' || a.status === 'pending_review' || a.status === 'archived';
     const date = a.due_date as string | null;
     const isImmediate = !!date && IMMEDIATE_RE.test(date) && !ONGOING_RE.test(date);
     const isOngoing = !isImmediate && !!date && ONGOING_RE.test(date);

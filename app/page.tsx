@@ -87,9 +87,13 @@ interface ReviewAction extends ExtractedAction {
   documentMeta: DocumentMeta | null;
   selected: boolean;
   added: boolean;
+  justAdded?: boolean;
   isError?: boolean;
   errorMessage?: string;
   advisorPriority: string | null;
+  isUnverified?: boolean;
+  unverifiedSignals?: string[];
+  pendingActions?: ExtractedAction[];
 }
 interface Organisation { id: string; name: string; datto_folder_id: string | null; datto_folder_name: string | null; logo_url: string | null; }
 interface Profile { role: 'superadmin' | 'advisor' | 'client'; site_id: string | null; organisation_id: string | null; datto_base_path: string | null; view_only: boolean; }
@@ -499,13 +503,19 @@ function fileTypeBadge(name: string): { label: string; cls: string } {
 
 // ─── Action Card ──────────────────────────────────────────────────────────────
 type ReadDiff = { actionText: string; responsiblePerson: string; targetDate: string; completedDate: string };
-const ActionCard = ({ action, isResolved, onToggleResolve, onAddNote, onDelete, onUpdateIssueDate, onClientSubmit, onClientWithdraw, onAdvisorConfirm, onAdvisorReject, onApplyFromWord, onRestore, role, canDelete, expanded, onExpand, siteId, userId, onFlash, searchQuery }: {
-  action: Action; isResolved: boolean; onToggleResolve: (id: string) => void; onAddNote: (id: string, note: string) => void; onDelete?: (id: string) => void; onUpdateIssueDate?: (id: string, date: string | null) => void; onClientSubmit?: (id: string) => void; onClientWithdraw?: (id: string) => void; onAdvisorConfirm?: (id: string) => void; onAdvisorReject?: (id: string, note: string) => void; onApplyFromWord?: (id: string, diff: ReadDiff) => void; onRestore?: (id: string) => void; role: string; canDelete?: boolean; expanded: boolean; onExpand: () => void; siteId?: string; userId?: string; onFlash?: (msg: string) => void; searchQuery?: string;
+const ActionCard = ({ action, isResolved, onToggleResolve, onAddNote, onDelete, onUpdateIssueDate, onUpdateField, onClientSubmit, onClientWithdraw, onAdvisorConfirm, onAdvisorReject, onApplyFromWord, onRestore, role, canDelete, expanded, onExpand, siteId, userId, onFlash, searchQuery }: {
+  action: Action; isResolved: boolean; onToggleResolve: (id: string) => void; onAddNote: (id: string, note: string) => void; onDelete?: (id: string) => void; onUpdateIssueDate?: (id: string, date: string | null) => void; onUpdateField?: (id: string, updates: { date?: string; who?: string; action?: string }) => void; onClientSubmit?: (id: string) => void; onClientWithdraw?: (id: string) => void; onAdvisorConfirm?: (id: string) => void; onAdvisorReject?: (id: string, note: string) => void; onApplyFromWord?: (id: string, diff: ReadDiff) => void; onRestore?: (id: string) => void; role: string; canDelete?: boolean; expanded: boolean; onExpand: () => void; siteId?: string; userId?: string; onFlash?: (msg: string) => void; searchQuery?: string;
 }) => {
   const [noteText, setNoteText] = useState('');
   const [showNoteInput, setShowNoteInput] = useState(false);
   const [editingIssueDate, setEditingIssueDate] = useState(false);
   const [issueDateInput, setIssueDateInput] = useState(action.issueDate || '');
+  const [editingDueDate, setEditingDueDate] = useState(false);
+  const [dueDateInput, setDueDateInput] = useState(action.date || '');
+  const [editingWho, setEditingWho] = useState(false);
+  const [whoInput, setWhoInput] = useState(action.who || '');
+  const [editingAction, setEditingAction] = useState(false);
+  const [actionInput, setActionInput] = useState(action.action || '');
   const [syncing, setSyncing] = useState(false);
   const [syncResult, setSyncResult] = useState<{ ok: boolean; msg: string } | null>(null);
   const [reading, setReading] = useState(false);
@@ -761,9 +771,9 @@ const ActionCard = ({ action, isResolved, onToggleResolve, onAddNote, onDelete, 
                   </span>
                 )}
               </span>
-              {action.date && !isResolved && <><span className="text-slate-300">|</span><span><span className="text-slate-500 font-normal">Due Date: </span>{toUKDate(action.date)}</span></>}
+              {!isResolved && <><span className="text-slate-300">|</span><span className="flex items-center gap-1"><span className="text-slate-500 font-normal">Due Date: </span>{role === 'advisor' ? (editingDueDate ? (<input type={dueDateInput && !isIsoDate(dueDateInput) ? 'text' : 'date'} value={dueDateInput} autoFocus onClick={e => e.stopPropagation()} onChange={e => setDueDateInput(e.target.value)} onBlur={() => { setEditingDueDate(false); onUpdateField?.(action.id, { date: dueDateInput }); }} onKeyDown={e => { if (e.key === 'Enter') { setEditingDueDate(false); onUpdateField?.(action.id, { date: dueDateInput }); } if (e.key === 'Escape') { setDueDateInput(action.date || ''); setEditingDueDate(false); } }} className="text-sm font-bold text-slate-700 border-b border-indigo-400 outline-none bg-transparent" />) : (<span onClick={e => { e.stopPropagation(); setDueDateInput(action.date || ''); setEditingDueDate(true); }} className={`cursor-pointer hover:text-indigo-600 hover:underline decoration-dotted ${!action.date ? 'text-amber-400 italic text-xs font-normal' : ''}`} title="Click to edit due date">{action.date ? toUKDate(action.date) : 'no date — click to set'}</span>)) : (<span>{action.date ? toUKDate(action.date) : '—'}</span>)}</span></>}
               {action.resolvedDate && <><span className="text-slate-300">|</span><span className="text-emerald-600"><span className="text-slate-500 font-bold">Resolved: </span>{toUKDate(action.resolvedDate)}{(() => { const d = (action.date && isIsoDate(action.resolvedDate) && isIsoDate(action.date)) ? daysLate(action.resolvedDate, action.date) : 0; return d > 30 ? <span className="text-amber-600 font-semibold ml-1">({d} days late)</span> : null; })()}</span></>}
-              {action.who && <><span className="text-slate-300">|</span><span><span className="text-slate-500 font-normal">Responsibility: </span>{highlight(action.who, searchQuery ?? '')}</span></>}
+              <><span className="text-slate-300">|</span><span className="flex items-center gap-1"><span className="text-slate-500 font-normal">Responsibility: </span>{role === 'advisor' ? (editingWho ? (<input type="text" value={whoInput} autoFocus onClick={e => e.stopPropagation()} onChange={e => setWhoInput(e.target.value)} onBlur={() => { setEditingWho(false); onUpdateField?.(action.id, { who: whoInput }); }} onKeyDown={e => { if (e.key === 'Enter') { setEditingWho(false); onUpdateField?.(action.id, { who: whoInput }); } if (e.key === 'Escape') { setWhoInput(action.who || ''); setEditingWho(false); } }} className="text-sm font-bold text-slate-700 border-b border-indigo-400 outline-none bg-transparent w-40" />) : (<span onClick={e => { e.stopPropagation(); setWhoInput(action.who || ''); setEditingWho(true); }} className={`cursor-pointer hover:text-indigo-600 hover:underline decoration-dotted ${!action.who ? 'text-amber-400 italic text-xs font-normal' : ''}`} title="Click to edit responsible person">{action.who ? highlight(action.who, searchQuery ?? '') : 'not set — click to add'}</span>)) : (<span>{highlight(action.who, searchQuery ?? '')}</span>)}</span></>
             </div>
             {canDelete && onDelete && (
               <button onClick={e => { e.stopPropagation(); if (confirm('Delete this action? This cannot be undone.')) onDelete(action.id); }} className="flex items-center gap-1 text-[11px] text-slate-400 hover:text-rose-400 transition-colors flex-shrink-0">
@@ -797,10 +807,16 @@ const ActionCard = ({ action, isResolved, onToggleResolve, onAddNote, onDelete, 
               )}
             </div>
           )}
-          {action.action && (
+          {(action.action || role === 'advisor') && (
             <div>
               <p className="text-[10px] font-black uppercase tracking-wider text-rose-600 mb-0.5">Action Required</p>
-              <p className="text-[12px] text-slate-700">{highlight(action.action, searchQuery ?? '')}</p>
+              {role === 'advisor' ? (editingAction ? (
+                <textarea value={actionInput} autoFocus rows={3} onClick={e => e.stopPropagation()} onChange={e => setActionInput(e.target.value)} onBlur={() => { setEditingAction(false); onUpdateField?.(action.id, { action: actionInput }); }} onKeyDown={e => { if (e.key === 'Escape') { setActionInput(action.action || ''); setEditingAction(false); } }} className="text-[12px] text-slate-700 border-b border-indigo-400 outline-none bg-transparent w-full resize-none" />
+              ) : (
+                <p onClick={e => { e.stopPropagation(); setActionInput(action.action || ''); setEditingAction(true); }} className="text-[12px] text-slate-700 cursor-pointer hover:text-indigo-600 hover:underline decoration-dotted" title="Click to edit action text">{highlight(action.action, searchQuery ?? '')}</p>
+              )) : (
+                <p className="text-[12px] text-slate-700">{highlight(action.action, searchQuery ?? '')}</p>
+              )}
             </div>
           )}
           {action.reviewNote && action.status === 'open' && (
@@ -2022,12 +2038,12 @@ const DocHealthTab = ({ siteId, onComplianceUpdate, onJumpToActions, role, onArc
   onComplianceUpdate?: (score: number) => void;
   onJumpToActions?: (docName: string) => void;
   role?: string;
-  onArchive?: (docName: string, folderPath: string, issueDate: string | null, siteId: string, silent?: boolean) => Promise<{ archivedFilePath?: string; originalFolderPath?: string } | void>;
+  onArchive?: (docName: string, folderPath: string, issueDate: string | null, siteId: string, silent?: boolean) => Promise<{ archivedFileId?: string; originalFolderId?: string; archivedTargetPath?: string } | void>;
   onClone?: (fileId: string, docName: string, folderId: string) => Promise<{ newFileId: string | null; newFileName: string } | void>;
   onUnarchive?: (docName: string) => void;
 }) => {
   type DocRow = { docName: string; issueDate: string | null; actionCount: number; reviewDue: string | null; fileId: string | null; folderPath: string | null; folderId: string | null };
-  type BulkLogEntry = { docName: string; success: boolean; error?: string; archivedFilePath?: string; originalFolderPath?: string; cloneFileId?: string | null; savedRow?: DocRow; undone?: boolean };
+  type BulkLogEntry = { docName: string; success: boolean; error?: string; archivedFileId?: string | null; originalFolderId?: string; archivedTargetPath?: string; cloneFileId?: string | null; savedRow?: DocRow; undone?: boolean };
   const [rows, setRows] = useState<DocRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [editingDoc, setEditingDoc] = useState<string | null>(null);
@@ -2200,8 +2216,8 @@ const DocHealthTab = ({ siteId, onComplianceUpdate, onJumpToActions, role, onArc
           cloneFileId = (cloneResult as any)?.newFileId ?? null;
         }
         const result = await onArchive(row.docName, row.folderPath ?? '', row.issueDate, siteId, true);
-        const r = result as { archivedFilePath?: string; originalFolderPath?: string } | undefined;
-        log.push({ docName: row.docName, success: true, archivedFilePath: r?.archivedFilePath, originalFolderPath: r?.originalFolderPath, cloneFileId, savedRow: row });
+        const r = result as { archivedFileId?: string; originalFolderId?: string; archivedTargetPath?: string } | undefined;
+        log.push({ docName: row.docName, success: true, archivedFileId: r?.archivedFileId, originalFolderId: r?.originalFolderId, archivedTargetPath: r?.archivedTargetPath, cloneFileId, savedRow: row });
         setRows(prev => prev.filter(p => p.docName !== row.docName));
       } catch (err: any) {
         log.push({ docName: row.docName, success: false, error: err.message ?? 'Failed', savedRow: row });
@@ -2215,11 +2231,11 @@ const DocHealthTab = ({ siteId, onComplianceUpdate, onJumpToActions, role, onArc
   };
 
   const undoBulkEntry = async (entry: BulkLogEntry, idx: number) => {
-    if (entry.undone || (!entry.archivedFilePath && !entry.cloneFileId)) return;
-    if (entry.archivedFilePath && entry.originalFolderPath) {
+    if (entry.undone || (!entry.archivedFileId && !entry.cloneFileId)) return;
+    if (entry.archivedFileId && entry.originalFolderId) {
       const res = await fetch('/api/datto/unarchive-document', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ archivedFilePath: entry.archivedFilePath, originalFolderPath: entry.originalFolderPath, originalFileName: entry.savedRow?.docName ?? entry.docName }),
+        body: JSON.stringify({ archivedFileId: entry.archivedFileId, originalFolderId: entry.originalFolderId, originalFileName: entry.savedRow?.docName ?? entry.docName }),
       });
       const data = await res.json();
       if (!res.ok) { alert(data.error ?? 'Undo failed'); return; }
@@ -2251,9 +2267,9 @@ const DocHealthTab = ({ siteId, onComplianceUpdate, onJumpToActions, role, onArc
         cloneFileId = (cloneResult as any)?.newFileId ?? null;
       }
       const result = await onArchive(row.docName, row.folderPath ?? '', row.issueDate, siteId, true);
-      const r = result as { archivedFilePath?: string; originalFolderPath?: string } | undefined;
+      const r = result as { archivedFileId?: string; originalFolderId?: string; archivedTargetPath?: string } | undefined;
       setRows(prev => prev.filter(p => p.docName !== row.docName));
-      setBulkLog([{ docName: row.docName, success: true, archivedFilePath: r?.archivedFilePath, originalFolderPath: r?.originalFolderPath, cloneFileId, savedRow: row }]);
+      setBulkLog([{ docName: row.docName, success: true, archivedFileId: r?.archivedFileId, originalFolderId: r?.originalFolderId, archivedTargetPath: r?.archivedTargetPath, cloneFileId, savedRow: row }]);
     } catch (err: any) {
       setBulkLog([{ docName: row.docName, success: false, error: err.message ?? 'Failed', savedRow: row }]);
     } finally {
@@ -2452,11 +2468,11 @@ const DocHealthTab = ({ siteId, onComplianceUpdate, onJumpToActions, role, onArc
                     : <X size={14} className="text-rose-500 flex-shrink-0" />}
                   <div className="flex-1 min-w-0">
                     <p className="text-[13px] font-bold text-slate-700 truncate">{entry.docName.replace(/\.[^.]+$/, '')}</p>
-                    {entry.success && entry.archivedFilePath && !entry.undone && <p className="text-[11px] text-slate-400 truncate" title={entry.archivedFilePath}>→ {entry.archivedFilePath}</p>}
+                    {entry.success && entry.archivedTargetPath && !entry.undone && <p className="text-[11px] text-slate-400 truncate" title={entry.archivedTargetPath}>→ {entry.archivedTargetPath}</p>}
                     {entry.error && <p className="text-[11px] text-rose-500">{entry.error}</p>}
                     {entry.undone && <p className="text-[11px] text-slate-400 italic">Restored to original location</p>}
                   </div>
-                  {entry.success && !entry.undone && (entry.archivedFilePath || entry.cloneFileId) && (
+                  {entry.success && !entry.undone && (entry.archivedFileId || entry.cloneFileId) && (
                     <button onClick={() => undoBulkEntry(entry, idx)} className="flex items-center gap-1.5 text-[11px] font-bold text-indigo-600 hover:text-indigo-800 flex-shrink-0">
                       <RotateCcw size={11} />Undo
                     </button>
@@ -4159,6 +4175,22 @@ export default function App() {
   const [aiStatusMessage, setAiStatusMessage] = useState('');
   const [aiError, setAiError] = useState<string | null>(null);
   const [reviewActions, setReviewActions] = useState<ReviewAction[]>([]);
+  const [unverifiedDates, setUnverifiedDates] = useState<Record<string, string>>({});
+  const [resolveExpanded, setResolveExpanded] = useState<Record<string, boolean>>({});
+  const [resolveDates, setResolveDates] = useState<Record<string, string>>({});
+  const [resolveFiles, setResolveFiles] = useState<Record<string, File | null>>({});
+  const [resolveUploading, setResolveUploading] = useState<Record<string, boolean>>({});
+  const [docGroupExpanded, setDocGroupExpanded] = useState<Record<string, boolean>>({});
+  const [docResolveExpanded, setDocResolveExpanded] = useState<Record<string, boolean>>({});
+  const [docResolveDates, setDocResolveDates] = useState<Record<string, string>>({});
+  const [docResolveFiles, setDocResolveFiles] = useState<Record<string, File[]>>({});
+  const [docResolveUploading, setDocResolveUploading] = useState<Record<string, boolean>>({});
+  const [bulkResolveExpanded, setBulkResolveExpanded] = useState<Record<string, boolean>>({});
+  const [bulkResolveDates, setBulkResolveDates] = useState<Record<string, string>>({});
+  const [bulkResolveFiles, setBulkResolveFiles] = useState<Record<string, File[]>>({});
+  const [bulkResolveUploading, setBulkResolveUploading] = useState<Record<string, boolean>>({});
+  const [preExEditingId, setPreExEditingId] = useState<string | null>(null);
+  const [preExDateInput, setPreExDateInput] = useState('');
   const [showAiPanel, setShowAiPanel] = useState(false);
   const [showSyncConfig, setShowSyncConfig] = useState(false);
   const [scoreExplanationCard, setScoreExplanationCard] = useState<'implementation' | 'iag' | 'documentation' | null>(null);
@@ -4518,6 +4550,48 @@ export default function App() {
     if (siteId) recalcActionProgress(siteId);
     if (!isCurrentlyResolved && action) await scheduleNextOccurrence({ ...action, resolvedDate: today });
   };
+  const handleBulkResolveActions = async (source: string, actions: typeof allActions) => {
+    const unresolved = actions.filter(a => !resolvedIds.includes(a.id) && a.status !== 'resolved' && a.status !== 'archived');
+    if (!unresolved.length || !selectedSite) return;
+    const today = new Date().toLocaleDateString('en-CA');
+    const resolvedDate = bulkResolveDates[source] || today;
+    const evidenceFiles = bulkResolveFiles[source] ?? [];
+    setBulkResolveUploading(prev => ({ ...prev, [source]: true }));
+    const { data: { user } } = await supabase.auth.getUser();
+    type SharedEv = { storagePath: string; dattoFileId: string | null; fileName: string; fileSizeBytes: number | null };
+    const sharedEvidenceMap = new Map<number, SharedEv>();
+    for (const action of unresolved) {
+      await supabase.from('actions').update({ status: 'resolved', resolved_date: resolvedDate }).eq('id', action.id);
+      setResolvedIds(prev => [...prev, action.id]);
+      setAllActions(prev => prev.map(a => a.id === action.id ? { ...a, status: 'resolved' as ActionStatus, resolvedDate } : a));
+      await scheduleNextOccurrence({ ...action, resolvedDate, date: action.date, issueDate: action.issueDate ?? null } as Parameters<typeof scheduleNextOccurrence>[0]);
+      if (evidenceFiles.length > 0) {
+        for (let i = 0; i < evidenceFiles.length; i++) {
+          if (!sharedEvidenceMap.has(i)) {
+            const fd = new FormData();
+            fd.append('file', evidenceFiles[i]);
+            fd.append('siteId', selectedSite.id);
+            if (user?.id) fd.append('userId', user.id);
+            if (action.source_document_id) fd.append('sourceDocumentId', action.source_document_id);
+            if (action.source) fd.append('sourceDocumentName', action.source);
+            if (action.sourceFolderId) fd.append('sourceFolderId', action.sourceFolderId);
+            const res = await fetch(`/api/actions/${action.id}/evidence`, { method: 'POST', body: fd });
+            const json = await res.json().catch(() => null);
+            if (json?.evidence) sharedEvidenceMap.set(i, { storagePath: json.evidence.storagePath, dattoFileId: json.evidence.dattoFileId ?? null, fileName: json.evidence.fileName, fileSizeBytes: json.evidence.fileSizeBytes ?? null });
+          } else {
+            const shared = sharedEvidenceMap.get(i)!;
+            await fetch(`/api/actions/${action.id}/evidence`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ storage_path: shared.storagePath, datto_file_id: shared.dattoFileId, file_name: shared.fileName, file_size_bytes: shared.fileSizeBytes, site_id: selectedSite.id, user_id: user?.id || null, source_document_id: action.source_document_id || null }) });
+          }
+        }
+      }
+    }
+    setBulkResolveUploading(prev => ({ ...prev, [source]: false }));
+    recalcActionProgress(selectedSite.id);
+    setBulkResolveExpanded(prev => { const next = { ...prev }; delete next[source]; return next; });
+    setBulkResolveFiles(prev => ({ ...prev, [source]: [] }));
+    setBulkResolveDates(prev => { const next = { ...prev }; delete next[source]; return next; });
+  };
+
   const handleClientSubmit = async (id: string) => {
     const { error } = await supabase.from('actions').update({ status: 'pending_review', review_note: null }).eq('id', id);
     if (error) { console.error('[handleClientSubmit] DB error:', error); showAppFlash('Failed to submit — please try again.'); return; }
@@ -4588,6 +4662,32 @@ export default function App() {
     await supabase.from('actions').update({ issue_date: date }).eq('id', id);
     setAllActions(prev => prev.map(a => a.id === id ? { ...a, issueDate: date } : a));
   };
+  const handleUpdateActionField = async (id: string, updates: { date?: string; who?: string; action?: string }) => {
+    const act = allActions.find(a => a.id === id);
+    if (!act) return;
+    const dbUpdates: Record<string, unknown> = {};
+    if ('date' in updates) dbUpdates.due_date = updates.date || null;
+    if ('who' in updates) dbUpdates.responsible_person = updates.who || null;
+    if ('action' in updates) dbUpdates.title = updates.action || '';
+    await supabase.from('actions').update(dbUpdates).eq('id', id);
+    setAllActions(prev => prev.map(a => a.id === id ? { ...a, ...updates } : a));
+    if (act.hazardRef && act.source_document_id && act.sourceFolderId) {
+      const merged = { ...act, ...updates };
+      void fetch('/api/datto/file/writeback', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          fileId: act.source_document_id,
+          folderId: act.sourceFolderId,
+          fileName: act.source,
+          hazardRef: act.hazardRef,
+          actionText: merged.action || undefined,
+          responsiblePerson: merged.who || undefined,
+          targetDate: merged.date ? toUKDate(merged.date) : undefined,
+        }),
+      });
+    }
+  };
   const handleSiteClick = (site: Site) => { setSelectedSite(site); setView('site'); if (isViewOnly) setSiteTab(site.datto_folder_id ? 'files' : 'iag'); recalcActionProgress(site.id); refreshComplianceScore(site.id); };
   const handleSaveSyncConfig = (siteId: string, includedIds: string[]) => {
     setSites(prev => prev.map(s => s.id === siteId ? { ...s, included_datto_folder_ids: includedIds } : s));
@@ -4598,6 +4698,24 @@ export default function App() {
     setShowAddAction(false);
     const siteId = sites.find(s => s.name === action.site)?.id ?? selectedSite?.id;
     if (siteId) recalcActionProgress(siteId);
+  };
+
+  const writebackActionToDoc = (ra: ReviewAction, completedDate?: string) => {
+    if (!ra.hazardRef || !ra.docFileId || !ra.docFolderFileId) return;
+    void fetch('/api/datto/file/writeback', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        fileId: ra.docFileId,
+        folderId: ra.docFolderFileId,
+        fileName: ra.docName,
+        hazardRef: ra.hazardRef,
+        actionText: ra.description,
+        responsiblePerson: ra.responsiblePerson || undefined,
+        targetDate: ra.dueDate ? toUKDate(ra.dueDate) : undefined,
+        completedDate: completedDate ? toUKDate(completedDate) : undefined,
+      }),
+    });
   };
 
   const handleAddReviewAction = async (actionId: string) => {
@@ -4657,16 +4775,204 @@ export default function App() {
         { onConflict: 'site_id,document_name', ignoreDuplicates: false }
       ).then(null, () => {});
     }
-    setReviewActions(prev => prev.map(a => a.id === actionId ? { ...a, added: true } : a));
+    setReviewActions(prev => prev.map(a => a.id === actionId ? { ...a, added: true, justAdded: true } : a));
     if (data) {
       setAllActions(prev => [...prev, { id: data.id, action: ra.description, description: '', date: ra.dueDate || '', site: selectedSite.name, who: ra.responsiblePerson || '', contractor: '', source: ra.docName, source_document_id: ra.docFileId || '', sourceFolderId: ra.docFolderFileId || null, sourceFolderPath: ra.docFolderPath || null, priority: 'green' as Priority, regulation: ra.regulation || '', notes: '', status: 'open', resolvedDate: null, hazardRef: ra.hazardRef || null, hazard: ra.hazard || null, existingControls: ra.existingControls || null, riskRating: ra.riskRating || null, riskLevel: ra.riskLevel || null, updatedAt: data.updated_at || null, issueDate: ra.documentMeta?.assessmentDate || null }]);
       recalcActionProgress(selectedSite.id);
+      writebackActionToDoc(ra);
     }
   };
 
   const handleAddSelectedReviewActions = async () => {
     const toAdd = reviewActions.filter(a => a.selected && !a.added);
     for (const ra of toAdd) await handleAddReviewAction(ra.id);
+  };
+
+  const handleUnverifiedProcess = (actionId: string, assessmentDate: string) => {
+    const unverified = reviewActions.find(a => a.id === actionId);
+    if (!unverified?.isUnverified || !assessmentDate) return;
+    const docMeta: DocumentMeta = {
+      reviewDate: unverified.documentMeta?.reviewDate ?? null,
+      assessor: unverified.documentMeta?.assessor ?? null,
+      clientConsulted: unverified.documentMeta?.clientConsulted ?? null,
+      documentType: unverified.documentMeta?.documentType ?? 'general_ra',
+      assessmentDate,
+    };
+    const docBaseName = unverified.docName.replace(/\.[^.]+$/, '').toLowerCase();
+    const promoted: ReviewAction[] = (unverified.pendingActions ?? []).map(a => {
+      const alreadyAdded = allActions.some(e => {
+        if (e.site !== selectedSite?.name) return false;
+        if (e.source_document_id !== unverified.docFileId) {
+          const eBase = (e.source ?? '').replace(/\.[^.]+$/, '').toLowerCase();
+          if (eBase !== docBaseName) return false;
+        }
+        if (e.action === a.description) return true;
+        if (textSimilarity(e.action, a.description) > 0.8) return true;
+        return false;
+      });
+      return {
+        ...a,
+        dueDate: resolveDueDate(a.dueDate, a.dueDateRelative, assessmentDate),
+        id: `${unverified.docFileId}-promoted-${Math.random().toString(36).slice(2)}`,
+        docName: unverified.docName,
+        docFileId: unverified.docFileId,
+        docFolderFileId: unverified.docFolderFileId,
+        docFolderPath: unverified.docFolderPath,
+        documentMeta: docMeta,
+        selected: !alreadyAdded,
+        added: alreadyAdded,
+        advisorPriority: null,
+        isUnverified: false,
+      };
+    });
+    setReviewActions(prev => [...prev.filter(a => a.id !== actionId), ...promoted]);
+    setUnverifiedDates(prev => { const next = { ...prev }; delete next[actionId]; return next; });
+  };
+
+  const handleUnverifiedSkip = (actionId: string) => {
+    setReviewActions(prev => prev.filter(a => a.id !== actionId));
+    setUnverifiedDates(prev => { const next = { ...prev }; delete next[actionId]; return next; });
+  };
+
+  const handleMarkReviewActionResolved = async (actionId: string) => {
+    const ra = reviewActions.find(a => a.id === actionId);
+    if (!ra || ra.added || !selectedSite) return;
+    const today = new Date().toISOString().slice(0, 10);
+    const resolvedDate = resolveDates[actionId] || today;
+
+    // Dedup check (same pattern as handleAddReviewAction)
+    {
+      let dupQuery = supabase.from('actions')
+        .select('id', { count: 'exact', head: true })
+        .eq('site_id', selectedSite.id)
+        .ilike('title', ra.description.trim());
+      dupQuery = ra.docFileId
+        ? dupQuery.eq('source_document_id', ra.docFileId)
+        : dupQuery.eq('source_document_name', ra.docName);
+      dupQuery = ra.hazardRef
+        ? dupQuery.eq('hazard_ref', ra.hazardRef)
+        : dupQuery.is('hazard_ref', null);
+      const { count: dupCount } = await dupQuery;
+      if ((dupCount ?? 0) > 0) {
+        setReviewActions(prev => prev.map(a => a.id === actionId ? { ...a, added: true } : a));
+        setResolveExpanded(prev => { const next = { ...prev }; delete next[actionId]; return next; });
+        return;
+      }
+    }
+
+    const { data, error: insertErr } = await supabase.from('actions').insert({
+      site_id: selectedSite.id,
+      title: ra.description,
+      description: '',
+      priority: 'green',
+      status: 'resolved',
+      resolved_date: resolvedDate,
+      due_date: ra.dueDate || null,
+      source_document_name: ra.docName,
+      source_document_id: ra.docFileId || null,
+      source_folder_id: ra.docFolderFileId || null,
+      source_folder_path: ra.docFolderPath || null,
+      hazard_ref: ra.hazardRef || null,
+      hazard: ra.hazard || null,
+      existing_controls: ra.existingControls || null,
+      risk_rating: ra.riskRating || null,
+      risk_level: ra.riskLevel || null,
+      regulation: ra.regulation || null,
+      responsible_person: ra.responsiblePerson || null,
+      issue_date: ra.documentMeta?.assessmentDate || null,
+    }).select().single();
+
+    if (insertErr) { setAiError(`Failed to add action: ${insertErr.message}`); return; }
+
+    // Upload evidence if a file was selected
+    const evidenceFile = resolveFiles[actionId];
+    if (evidenceFile && data) {
+      setResolveUploading(prev => ({ ...prev, [actionId]: true }));
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        const fd = new FormData();
+        fd.append('file', evidenceFile);
+        fd.append('siteId', selectedSite.id);
+        if (user?.id) fd.append('userId', user.id);
+        if (ra.docFolderFileId) fd.append('sourceFolderId', ra.docFolderFileId);
+        if (ra.hazardRef) fd.append('hazardRef', ra.hazardRef);
+        if (ra.docFileId) fd.append('sourceDocumentId', ra.docFileId);
+        if (ra.docName) fd.append('sourceDocumentName', ra.docName);
+        await fetch(`/api/actions/${data.id}/evidence`, { method: 'POST', body: fd });
+      } finally {
+        setResolveUploading(prev => ({ ...prev, [actionId]: false }));
+      }
+    }
+
+    setReviewActions(prev => prev.map(a => a.id === actionId ? { ...a, added: true, justAdded: true } : a));
+    if (data) {
+      setAllActions(prev => [...prev, { id: data.id, action: ra.description, description: '', date: ra.dueDate || '', site: selectedSite.name, who: ra.responsiblePerson || '', contractor: '', source: ra.docName, source_document_id: ra.docFileId || '', sourceFolderId: ra.docFolderFileId || null, sourceFolderPath: ra.docFolderPath || null, priority: 'green' as Priority, regulation: ra.regulation || '', notes: '', status: 'resolved', resolvedDate: resolvedDate, hazardRef: ra.hazardRef || null, hazard: ra.hazard || null, existingControls: ra.existingControls || null, riskRating: ra.riskRating || null, riskLevel: ra.riskLevel || null, updatedAt: data.updated_at || null, issueDate: ra.documentMeta?.assessmentDate || null }]);
+      recalcActionProgress(selectedSite.id);
+      writebackActionToDoc(ra, resolvedDate);
+    }
+    // Collapse and clean up
+    setResolveExpanded(prev => { const next = { ...prev }; delete next[actionId]; return next; });
+    setResolveFiles(prev => { const next = { ...prev }; delete next[actionId]; return next; });
+    setResolveDates(prev => { const next = { ...prev }; delete next[actionId]; return next; });
+  };
+
+  const handleMarkDocAllResolved = async (docFileId: string) => {
+    const docActions = reviewActions.filter(ra => ra.docFileId === docFileId && !ra.added && !ra.isError && !ra.isUnverified);
+    if (!docActions.length || !selectedSite) return;
+    const today = new Date().toISOString().slice(0, 10);
+    const resolvedDate = docResolveDates[docFileId] || today;
+    const evidenceFiles = docResolveFiles[docFileId] ?? [];
+    setDocResolveUploading(prev => ({ ...prev, [docFileId]: true }));
+    const { data: { user } } = await supabase.auth.getUser();
+    type SharedEv = { storagePath: string; dattoFileId: string | null; fileName: string; fileSizeBytes: number | null };
+    const sharedEvidenceMap = new Map<number, SharedEv>();
+    for (const ra of docActions) {
+      let dupQuery = supabase.from('actions').select('id', { count: 'exact', head: true }).eq('site_id', selectedSite.id).ilike('title', ra.description.trim());
+      dupQuery = ra.docFileId ? dupQuery.eq('source_document_id', ra.docFileId) : dupQuery.eq('source_document_name', ra.docName);
+      dupQuery = ra.hazardRef ? dupQuery.eq('hazard_ref', ra.hazardRef) : dupQuery.is('hazard_ref', null);
+      const { count: dupCount } = await dupQuery;
+      if ((dupCount ?? 0) > 0) { setReviewActions(prev => prev.map(a => a.id === ra.id ? { ...a, added: true } : a)); continue; }
+      const { data, error: insertErr } = await supabase.from('actions').insert({
+        site_id: selectedSite.id, title: ra.description, description: '', priority: 'green',
+        status: 'resolved', resolved_date: resolvedDate, due_date: ra.dueDate || null,
+        source_document_name: ra.docName, source_document_id: ra.docFileId || null,
+        source_folder_id: ra.docFolderFileId || null, source_folder_path: ra.docFolderPath || null,
+        hazard_ref: ra.hazardRef || null, hazard: ra.hazard || null, existing_controls: ra.existingControls || null,
+        risk_rating: ra.riskRating || null, risk_level: ra.riskLevel || null, regulation: ra.regulation || null,
+        responsible_person: ra.responsiblePerson || null, issue_date: ra.documentMeta?.assessmentDate || null,
+      }).select().single();
+      if (insertErr) continue;
+      if (evidenceFiles.length > 0 && data) {
+        for (let i = 0; i < evidenceFiles.length; i++) {
+          if (!sharedEvidenceMap.has(i)) {
+            const fd = new FormData();
+            fd.append('file', evidenceFiles[i]);
+            fd.append('siteId', selectedSite.id);
+            if (user?.id) fd.append('userId', user.id);
+            if (ra.docFolderFileId) fd.append('sourceFolderId', ra.docFolderFileId);
+            if (ra.hazardRef) fd.append('hazardRef', ra.hazardRef);
+            if (ra.docFileId) fd.append('sourceDocumentId', ra.docFileId);
+            if (ra.docName) fd.append('sourceDocumentName', ra.docName);
+            const res = await fetch(`/api/actions/${data.id}/evidence`, { method: 'POST', body: fd });
+            const json = await res.json().catch(() => null);
+            if (json?.evidence) sharedEvidenceMap.set(i, { storagePath: json.evidence.storagePath, dattoFileId: json.evidence.dattoFileId ?? null, fileName: json.evidence.fileName, fileSizeBytes: json.evidence.fileSizeBytes ?? null });
+          } else {
+            const shared = sharedEvidenceMap.get(i)!;
+            await fetch(`/api/actions/${data.id}/evidence`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ storage_path: shared.storagePath, datto_file_id: shared.dattoFileId, file_name: shared.fileName, file_size_bytes: shared.fileSizeBytes, site_id: selectedSite.id, user_id: user?.id || null, hazard_ref: ra.hazardRef || null, source_document_id: ra.docFileId || null }) });
+          }
+        }
+      }
+      setReviewActions(prev => prev.map(a => a.id === ra.id ? { ...a, added: true, justAdded: true } : a));
+      if (data) {
+        setAllActions(prev => [...prev, { id: data.id, action: ra.description, description: '', date: ra.dueDate || '', site: selectedSite.name, who: ra.responsiblePerson || '', contractor: '', source: ra.docName, source_document_id: ra.docFileId || '', sourceFolderId: ra.docFolderFileId || null, sourceFolderPath: ra.docFolderPath || null, priority: 'green' as Priority, regulation: ra.regulation || '', notes: '', status: 'resolved', resolvedDate: resolvedDate, hazardRef: ra.hazardRef || null, hazard: ra.hazard || null, existingControls: ra.existingControls || null, riskRating: ra.riskRating || null, riskLevel: ra.riskLevel || null, updatedAt: data.updated_at || null, issueDate: ra.documentMeta?.assessmentDate || null }]);
+        writebackActionToDoc(ra, resolvedDate);
+      }
+    }
+    setDocResolveUploading(prev => ({ ...prev, [docFileId]: false }));
+    recalcActionProgress(selectedSite.id);
+    setDocResolveExpanded(prev => { const next = { ...prev }; delete next[docFileId]; return next; });
+    setDocResolveFiles(prev => ({ ...prev, [docFileId]: [] }));
+    setDocResolveDates(prev => { const next = { ...prev }; delete next[docFileId]; return next; });
   };
 
   const EXCLUDED_FOLDERS = ['archive', 'evidence', 'photos', '_doc_converted_tmp', 'client provided documents', 'vault', 'z-archive manual'];
@@ -5061,18 +5367,56 @@ export default function App() {
             // Fall through to normal processing if Gemini found NO-answer actions
           }
 
-          // General: skip unfilled templates
+          // General: no date → decide if possibly genuine or a blank template.
+          // Genuine signals require name or hazard-ref evidence — pre-populated template
+          // actions alone are not enough (templates often ship with example actions).
           if (!documentMeta?.assessmentDate) {
-            setReviewActions(prev => [...prev, {
-              id: `skipped-${doc.id}`, description: '', dueDate: null, dueDateRelative: null,
-              responsiblePerson: null, priority: null, advisorPriority: null,
-              docName: doc.name, docFileId: doc.id,
-              docFolderFileId: doc.parentFolderId, docFolderPath: doc.folderPath ?? '',
-              selected: false, added: false, isError: true,
-              errorMessage: 'No assessment date found — document appears to be an unfilled template and was skipped.',
-              hazardRef: null, hazard: null, existingControls: null,
-              regulation: null, riskRating: null, riskLevel: null, documentMeta: null,
-            }]);
+            const _trimSig = (s: string | null | undefined) => (s ?? '').trim();
+            const typedActions = actions as ExtractedAction[];
+
+            const hasAssessor       = !!_trimSig(documentMeta?.assessor);
+            const hasClientName     = !!_trimSig(documentMeta?.clientConsulted);
+            const hasResponsible    = typedActions.some(a => !!_trimSig(a.responsiblePerson));
+            const hasHazardRef      = typedActions.some(a => !!_trimSig(a.hazardRef));
+            const isGenuine         = hasAssessor || hasClientName || hasResponsible || hasHazardRef;
+
+            const signals: string[] = [];
+            if (hasAssessor)    signals.push(`Assessor: ${_trimSig(documentMeta.assessor)}`);
+            if (hasClientName)  signals.push(`Person assessed: ${_trimSig(documentMeta.clientConsulted)}`);
+            if (hasResponsible) {
+              const names = [...new Set(typedActions.map(a => _trimSig(a.responsiblePerson)).filter(Boolean))];
+              signals.push(`Responsible: ${names.slice(0, 2).join(', ')}${names.length > 2 ? '…' : ''}`);
+            }
+            if (hasHazardRef) {
+              const refCount = typedActions.filter(a => !!_trimSig(a.hazardRef)).length;
+              signals.push(`${refCount} action${refCount !== 1 ? 's' : ''} with hazard refs`);
+            }
+
+            if (isGenuine) {
+              setReviewActions(prev => [...prev, {
+                id: `unverified-${doc.id}`, description: '', dueDate: null, dueDateRelative: null,
+                responsiblePerson: null, priority: null, advisorPriority: null,
+                hazardRef: null, hazard: null, existingControls: null,
+                regulation: null, riskRating: null, riskLevel: null,
+                docName: doc.name, docFileId: doc.id,
+                docFolderFileId: doc.parentFolderId, docFolderPath: doc.folderPath ?? '',
+                selected: false, added: false, isError: false,
+                isUnverified: true, unverifiedSignals: signals,
+                pendingActions: actions as ExtractedAction[],
+                documentMeta: documentMeta ?? null,
+              }]);
+            } else {
+              setReviewActions(prev => [...prev, {
+                id: `skipped-${doc.id}`, description: '', dueDate: null, dueDateRelative: null,
+                responsiblePerson: null, priority: null, advisorPriority: null,
+                docName: doc.name, docFileId: doc.id,
+                docFolderFileId: doc.parentFolderId, docFolderPath: doc.folderPath ?? '',
+                selected: false, added: false, isError: true,
+                errorMessage: 'No assessment date found — document appears to be an unfilled template and was skipped.',
+                hazardRef: null, hazard: null, existingControls: null,
+                regulation: null, riskRating: null, riskLevel: null, documentMeta: null,
+              }]);
+            }
             return;
           }
           console.log(`[AI-SYNC] ${doc.name} — Gemini returned ${(actions as ExtractedAction[]).length} actions:`);
@@ -5344,10 +5688,21 @@ export default function App() {
     handleAiSync(site, true, fileId).finally(() => setSyncingDocId(null));
   };
 
-  const handleArchiveDoc = async (docName: string, folderPath: string, issueDate: string | null, siteId: string, silent = false): Promise<{ archivedFilePath?: string; originalFolderPath?: string } | void> => {
+  const handleArchiveDoc = async (docName: string, folderPath: string, issueDate: string | null, siteId: string, silent = false): Promise<{ archivedFileId?: string; originalFolderId?: string; archivedTargetPath?: string } | void> => {
     // Prefer fresh path from allActions — background refresh keeps this current even after folder renames
     const freshPath = allActions.find(a => a.source === docName && a.sourceFolderPath)?.sourceFolderPath;
     const effectiveFolderPath = freshPath ?? folderPath;
+    // Look up Datto IDs from actions
+    const actionWithIds = allActions.find(a => a.source === docName && a.source_document_id && a.sourceFolderId);
+    const fileId = actionWithIds?.source_document_id;
+    const sourceFolderId = actionWithIds?.sourceFolderId;
+    const site = sites.find(s => s.id === siteId);
+    const siteFolderId = site?.datto_folder_id;
+    const siteFolderPath = site?.datto_folder_path ?? null;
+    if (!fileId || !sourceFolderId || !siteFolderId) {
+      showAppFlash('Cannot archive: missing Datto file or folder ID', 6000);
+      throw new Error('Cannot archive: missing Datto file or folder ID');
+    }
     // Write all syncable actions back to the Word doc as resolved before the file moves
     const today = new Date().toLocaleDateString('en-CA');
     const syncable = allActions.filter(a =>
@@ -5374,7 +5729,7 @@ export default function App() {
     const res = await fetch('/api/datto/archive-document', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ sourceFolderPath: effectiveFolderPath, fileName: docName, assessmentDate: issueDate }),
+      body: JSON.stringify({ fileId, fileName: docName, sourceFolderId, siteFolderId, siteFolderPath, sourceFolderPath: effectiveFolderPath }),
     });
     const data = await res.json();
     if (!res.ok) { showAppFlash(data.error ?? 'Archive failed', 8000); throw new Error(data.error); }
@@ -5383,7 +5738,7 @@ export default function App() {
     recalcActionProgress(siteId);
     refreshComplianceScore(siteId);
     if (!silent) showAppFlash(`Archived to: ${data.targetPath ?? data.archivedFileName}`, 8000);
-    return { archivedFilePath: data.targetPath, originalFolderPath: effectiveFolderPath };
+    return { archivedFileId: data.archivedFileId ?? null, originalFolderId: sourceFolderId, archivedTargetPath: data.targetPath };
   };
 
   const handleRestoreAction = async (id: string) => {
@@ -5634,6 +5989,11 @@ export default function App() {
                   </select>
                 )}
                 {filterOrgId && profile?.role !== 'superadmin' && <button onClick={() => setFilterOrgId('')} className="text-xs font-bold text-indigo-500 hover:text-indigo-700 flex items-center gap-1"><X size={12} />Clear filter</button>}
+                {portfolioOrg?.id && (
+                  <a href={`/report?type=org&orgId=${portfolioOrg.id}`} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 text-xs font-bold text-indigo-600 hover:text-indigo-800 hover:underline ml-auto">
+                    <ExternalLink size={12} />H&amp;S Status Report
+                  </a>
+                )}
               </div>
               <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 items-start">
                   <div className="lg:col-span-3 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
@@ -5816,7 +6176,7 @@ export default function App() {
                   {(effectiveRole === 'advisor' || effectiveRole === 'superadmin') && selectedSite.organisation_id && (
                     <>
                       <span className="text-slate-200 text-[11px]">|</span>
-                      <a href={`/report?type=org&orgId=${selectedSite.organisation_id}`} target="_blank" rel="noopener noreferrer" className="text-[11px] font-bold text-indigo-600 hover:text-indigo-800 hover:underline flex items-center gap-1"><ExternalLink size={11} />Organisation Summary</a>
+                      <a href={`/report?type=org&orgId=${selectedSite.organisation_id}`} target="_blank" rel="noopener noreferrer" className="text-[11px] font-bold text-indigo-600 hover:text-indigo-800 hover:underline flex items-center gap-1"><ExternalLink size={11} />Org H&amp;S Report</a>
                     </>
                   )}
                 </div>
@@ -6191,19 +6551,76 @@ export default function App() {
                           <span><a href={getFileHref({ id: ra.docFileId ?? '', name: ra.docName ?? '', type: 'file' }, ra.docFolderPath ?? '', effectiveRole)} target={effectiveRole === 'advisor' ? undefined : '_blank'} rel="noreferrer" className="text-rose-700 underline hover:text-rose-500">{ra.docName}</a> could not be processed. <span className="font-normal text-rose-400">{ra.errorMessage}</span></span>
                         </div>
                       ))}
+                      {reviewActions.some(a => a.isUnverified) && (
+                        <div className="border-b border-amber-100">
+                          <div className="px-5 py-2 bg-amber-100 flex items-center gap-2">
+                            <AlertCircle size={11} className="text-amber-600 flex-shrink-0" />
+                            <span className="text-[10px] font-black uppercase tracking-wider text-amber-700">Date confirmation required</span>
+                            <span className="ml-auto text-[10px] font-bold text-amber-600">{reviewActions.filter(a => a.isUnverified).length} document{reviewActions.filter(a => a.isUnverified).length !== 1 ? 's' : ''}</span>
+                          </div>
+                          {reviewActions.filter(a => a.isUnverified).map(ra => (
+                            <div key={ra.id} className="px-5 py-3 bg-amber-50 border-b border-amber-100 flex flex-wrap items-start gap-3">
+                              <div className="flex-1 min-w-0 space-y-1">
+                                <a href={getFileHref({ id: ra.docFileId ?? '', name: ra.docName ?? '', type: 'file' }, ra.docFolderPath ?? '', effectiveRole)} target={effectiveRole === 'advisor' ? undefined : '_blank'} rel="noreferrer" className="text-[11px] font-black text-amber-800 underline hover:text-amber-600 truncate block">{ra.docName}</a>
+                                <p className="text-[10px] font-bold text-amber-600">{(ra.unverifiedSignals ?? []).join(' · ')}</p>
+                              </div>
+                              <div className="flex flex-col gap-1 flex-shrink-0">
+                                <span className="text-[10px] font-black uppercase tracking-wider text-amber-700 pl-1">Assessment date</span>
+                                <input type="date" value={unverifiedDates[ra.id] ?? ''} onChange={e => setUnverifiedDates(prev => ({ ...prev, [ra.id]: e.target.value }))} className="px-3 py-1.5 border border-amber-300 rounded-lg text-xs text-amber-900 focus:outline-none focus:ring-2 focus:ring-amber-400 bg-white w-40" />
+                              </div>
+                              <div className="flex items-end gap-2 flex-shrink-0 pt-4">
+                                <button onClick={() => handleUnverifiedProcess(ra.id, unverifiedDates[ra.id] ?? '')} disabled={!unverifiedDates[ra.id]} className="px-4 py-1.5 bg-violet-600 text-white rounded-xl text-[11px] font-black hover:bg-violet-700 disabled:opacity-40 disabled:cursor-not-allowed">Process</button>
+                                <button onClick={() => handleUnverifiedSkip(ra.id)} className="px-4 py-1.5 border border-rose-200 text-rose-500 rounded-xl text-[11px] font-black hover:bg-rose-50 hover:border-rose-300">Skip</button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                       {(() => {
-                        const addedActions = reviewActions.filter(a => a.added);
-                        if (addedActions.length === 0) return null;
-                        const addedDocs = Array.from(new Map(addedActions.map(a => [a.docFileId, a.docName])).entries());
+                        const justAddedActions = reviewActions.filter(a => a.justAdded);
+                        const preExistingActions = reviewActions.filter(a => a.added && !a.justAdded);
+                        if (justAddedActions.length === 0 && preExistingActions.length === 0) return null;
+                        const justAddedDocs = Array.from(new Map(justAddedActions.map(a => [a.docFileId, a.docName])).entries());
+                        const preExistingDocs = Array.from(new Map(preExistingActions.map(a => [a.docFileId, a.docName])).entries());
                         return (
                           <div className="border-b border-slate-100">
-                            {addedDocs.map(([docFileId, docName]) => {
-                              const count = addedActions.filter(a => a.docFileId === docFileId).length;
+                            {justAddedDocs.map(([docFileId, docName]) => {
+                              const count = justAddedActions.filter(a => a.docFileId === docFileId).length;
                               return (
-                                <div key={docFileId} className="px-5 py-2 bg-slate-50 flex items-center gap-2">
-                                  <CheckCircle size={11} className="text-green-500 flex-shrink-0" />
-                                  <span className="text-[11px] font-black text-slate-500 truncate">{docName}</span>
-                                  <span className="ml-auto text-[10px] font-bold text-slate-400 flex-shrink-0">{count} already added</span>
+                                <div key={docFileId} className="px-5 py-2 bg-green-50 flex items-center gap-2">
+                                  <CheckCircle size={11} className="text-green-600 flex-shrink-0" />
+                                  <span className="text-[11px] font-black text-slate-600 truncate">{docName}</span>
+                                  <span className="ml-auto text-[10px] font-bold text-green-600 flex-shrink-0">{count} action{count !== 1 ? 's' : ''} added</span>
+                                </div>
+                              );
+                            })}
+                            {preExistingDocs.map(([docFileId, docName]) => {
+                              const rasForDoc = preExistingActions.filter(a => a.docFileId === docFileId);
+                              const matches = rasForDoc.map(ra => ({
+                                ra,
+                                portal: allActions.find(a => a.source_document_id === ra.docFileId && (ra.hazardRef ? a.hazardRef === ra.hazardRef : a.action === ra.description)) ?? null,
+                              }));
+                              const missingDate = matches.filter(m => m.portal && !m.portal.date);
+                              return (
+                                <div key={docFileId}>
+                                  <div className="px-5 py-2 bg-slate-50 flex items-center gap-2">
+                                    <CheckCircle size={11} className="text-slate-400 flex-shrink-0" />
+                                    <span className="text-[11px] font-black text-slate-500 truncate">{docName}</span>
+                                    <span className="ml-auto text-[10px] font-bold flex-shrink-0 flex items-center gap-3">
+                                      {missingDate.length > 0 && <span className="text-amber-500">{missingDate.length} missing date</span>}
+                                      <span className="text-slate-400">{rasForDoc.length} already in portal</span>
+                                    </span>
+                                  </div>
+                                  {missingDate.map(({ portal }) => portal && (
+                                    <div key={portal.id} className="px-5 py-1.5 bg-amber-50 border-t border-amber-100 flex items-center gap-3">
+                                      <span className="text-[11px] text-slate-600 truncate flex-1" title={portal.action}>{portal.action}</span>
+                                      {preExEditingId === portal.id ? (
+                                        <input type="date" value={preExDateInput} autoFocus onClick={e => e.stopPropagation()} onChange={e => setPreExDateInput(e.target.value)} onBlur={() => { setPreExEditingId(null); if (preExDateInput) handleUpdateActionField(portal.id, { date: preExDateInput }); }} onKeyDown={e => { if (e.key === 'Enter') { setPreExEditingId(null); if (preExDateInput) handleUpdateActionField(portal.id, { date: preExDateInput }); } if (e.key === 'Escape') setPreExEditingId(null); }} className="text-xs border-b border-amber-400 outline-none bg-transparent text-amber-700 font-bold" />
+                                      ) : (
+                                        <span onClick={e => { e.stopPropagation(); setPreExDateInput(''); setPreExEditingId(portal.id); }} className="text-[11px] text-amber-500 font-bold cursor-pointer hover:underline flex-shrink-0">+ set due date</span>
+                                      )}
+                                    </div>
+                                  ))}
                                 </div>
                               );
                             })}
@@ -6211,17 +6628,57 @@ export default function App() {
                         );
                       })()}
                       {(() => {
-                        const newActions = [...reviewActions].filter(ra => !ra.added && !ra.isError);
+                        const newActions = [...reviewActions].filter(ra => !ra.added && !ra.isError && !ra.isUnverified);
                         const docGroups = Array.from(new Map(newActions.map(ra => [ra.docFileId, { docName: ra.docName, docFileId: ra.docFileId }])).values());
                         return docGroups.map(({ docName, docFileId }) => (
                           <div key={docFileId}>
-                            <div className="px-5 py-2 bg-slate-100/80 border-b border-slate-200 flex items-center gap-2">
-                              <FileText size={11} className="text-violet-400 flex-shrink-0" />
-                              <span className="text-[11px] font-black text-slate-600 truncate">{docName}</span>
-                              <span className="ml-auto text-[10px] font-bold text-slate-400 flex-shrink-0">{newActions.filter(ra => ra.docFileId === docFileId).length} action{newActions.filter(ra => ra.docFileId === docFileId).length !== 1 ? 's' : ''}</span>
+                            <div className="bg-slate-100/80 border-b border-slate-200 flex items-center">
+                              <button onClick={() => { const isOpen = docGroupExpanded[docFileId] !== false; setDocGroupExpanded(prev => ({ ...prev, [docFileId]: !isOpen })); if (isOpen) setDocResolveExpanded(prev => ({ ...prev, [docFileId]: false })); }} className="flex items-center gap-2 flex-1 px-5 py-2 text-left hover:bg-slate-200/50 transition-colors min-w-0">
+                                <ChevronDown size={11} className={`text-slate-400 flex-shrink-0 transition-transform ${docGroupExpanded[docFileId] !== false ? '' : '-rotate-90'}`} />
+                                <FileText size={11} className="text-violet-400 flex-shrink-0" />
+                                <span className="text-[11px] font-black text-slate-600 truncate">{docName}</span>
+                              </button>
+                              {docGroupExpanded[docFileId] !== false && (
+                                <button onClick={() => { setDocResolveExpanded(prev => ({ ...prev, [docFileId]: !prev[docFileId] })); if (!docResolveDates[docFileId]) setDocResolveDates(prev => ({ ...prev, [docFileId]: new Date().toISOString().slice(0, 10) })); }} className={`border rounded-lg text-[10px] font-black px-2.5 py-1 transition-colors flex-shrink-0 mr-3 ${docResolveExpanded[docFileId] ? 'bg-slate-200 border-slate-300 text-slate-700' : 'border-slate-300 text-slate-500 hover:bg-slate-200/60'}`}>Mark all resolved</button>
+                              )}
+                              <span className="text-[10px] font-bold text-slate-400 flex-shrink-0 pr-5">{newActions.filter(ra => ra.docFileId === docFileId).length} action{newActions.filter(ra => ra.docFileId === docFileId).length !== 1 ? 's' : ''}</span>
                             </div>
-                            {newActions.filter(ra => ra.docFileId === docFileId).map(ra => (
-                        <div key={ra.id} className={`p-5 flex gap-4 items-start transition-colors hover:bg-slate-50`}>
+                            {docGroupExpanded[docFileId] !== false && docResolveExpanded[docFileId] && (
+                              <div className="px-5 py-3 bg-slate-50 border-b border-slate-200 space-y-3">
+                                <p className="text-[11px] font-black text-slate-600">Mark all actions in this document as resolved</p>
+                                <div className="flex flex-wrap gap-4 items-end">
+                                  <div className="flex flex-col gap-1">
+                                    <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">Resolved date</span>
+                                    <input type="date" value={docResolveDates[docFileId] ?? new Date().toISOString().slice(0, 10)} onChange={e => setDocResolveDates(prev => ({ ...prev, [docFileId]: e.target.value }))} className="px-3 py-1.5 border border-slate-200 rounded-lg text-xs text-slate-600 focus:outline-none focus:ring-2 focus:ring-emerald-300 bg-white" />
+                                  </div>
+                                  <div className="flex flex-col gap-1">
+                                    <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">Evidence (optional)</span>
+                                    <div className="flex items-center gap-2">
+                                      <input id={`doc-resolve-file-${docFileId}`} type="file" multiple accept=".pdf,.docx,.doc,.jpg,.jpeg,.png" className="hidden" onChange={e => { const files = Array.from(e.target.files ?? []); setDocResolveFiles(prev => ({ ...prev, [docFileId]: [...(prev[docFileId] ?? []), ...files] })); e.target.value = ''; }} />
+                                      <button type="button" onClick={() => document.getElementById(`doc-resolve-file-${docFileId}`)?.click()} className="px-3 py-1.5 border border-slate-200 rounded-lg text-[11px] font-black text-slate-500 hover:bg-slate-100 hover:border-slate-300">+ Select files</button>
+                                      {(docResolveFiles[docFileId] ?? []).length > 0 && (
+                                        <div className="flex flex-col gap-0.5">
+                                          {(docResolveFiles[docFileId] ?? []).map((f, i) => (
+                                            <span key={i} className="flex items-center gap-1 text-[11px] text-slate-600 font-bold">
+                                              <span className="truncate max-w-[140px]">{f.name}</span>
+                                              <button type="button" onClick={() => setDocResolveFiles(prev => ({ ...prev, [docFileId]: (prev[docFileId] ?? []).filter((_, j) => j !== i) }))} className="text-slate-400 hover:text-slate-600 flex-shrink-0 ml-1">×</button>
+                                            </span>
+                                          ))}
+                                        </div>
+                                      )}
+                                      {docResolveUploading[docFileId] && <span className="text-[11px] text-slate-400 italic">Uploading…</span>}
+                                    </div>
+                                  </div>
+                                </div>
+                                <div className="flex gap-2">
+                                  <button onClick={() => handleMarkDocAllResolved(docFileId)} disabled={docResolveUploading[docFileId]} className="px-4 py-1.5 bg-emerald-600 text-white rounded-xl text-[11px] font-black hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed">Confirm all resolved</button>
+                                  <button onClick={() => { setDocResolveExpanded(prev => ({ ...prev, [docFileId]: false })); setDocResolveFiles(prev => ({ ...prev, [docFileId]: [] })); }} className="px-4 py-1.5 border border-rose-200 text-rose-500 rounded-xl text-[11px] font-black hover:bg-rose-50 hover:border-rose-300">Cancel</button>
+                                </div>
+                              </div>
+                            )}
+                            {docGroupExpanded[docFileId] !== false && newActions.filter(ra => ra.docFileId === docFileId).map(ra => (
+                        <div key={ra.id} className={`p-5 transition-colors hover:bg-slate-50`}>
+                          <div className="flex gap-4 items-start">
                           <input type="checkbox" checked={ra.selected} onChange={e => setReviewActions(prev => prev.map(a => a.id === ra.id ? { ...a, selected: e.target.checked } : a))} disabled={ra.added} className="mt-1 w-4 h-4 accent-violet-600 flex-shrink-0" />
                           <div className="flex-1 min-w-0 space-y-2">
                             {/* Document meta */}
@@ -6271,8 +6728,11 @@ export default function App() {
                                   value={ra.dueDate || ''}
                                   onChange={e => setReviewActions(prev => prev.map(a => a.id === ra.id ? { ...a, dueDate: e.target.value || null } : a))}
                                   disabled={ra.added}
-                                  className="px-3 py-1.5 border border-slate-200 rounded-lg text-xs text-slate-600 focus:outline-none focus:ring-2 focus:ring-violet-300 bg-white disabled:bg-slate-50"
+                                  className={`px-3 py-1.5 border rounded-lg text-xs text-slate-600 focus:outline-none focus:ring-2 bg-white disabled:bg-slate-50 ${!ra.dueDate && !ra.added ? 'border-amber-300 focus:ring-amber-200' : 'border-slate-200 focus:ring-violet-300'}`}
                                 />
+                                {!ra.dueDate && !ra.added && (
+                                  <span className="text-[10px] text-amber-500 pl-3">No date found — check document</span>
+                                )}
                               </div>
                               <div className="flex flex-col gap-1">
                                 <span className="text-[10px] font-black uppercase tracking-wider text-slate-400 pl-3">Responsible Person</span>
@@ -6335,13 +6795,46 @@ export default function App() {
                               </div>
                             )}
                           </div>
-                          <div className="flex-shrink-0">
+                          <div className="flex-shrink-0 flex flex-col gap-2">
                             {ra.added ? (
                               <span className="flex items-center gap-1.5 text-[11px] font-black text-emerald-600 bg-emerald-50 border border-emerald-200 px-3 py-1.5 rounded-xl"><CheckCircle size={12} />Added</span>
                             ) : (
-                              <button onClick={() => handleAddReviewAction(ra.id)} className="px-4 py-1.5 bg-violet-600 text-white rounded-xl text-[11px] font-black hover:bg-violet-700">Add</button>
+                              <>
+                                <button onClick={() => handleAddReviewAction(ra.id)} className="px-4 py-1.5 bg-violet-600 text-white rounded-xl text-[11px] font-black hover:bg-violet-700">Add</button>
+                                <button onClick={() => { setResolveExpanded(prev => ({ ...prev, [ra.id]: !prev[ra.id] })); if (!resolveDates[ra.id]) setResolveDates(prev => ({ ...prev, [ra.id]: new Date().toISOString().slice(0, 10) })); }} className={`border rounded-xl text-[11px] font-black px-3 py-1.5 transition-colors ${resolveExpanded[ra.id] ? 'bg-slate-100 border-slate-300 text-slate-600' : 'border-slate-200 text-slate-500 hover:bg-slate-50 hover:border-slate-300'}`}>Already Resolved</button>
+                              </>
                             )}
                           </div>
+                          </div>
+                          {resolveExpanded[ra.id] && (
+                            <div className="mt-3 pt-3 border-t border-slate-100 space-y-3 ml-7">
+                              <p className="text-[11px] font-black text-slate-600">Mark as already resolved</p>
+                              <div className="flex flex-wrap gap-4 items-end">
+                                <div className="flex flex-col gap-1">
+                                  <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">Resolved date</span>
+                                  <input type="date" value={resolveDates[ra.id] ?? new Date().toISOString().slice(0, 10)} onChange={e => setResolveDates(prev => ({ ...prev, [ra.id]: e.target.value }))} className="px-3 py-1.5 border border-slate-200 rounded-lg text-xs text-slate-600 focus:outline-none focus:ring-2 focus:ring-emerald-300 bg-white" />
+                                </div>
+                                <div className="flex flex-col gap-1">
+                                  <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">Evidence (optional)</span>
+                                  <div className="flex items-center gap-2">
+                                    <input id={`resolve-file-${ra.id}`} type="file" accept=".pdf,.docx,.doc,.jpg,.jpeg,.png" className="hidden" onChange={e => { const f = e.target.files?.[0] ?? null; setResolveFiles(prev => ({ ...prev, [ra.id]: f })); e.target.value = ''; }} />
+                                    <button type="button" onClick={() => document.getElementById(`resolve-file-${ra.id}`)?.click()} className="px-3 py-1.5 border border-slate-200 rounded-lg text-[11px] font-black text-slate-500 hover:bg-slate-50 hover:border-slate-300">+ Select file</button>
+                                    {resolveFiles[ra.id] && (
+                                      <span className="flex items-center gap-1 text-[11px] text-slate-600 font-bold">
+                                        <span className="truncate max-w-[120px]">{resolveFiles[ra.id]!.name}</span>
+                                        <button type="button" onClick={() => setResolveFiles(prev => ({ ...prev, [ra.id]: null }))} className="text-slate-400 hover:text-slate-600 flex-shrink-0 ml-1">×</button>
+                                      </span>
+                                    )}
+                                    {resolveUploading[ra.id] && <span className="text-[11px] text-slate-400 italic">Uploading…</span>}
+                                  </div>
+                                </div>
+                              </div>
+                              <div className="flex gap-2">
+                                <button onClick={() => handleMarkReviewActionResolved(ra.id)} disabled={resolveUploading[ra.id]} className="px-4 py-1.5 bg-emerald-600 text-white rounded-xl text-[11px] font-black hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed">Confirm resolved</button>
+                                <button onClick={() => { setResolveExpanded(prev => ({ ...prev, [ra.id]: false })); setResolveFiles(prev => ({ ...prev, [ra.id]: null })); }} className="px-4 py-1.5 border border-rose-200 text-rose-500 rounded-xl text-[11px] font-black hover:bg-rose-50 hover:border-rose-300">Cancel</button>
+                              </div>
+                            </div>
+                          )}
                         </div>
                             ))}
                           </div>
@@ -6375,6 +6868,12 @@ export default function App() {
                           {highRiskCount > 0 && <span className="text-[11px] font-black uppercase px-2 py-0.5 rounded-lg bg-rose-600 text-white border border-rose-700">{highRiskCount} High Risk</span>}
                           {amberCount > 0 && !hasRed && <span className="text-[11px] font-black uppercase px-2 py-0.5 rounded-lg bg-amber-100 text-amber-700 border border-amber-200">{amberCount} upcoming</span>}
                           {!hasRed && !hasAmber && <span className="text-[11px] font-black uppercase px-2 py-0.5 rounded-lg bg-emerald-100 text-emerald-700 border border-emerald-200">{actions.length} scheduled</span>}
+                          {isOpen && isAdvisor && actions.some(a => !resolvedIds.includes(a.id) && a.status !== 'resolved' && a.status !== 'archived') && (
+                            <button
+                              onClick={() => { setBulkResolveExpanded(prev => ({ ...prev, [source]: !prev[source] })); if (!bulkResolveDates[source]) setBulkResolveDates(prev => ({ ...prev, [source]: new Date().toLocaleDateString('en-CA') })); }}
+                              className={`border rounded-lg text-[10px] font-black px-2.5 py-1 transition-colors ${bulkResolveExpanded[source] ? 'bg-indigo-300 border-indigo-400 text-indigo-900' : 'border-indigo-300 text-indigo-600 hover:bg-indigo-300/50'}`}
+                            >Mark all resolved</button>
+                          )}
                           {isAdvisor && fileId && (
                             <button
                               onClick={e => { e.stopPropagation(); if (!isSyncingThis && !aiSyncing) handleSingleDocSync(selectedSite, String(fileId)); }}
@@ -6387,9 +6886,42 @@ export default function App() {
                           )}
                         </div>
                       </div>
+                      {isOpen && bulkResolveExpanded[source] && (
+                        <div className="mt-1 mb-2 px-4 py-3 bg-white rounded-xl border border-indigo-200 space-y-3">
+                          <p className="text-[11px] font-black text-slate-600">Mark all unresolved actions in this document as resolved</p>
+                          <div className="flex flex-wrap gap-4 items-end">
+                            <div className="flex flex-col gap-1">
+                              <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">Resolved date</span>
+                              <input type="date" value={bulkResolveDates[source] ?? new Date().toLocaleDateString('en-CA')} onChange={e => setBulkResolveDates(prev => ({ ...prev, [source]: e.target.value }))} className="px-3 py-1.5 border border-slate-200 rounded-lg text-xs text-slate-600 focus:outline-none focus:ring-2 focus:ring-emerald-300 bg-white" />
+                            </div>
+                            <div className="flex flex-col gap-1">
+                              <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">Evidence (optional)</span>
+                              <div className="flex items-center gap-2">
+                                <input id={`bulk-resolve-file-${source}`} type="file" multiple accept=".pdf,.docx,.doc,.jpg,.jpeg,.png" className="hidden" onChange={e => { const files = Array.from(e.target.files ?? []); setBulkResolveFiles(prev => ({ ...prev, [source]: [...(prev[source] ?? []), ...files] })); e.target.value = ''; }} />
+                                <button type="button" onClick={() => document.getElementById(`bulk-resolve-file-${source}`)?.click()} className="px-3 py-1.5 border border-slate-200 rounded-lg text-[11px] font-black text-slate-500 hover:bg-slate-50 hover:border-slate-300">+ Select files</button>
+                                {(bulkResolveFiles[source] ?? []).length > 0 && (
+                                  <div className="flex flex-col gap-0.5">
+                                    {(bulkResolveFiles[source] ?? []).map((f, i) => (
+                                      <span key={i} className="flex items-center gap-1 text-[11px] text-slate-600 font-bold">
+                                        <span className="truncate max-w-[140px]">{f.name}</span>
+                                        <button type="button" onClick={() => setBulkResolveFiles(prev => ({ ...prev, [source]: (prev[source] ?? []).filter((_, j) => j !== i) }))} className="text-slate-400 hover:text-slate-600 flex-shrink-0 ml-1">×</button>
+                                      </span>
+                                    ))}
+                                  </div>
+                                )}
+                                {bulkResolveUploading[source] && <span className="text-[11px] text-slate-400 italic">Uploading…</span>}
+                              </div>
+                            </div>
+                          </div>
+                          <div className="flex gap-2">
+                            <button onClick={() => handleBulkResolveActions(source, actions)} disabled={bulkResolveUploading[source]} className="px-4 py-1.5 bg-emerald-600 text-white rounded-xl text-[11px] font-black hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed">Confirm all resolved</button>
+                            <button onClick={() => { setBulkResolveExpanded(prev => ({ ...prev, [source]: false })); setBulkResolveFiles(prev => ({ ...prev, [source]: [] })); }} className="px-4 py-1.5 border border-rose-200 text-rose-500 rounded-xl text-[11px] font-black hover:bg-rose-50 hover:border-rose-300">Cancel</button>
+                          </div>
+                        </div>
+                      )}
                       {isOpen && (
                         <div className="space-y-3 mt-2 pl-2">
-                          {actions.map(action => <ActionCard key={action.id} action={{ ...action, notes: actionNotes[action.id] || action.notes }} isResolved={resolvedIds.includes(action.id) || action.status === 'resolved' || action.status === 'archived'} onToggleResolve={toggleResolve} onAddNote={handleAddNote} onDelete={handleDeleteAction} onUpdateIssueDate={handleUpdateIssueDate} onClientSubmit={handleClientSubmit} onClientWithdraw={handleClientWithdraw} onAdvisorConfirm={handleAdvisorConfirm} onAdvisorReject={handleAdvisorReject} onApplyFromWord={handleApplyFromWord} onRestore={handleRestoreAction} role={effectiveRole} canDelete={profile?.role === 'superadmin'} expanded={expandedActionId === action.id} onExpand={() => setExpandedActionId(prev => prev === action.id ? null : action.id)} siteId={selectedSite?.id} userId={user?.id} onFlash={showAppFlash} searchQuery={actionSearch} />)}
+                          {actions.map(action => <ActionCard key={action.id} action={{ ...action, notes: actionNotes[action.id] || action.notes }} isResolved={resolvedIds.includes(action.id) || action.status === 'resolved' || action.status === 'archived'} onToggleResolve={toggleResolve} onAddNote={handleAddNote} onDelete={handleDeleteAction} onUpdateIssueDate={handleUpdateIssueDate} onUpdateField={handleUpdateActionField} onClientSubmit={handleClientSubmit} onClientWithdraw={handleClientWithdraw} onAdvisorConfirm={handleAdvisorConfirm} onAdvisorReject={handleAdvisorReject} onApplyFromWord={handleApplyFromWord} onRestore={handleRestoreAction} role={effectiveRole} canDelete={profile?.role === 'superadmin'} expanded={expandedActionId === action.id} onExpand={() => setExpandedActionId(prev => prev === action.id ? null : action.id)} siteId={selectedSite?.id} userId={user?.id} onFlash={showAppFlash} searchQuery={actionSearch} />)}
                         </div>
                       )}
                     </div>

@@ -1,4 +1,4 @@
--- Schema dumped at 2026-04-25T12:28:56.592Z
+-- Schema dumped at 2026-05-06T10:59:06.501Z
 
 TABLE: action_evidence
   id uuid NOT NULL DEFAULT gen_random_uuid()
@@ -160,5 +160,6 @@ TABLE: sites
   datto_parent_folder_id text
   vault_folder_id text
   iag_weighted_score int4
+  action_progress int4
 
 

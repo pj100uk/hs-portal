@@ -18,7 +18,11 @@
       "WebFetch(domain:eu.workplace.datto.com)",
       "WebFetch(domain:eu.fileprotection.datto.com)",
       "Bash(npx supabase:*)",
-      "Bash(pg_dump --version)"
+      "Bash(pg_dump --version)",
+      "mcp__supabase__execute_sql",
+      "PowerShell(Get-ChildItem -Path \"E:\\\\hs-portal\" | Where-Object { $_.Name -match \"\\\\.\\(json|config\\)\" } | Select-Object -ExpandProperty Name)",
+      "Bash(Select-String -Path \"E:\\\\hs-portal\\\\app\\\\report\\\\page.tsx\" -Pattern \"topPositives\" -CaseSensitive)",
+      "Bash(Select-Object LineNumber, Line)"
     ]
   }
 }

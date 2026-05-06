@@ -50,6 +50,25 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
   return NextResponse.json({ evidence });
 }
 
+// Link an already-uploaded file to this action without re-uploading
+export async function PUT(request: NextRequest, { params }: { params: { id: string } }) {
+  const { storage_path, datto_file_id, file_name, file_size_bytes, site_id, user_id, hazard_ref, source_document_id } = await request.json().catch(() => ({}));
+  if (!storage_path || !file_name || !site_id) return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
+  const { data, error } = await supabase.from('action_evidence').insert({
+    action_id: params.id,
+    site_id,
+    uploaded_by: user_id || null,
+    file_name,
+    file_size_bytes: file_size_bytes || null,
+    storage_path,
+    datto_file_id: datto_file_id || null,
+    hazard_ref: hazard_ref || null,
+    source_document_id: source_document_id || null,
+  }).select().single();
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  return NextResponse.json({ evidence: { id: data.id, fileName: data.file_name, storagePath: data.storage_path } });
+}
+
 export async function POST(request: NextRequest, { params }: { params: { id: string } }) {
   const actionId = params.id;
   try {

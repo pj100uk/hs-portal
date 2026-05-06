@@ -1,118 +1,163 @@
 import { NextRequest, NextResponse } from 'next/server';
-import fs from 'fs';
-import path from 'path';
+import { BASE_URL, AUTH_HEADER } from '../folder-utils';
 
 export const runtime = 'nodejs';
 
-const DATTO_DRIVE_ROOT = 'W:\\Customer Documents';
-
-function toWinPath(slashPath: string): string {
-  return slashPath.replace(/\//g, '\\');
-}
-
-function findZArchiveEntry(dir: string): string | null {
-  let entries: fs.Dirent[];
-  try {
-    entries = fs.readdirSync(dir, { withFileTypes: true });
-  } catch {
-    return null;
-  }
-  const matches = entries
-    .filter(e => {
-      if (!e.isDirectory()) return false;
-      const n = e.name.toLowerCase();
-      return n.startsWith('z-archiv') || n.startsWith('z archiv');
-    })
-    .sort((a, b) => {
-      // Prefer 'z-archived*' (with d) over 'z-archive*' to avoid picking up unrelated archive folders
-      const aD = a.name.toLowerCase().startsWith('z-archived') || a.name.toLowerCase().startsWith('z archived');
-      const bD = b.name.toLowerCase().startsWith('z-archived') || b.name.toLowerCase().startsWith('z archived');
-      if (aD && !bD) return -1;
-      if (!aD && bD) return 1;
-      return a.name.localeCompare(b.name);
-    });
-  return matches.length > 0 ? path.join(dir, matches[0].name) : null;
-}
-
-// Strip leading numeric prefix ("01. ", "2. ", "3 ") for fuzzy folder matching
 function normalizeSegment(s: string): string {
   return s.replace(/^\d+[\.\s]+/, '').trim().toLowerCase();
 }
 
-// Walk relSegments into baseDir, matching existing folders by normalised name where possible
-function resolveArchivePath(baseDir: string, relSegments: string[]): string {
-  let current = baseDir;
-  for (const seg of relSegments) {
-    let entries: fs.Dirent[] = [];
-    try { entries = fs.readdirSync(current, { withFileTypes: true }); } catch { /* fall through */ }
-    const norm = normalizeSegment(seg);
-    const match = entries.find(e => e.isDirectory() && normalizeSegment(e.name) === norm);
-    current = path.join(current, match ? match.name : seg);
-  }
-  return current;
+function extractId(item: any): string | null {
+  const d = item?.value ?? item;
+  const raw = d?.id ?? d?.fileId ?? d?.folderId ?? d?.fileID ?? d?.folderID;
+  return raw != null ? String(raw) : null;
 }
 
-function findZArchiveDir(startDir: string): { dir: string; zParent: string } | { error: string } {
-  const searched: string[] = [];
-  let current = startDir;
-  while (current.toLowerCase().startsWith(DATTO_DRIVE_ROOT.toLowerCase())) {
-    const parent = path.dirname(current);
-    if (parent === current) break;
-    const found = findZArchiveEntry(parent);
-    if (found) return { dir: found, zParent: parent };
-    searched.push(parent);
-    current = parent;
+function isFolder(item: any): boolean {
+  return item.type === 'folder' || item.type === 'FOLDER' || item.isDirectory === true
+    || item.folderType !== undefined || item.childCount !== undefined || item.folder === true;
+}
+
+function toArr(raw: any): any[] {
+  return Array.isArray(raw) ? raw : (raw?.result ?? raw?.files ?? raw?.items ?? raw?.data ?? []);
+}
+
+async function listChildren(folderId: string): Promise<any[]> {
+  const res = await fetch(`${BASE_URL}/file/${folderId}/files`, {
+    headers: { Authorization: AUTH_HEADER },
+    cache: 'no-store',
+  });
+  if (!res.ok) return [];
+  return toArr(await res.json());
+}
+
+async function findOrCreateZArchive(siteFolderId: string): Promise<{ id: string; name: string } | null> {
+  const children = await listChildren(siteFolderId);
+  const match = children.find(i => {
+    if (!isFolder(i)) return false;
+    const n = (i.name ?? i.folderName ?? '').toLowerCase();
+    return n.startsWith('z-archiv') || n.startsWith('z archiv');
+  });
+  if (match) return { id: extractId(match)!, name: match.name ?? match.folderName };
+
+  const createRes = await fetch(`${BASE_URL}/file/${siteFolderId}?name=${encodeURIComponent('Z-Archived Documents')}`, {
+    method: 'POST',
+    headers: { Authorization: AUTH_HEADER },
+  });
+  if (!createRes.ok) return null;
+  let body: any = {};
+  try { body = await createRes.json(); } catch { /* non-JSON */ }
+  const newId = extractId(body);
+  if (newId) return { id: newId, name: 'Z-Archived Documents' };
+  const retry = await listChildren(siteFolderId);
+  const found = retry.find(i => isFolder(i) && (i.name ?? '').toLowerCase().startsWith('z-archiv'));
+  return found ? { id: extractId(found)!, name: found.name } : null;
+}
+
+// Walk relSegments into startFolderId, fuzzy-matching (strips leading numeric prefixes) or creating each subfolder.
+async function resolveArchiveFolderPath(startFolderId: string, relSegments: string[]): Promise<string> {
+  let currentId = startFolderId;
+  for (const seg of relSegments) {
+    const children = await listChildren(currentId);
+    const norm = normalizeSegment(seg);
+    const match = children.find(i => isFolder(i) && normalizeSegment(i.name ?? i.folderName ?? '') === norm);
+    if (match) { currentId = extractId(match)!; continue; }
+
+    const createRes = await fetch(`${BASE_URL}/file/${currentId}?name=${encodeURIComponent(seg)}`, {
+      method: 'POST',
+      headers: { Authorization: AUTH_HEADER },
+    });
+    let createBody: any = {};
+    try { createBody = await createRes.json(); } catch { /* non-JSON */ }
+    const newId = extractId(createBody);
+    if (newId) { currentId = newId; continue; }
+    // 409 or missing ID — re-list
+    const retry = await listChildren(currentId);
+    const retryMatch = retry.find(i => isFolder(i) && (i.name ?? '').toLowerCase() === seg.toLowerCase());
+    if (retryMatch) { currentId = extractId(retryMatch)!; continue; }
+    throw new Error(`Failed to create archive subfolder: ${seg}`);
   }
-  return { error: `Z-Archived Documents not found. Searched in: ${searched.join(', ') || startDir}` };
+  return currentId;
 }
 
 export async function POST(request: NextRequest) {
   try {
-    const { sourceFolderPath, fileName } = await request.json();
-    console.log('[archive-document] sourceFolderPath:', sourceFolderPath, '| fileName:', fileName);
+    const { fileId, fileName, sourceFolderId, siteFolderId, siteFolderPath, sourceFolderPath } = await request.json();
 
-    if (!sourceFolderPath || !fileName) {
-      return NextResponse.json({ error: 'sourceFolderPath and fileName are required' }, { status: 400 });
+    if (!fileId || !fileName || !siteFolderId) {
+      return NextResponse.json({ error: 'fileId, fileName and siteFolderId are required' }, { status: 400 });
     }
 
-    const sourceDirWin = path.join(DATTO_DRIVE_ROOT, toWinPath(sourceFolderPath));
-    const sourceFilePath = path.join(sourceDirWin, fileName);
-    console.log('[archive-document] source file path:', sourceFilePath);
-    console.log('[archive-document] source exists:', fs.existsSync(sourceFilePath));
-
-    if (!fs.existsSync(sourceFilePath)) {
-      return NextResponse.json({ error: `Source file not found: ${sourceFilePath}` }, { status: 404 });
-    }
-
+    // Archive name: strip trailing spaces from base, append arc + date
     const ext = fileName.includes('.') ? fileName.slice(fileName.lastIndexOf('.')) : '';
     const baseName = fileName.slice(0, fileName.length - ext.length).trimEnd();
     const today = new Date().toISOString().slice(0, 10);
     const archiveName = `${baseName} arc${today}${ext}`;
-    console.log('[archive-document] archive name:', archiveName);
 
-    const result = findZArchiveDir(sourceDirWin);
-    if ('error' in result) {
-      console.log('[archive-document] Z-Archive not found:', result.error);
-      return NextResponse.json({ error: result.error }, { status: 404 });
+    // Find or create Z-Archived Documents at site root level
+    const zArchive = await findOrCreateZArchive(siteFolderId);
+    if (!zArchive) {
+      return NextResponse.json({ error: 'Could not find or create Z-Archived Documents folder' }, { status: 500 });
     }
-    console.log('[archive-document] Z-Archive folder found:', result.dir);
 
-    // Resolve archive sub-folder by matching each path segment against existing folders,
-    // normalising away numeric prefixes so "02. Risk Assessments" matches "Risk Assessments"
-    const relPath = path.relative(result.zParent, sourceDirWin);
-    const relSegments = relPath ? relPath.split(path.sep) : [];
-    const targetDir = relSegments.length > 0 ? resolveArchivePath(result.dir, relSegments) : result.dir;
-    console.log('[archive-document] relPath:', relPath, '| targetDir:', targetDir);
+    // Derive relative path from site root to source folder so we mirror the structure inside Z-Archive
+    let relSegments: string[] = [];
+    if (sourceFolderPath && siteFolderPath) {
+      const norm = (s: string) => s.replace(/\\/g, '/').replace(/\/$/, '');
+      const rel = norm(sourceFolderPath).replace(norm(siteFolderPath), '').replace(/^\//, '');
+      relSegments = rel ? rel.split('/').filter(Boolean) : [];
+    }
 
-    fs.mkdirSync(targetDir, { recursive: true });
+    const targetFolderId = relSegments.length > 0
+      ? await resolveArchiveFolderPath(zArchive.id, relSegments)
+      : zArchive.id;
 
-    const targetFilePath = path.join(targetDir, archiveName);
-    console.log('[archive-document] moving', sourceFilePath, '->', targetFilePath);
+    // Download original from Datto
+    const downloadRes = await fetch(`${BASE_URL}/file/${fileId}/data`, {
+      headers: { Authorization: AUTH_HEADER },
+    });
+    if (!downloadRes.ok) {
+      return NextResponse.json({ error: 'Failed to download file from Datto' }, { status: 502 });
+    }
+    const fileBuffer = await downloadRes.arrayBuffer();
 
-    fs.renameSync(sourceFilePath, targetFilePath);
-    console.log('[archive-document] move complete');
+    const mimeType = ext.toLowerCase() === '.docx'
+      ? 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+      : ext.toLowerCase() === '.doc' ? 'application/msword'
+      : 'application/octet-stream';
 
-    return NextResponse.json({ success: true, archivedFileName: archiveName, targetPath: targetFilePath });
+    // Upload to archive folder
+    const form = new FormData();
+    form.append('partData', new Blob([new Uint8Array(fileBuffer)], { type: mimeType }), archiveName);
+    form.append('fileName', archiveName);
+    form.append('makeUnique', 'false');
+
+    const uploadRes = await fetch(`${BASE_URL}/file/${targetFolderId}/files`, {
+      method: 'POST',
+      headers: { Authorization: AUTH_HEADER },
+      body: form,
+    });
+    const uploadBody = await uploadRes.text();
+    if (!uploadRes.ok) {
+      return NextResponse.json({ error: 'Archive upload failed', detail: uploadBody }, { status: 502 });
+    }
+
+    let archivedFileId: string | null = null;
+    try {
+      const j = JSON.parse(uploadBody);
+      const d = j.value ?? j;
+      archivedFileId = String(d.fileID ?? d.fileId ?? d.id ?? '') || null;
+    } catch { /* non-JSON */ }
+
+    // Delete original
+    await fetch(`${BASE_URL}/file/${fileId}`, {
+      method: 'DELETE',
+      headers: { Authorization: AUTH_HEADER },
+    });
+
+    const targetPath = [zArchive.name, ...relSegments, archiveName].join('/');
+
+    return NextResponse.json({ success: true, archivedFileId, archivedFileName: archiveName, targetPath });
   } catch (err: any) {
     console.error('[archive-document] error:', err);
     return NextResponse.json({ error: err.message ?? 'Archive failed' }, { status: 500 });

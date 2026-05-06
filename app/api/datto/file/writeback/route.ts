@@ -41,6 +41,36 @@ function setCellText(cellXml: string, newText: string): string {
   return result;
 }
 
+// Ensure a table cell's date content is centred horizontally and vertically,
+// without touching run formatting (font/size already preserved via rPr in setCellText).
+function centerCell(cellXml: string): string {
+  let result = cellXml;
+
+  // Horizontal: ensure <w:jc w:val="center"/> in every paragraph's <w:pPr>
+  result = result.replace(/<w:p\b[\s\S]*?<\/w:p>/g, para => {
+    if (/<w:pPr\b/.test(para)) {
+      if (/<w:jc\b/.test(para)) {
+        return para.replace(/<w:jc\b[^/]*\/>/g, '<w:jc w:val="center"/>');
+      }
+      return para.replace(/<\/w:pPr>/, '<w:jc w:val="center"/></w:pPr>');
+    }
+    return para.replace(/^(<w:p\b[^>]*>)/, '$1<w:pPr><w:jc w:val="center"/></w:pPr>');
+  });
+
+  // Vertical: ensure <w:vAlign w:val="center"/> in <w:tcPr>
+  if (/<w:tcPr\b/.test(result)) {
+    if (/<w:vAlign\b/.test(result)) {
+      result = result.replace(/<w:vAlign\b[^/]*\/>/g, '<w:vAlign w:val="center"/>');
+    } else {
+      result = result.replace(/<\/w:tcPr>/, '<w:vAlign w:val="center"/></w:tcPr>');
+    }
+  } else {
+    result = result.replace(/^(<w:tc\b[^>]*>)/, '$1<w:tcPr><w:vAlign w:val="center"/></w:tcPr>');
+  }
+
+  return result;
+}
+
 function escapeXml(str: string): string {
   return decodeXmlEntities(str)
     .replace(/&/g, '&amp;')
@@ -210,9 +240,9 @@ export async function POST(request: NextRequest) {
       if (responsiblePerson !== undefined && colIndex.responsible < updatedCells.length)
         updatedCells[colIndex.responsible] = setCellText(updatedCells[colIndex.responsible], responsiblePerson);
       if (targetDate !== undefined && colIndex.targetDate < updatedCells.length)
-        updatedCells[colIndex.targetDate] = setCellText(updatedCells[colIndex.targetDate], targetDate);
+        updatedCells[colIndex.targetDate] = centerCell(setCellText(updatedCells[colIndex.targetDate], targetDate));
       if (completedDate !== undefined && colIndex.completed < updatedCells.length)
-        updatedCells[colIndex.completed] = setCellText(updatedCells[colIndex.completed], completedDate);
+        updatedCells[colIndex.completed] = centerCell(setCellText(updatedCells[colIndex.completed], completedDate));
 
       // Rebuild the row with updated cells
       let rebuilt = rowXml;
