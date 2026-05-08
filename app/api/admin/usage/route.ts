@@ -24,6 +24,7 @@ export async function GET(req: NextRequest) {
   }
 
   const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+  const since12m = new Date(Date.now() - 365 * 24 * 60 * 60 * 1000).toISOString();
 
   const [totalsRes, dailyRes, orgRes, recentRes, ccRes] = await Promise.all([
     supabase
@@ -93,6 +94,38 @@ export async function GET(req: NextRequest) {
 
   const ccCredits: number | null = ccRes?.data?.credits ?? null;
 
+  // Fetch CloudConvert job history directly from their API (paginated, last 12 months)
+  const ccJobDates: string[] = [];
+  try {
+    let nextUrl: string | null =
+      `https://api.cloudconvert.com/v2/jobs?filter[status][]=finished&per_page=100`;
+    while (nextUrl) {
+      const pageRes = await fetch(nextUrl, {
+        headers: { Authorization: `Bearer ${process.env.CLOUDCONVERT_API_KEY}` },
+        cache: 'no-store',
+      });
+      if (!pageRes.ok) break;
+      const page = await pageRes.json();
+      const jobs: any[] = page.data ?? [];
+      let hitLimit = false;
+      for (const job of jobs) {
+        const dateStr = job.created_at ?? '';
+        if (dateStr && dateStr < since12m) { hitLimit = true; break; }
+        if (dateStr) ccJobDates.push(dateStr);
+      }
+      nextUrl = hitLimit ? null : (page.links?.next ?? null);
+    }
+  } catch { /* non-fatal */ }
+
+  const ccMonthlyMap: Record<string, number> = {};
+  for (const date of ccJobDates) {
+    const month = date.slice(0, 7);
+    ccMonthlyMap[month] = (ccMonthlyMap[month] ?? 0) + 1;
+  }
+  const cloudconvertMonthly = Object.entries(ccMonthlyMap)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([month, count]) => ({ month, count }));
+
   return NextResponse.json({
     days,
     totals,
@@ -100,5 +133,6 @@ export async function GET(req: NextRequest) {
     orgs,
     recent: recentRes.data ?? [],
     cloudconvertCredits: ccCredits,
+    cloudconvertMonthly,
   });
 }

@@ -1,0 +1,1 @@
+export const CURRENT_EXTRACTION_VERSION = 1;

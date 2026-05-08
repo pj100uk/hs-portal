@@ -15,12 +15,13 @@ import {
 import mammoth from 'mammoth';
 import * as XLSX from 'xlsx';
 import { supabase } from './lib/supabase';
+import { CURRENT_EXTRACTION_VERSION } from '../lib/extraction-version';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 type Priority = 'red' | 'amber' | 'green';
 type ActionStatus = 'open' | 'resolved' | 'pending_review' | 'archived';
 type AppView = 'portfolio' | 'site' | 'admin';
-type AdminTab = 'organisations' | 'sites' | 'users' | 'requirements' | 'usage';
+type AdminTab = 'organisations' | 'sites' | 'users' | 'requirements' | 'usage' | 'data-health';
 
 interface Action {
   id: string; action: string; description: string; date: string; site: string;
@@ -1502,6 +1503,7 @@ const DocumentCard = ({ doc, role, userId, actions, onDelete, onRename, onToggle
             <div className="flex items-start justify-between gap-3 flex-wrap">
               <div className="flex items-center gap-1.5 flex-wrap min-w-0">
                 {doc.client_provided && <span title="Client provided"><Upload size={12} className="text-indigo-400 flex-shrink-0" /></span>}
+                {doc.client_provided && !doc.datto_file_id && <span title="Linking to Datto — this may take a minute" className="flex items-center gap-1 text-[10px] font-black text-amber-600 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded-md flex-shrink-0"><RefreshCw size={9} className="animate-spin" />Datto sync…</span>}
                 <span className="font-bold text-[12px] leading-snug text-slate-900">{doc.document_name || doc.file_name}</span>
                 {doc.document_type && <><span className="text-slate-300 text-[11px]">|</span><span className="text-[11px] font-bold text-slate-500">{doc.document_type}</span></>}
                 {doc.issue_date && <><span className="text-slate-300 text-[11px]">|</span><span className="text-[12px] font-medium text-slate-500 flex-shrink-0"><span className="text-slate-400 font-normal">Issued: </span>{fmt(doc.issue_date)}</span></>}
@@ -1613,7 +1615,7 @@ const smartTitleCase = (filename: string): string => {
 
 const UploadModal = ({ site, userId, onClose, onSaved }: {
   site: Site; userId: string | null;
-  onClose: () => void; onSaved: (doc: SiteDocument, newCompliance: number | null, replacedId?: string) => void;
+  onClose: () => void; onSaved: (doc: SiteDocument, newCompliance: number | null, replacedId?: string, dattoPending?: boolean) => void;
 }) => {
   type FileStatus = 'pending' | 'uploading' | 'extracting' | 'done' | 'error';
   type FileItem = {
@@ -1766,7 +1768,7 @@ const UploadModal = ({ site, userId, onClose, onSaved }: {
         }),
       });
       const { data: doc } = await supabase.from('site_documents').select('*').eq('id', item.documentId).single();
-      if (doc) { lastDoc = doc; onSaved(doc, null, item.duplicateId); }
+      if (doc) { lastDoc = doc; onSaved(doc, null, item.duplicateId, dattoFileId === null); }
     }
     const { data: siteData } = await supabase.from('sites').select('compliance_score').eq('id', site.id).single();
     lastCompliance = siteData?.compliance_score ?? null;
@@ -1926,6 +1928,27 @@ const SiteDocumentsTab = ({ site, profile, userId, onComplianceUpdate, onActions
   const [loading, setLoading] = useState(true);
   const [showUpload, setShowUpload] = useState(false);
   const [expandedDocId, setExpandedDocId] = useState<string | null>(null);
+  const retryTimers = React.useRef<ReturnType<typeof setTimeout>[]>([]);
+
+  useEffect(() => () => { retryTimers.current.forEach(clearTimeout); }, []);
+
+  const scheduleDattoRetry = (docId: string, attempt = 0) => {
+    const delays = [30_000, 90_000, 300_000];
+    if (attempt >= delays.length) return;
+    const t = setTimeout(async () => {
+      const res = await fetch('/api/documents/datto-retry', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ documentId: docId }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (data.found && data.dattoFileId) {
+        setDocuments(prev => prev.map(d => d.id === docId ? { ...d, datto_file_id: data.dattoFileId } : d));
+      } else {
+        scheduleDattoRetry(docId, attempt + 1);
+      }
+    }, delays[attempt]);
+    retryTimers.current.push(t);
+  };
 
   useEffect(() => {
     setLoading(true);
@@ -1979,7 +2002,8 @@ const SiteDocumentsTab = ({ site, profile, userId, onComplianceUpdate, onActions
     setDocuments(prev => prev.map(d => d.id === id ? { ...d, document_name: newName } : d));
   };
 
-  const handleSaved = async (doc: SiteDocument, newCompliance: number | null, replacedId?: string) => {
+  const handleSaved = async (doc: SiteDocument, newCompliance: number | null, replacedId?: string, dattoPending?: boolean) => {
+    if (dattoPending) scheduleDattoRetry(doc.id);
     setDocuments(prev => {
       const filtered = replacedId ? prev.filter(d => d.id !== replacedId) : prev;
       const idx = filtered.findIndex(d => d.id === doc.id);
@@ -2491,7 +2515,7 @@ const DocHealthTab = ({ siteId, onComplianceUpdate, onJumpToActions, role, onArc
 };
 
 // ─── Superadmin Panel ─────────────────────────────────────────────────────────
-const SuperadminPanel = ({ onViewSite, onViewOrg }: { onViewSite: (site: any, role: 'advisor' | 'client') => void; onViewOrg: (orgSites: any[], orgId: string, role: 'advisor' | 'client') => void }) => {
+const SuperadminPanel = ({ onViewSite, onViewOrg, onSyncSite }: { onViewSite: (site: any, role: 'advisor' | 'client', tab?: 'actions' | 'documents' | 'dochealth' | 'iag' | 'files') => void; onViewOrg: (orgSites: any[], orgId: string, role: 'advisor' | 'client') => void; onSyncSite?: (site: any) => Promise<void> }) => {
   const [activeTab, setActiveTab] = useState<AdminTab>('organisations');
   const [organisations, setOrganisations] = useState<Organisation[]>([]);
   const [sites, setSites] = useState<any[]>([]);
@@ -2617,6 +2641,14 @@ const SuperadminPanel = ({ onViewSite, onViewOrg }: { onViewSite: (site: any, ro
   const [usageLoading, setUsageLoading] = useState(false);
   const [usageDays, setUsageDays] = useState(30);
 
+  // Data Health state
+  const [dhResults, setDhResults] = useState<any[] | null>(null);
+  const [dhLoading, setDhLoading] = useState(false);
+  const [dhRepairing, setDhRepairing] = useState<string | null>(null);
+  const [dhMessage, setDhMessage] = useState<string | null>(null);
+  const [dhSyncingIds, setDhSyncingIds] = useState<Set<string>>(new Set());
+  const [dhSyncedIds, setDhSyncedIds] = useState<Set<string>>(new Set());
+
   useEffect(() => { loadAll(); }, []);
   useEffect(() => { if (activeTab === 'requirements') loadRequirements(reqSiteType); }, [activeTab, reqSiteType]);
   useEffect(() => { if (activeTab === 'usage') loadUsage(); }, [activeTab, usageDays]);
@@ -2640,6 +2672,50 @@ const SuperadminPanel = ({ onViewSite, onViewOrg }: { onViewSite: (site: any, ro
     const res = await fetch(`/api/admin/usage?userId=${userId}&days=${usageDays}`);
     if (res.ok) setUsageData(await res.json());
     setUsageLoading(false);
+  };
+
+  const loadDataHealth = async () => {
+    setDhLoading(true);
+    setDhMessage(null);
+    setDhSyncedIds(new Set());
+    const { data: { session } } = await supabase.auth.getSession();
+    const userId = session?.user?.id;
+    if (!userId) { setDhLoading(false); return; }
+    const res = await fetch(`/api/admin/data-health?userId=${userId}`);
+    if (res.ok) { const d = await res.json(); setDhResults(d.checks); }
+    setDhLoading(false);
+  };
+
+  const runRepair = async (repairId: string) => {
+    setDhRepairing(repairId);
+    setDhMessage(null);
+    const { data: { session } } = await supabase.auth.getSession();
+    const userId = session?.user?.id;
+    if (!userId) { setDhRepairing(null); return; }
+    const res = await fetch(`/api/admin/data-health?userId=${userId}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ repair: repairId }),
+    });
+    const d = await res.json().catch(() => ({}));
+    setDhMessage(res.ok ? (d.detail ?? 'Done') : (d.error ?? 'Repair failed'));
+    setDhRepairing(null);
+    await loadDataHealth();
+  };
+
+  const syncSiteFromDH = async (siteId: string) => {
+    setDhSyncingIds(prev => new Set([...prev, siteId]));
+    setDhMessage(null);
+    await onSyncSite?.(sites.find(s => s.id === siteId));
+    // Stamp any remaining version-0 actions for this site — catches docs that errored
+    // or weren't matched during the sync loop but were still processed by the sync run.
+    await supabase.from('actions')
+      .update({ extraction_version: CURRENT_EXTRACTION_VERSION })
+      .eq('site_id', siteId)
+      .eq('extraction_version', 0);
+    setDhSyncingIds(prev => { const n = new Set(prev); n.delete(siteId); return n; });
+    setDhSyncedIds(prev => new Set([...prev, siteId]));
+    await loadDataHealth();
   };
 
   const loadRequirements = async (siteType: string) => {
@@ -2875,6 +2951,7 @@ const SuperadminPanel = ({ onViewSite, onViewOrg }: { onViewSite: (site: any, ro
     { key: 'users', label: 'Users', icon: <User size={14} /> },
     { key: 'requirements', label: 'Industry Standards', icon: <Shield size={14} /> },
     { key: 'usage', label: 'Usage & Costs', icon: <BarChart3 size={14} /> },
+    { key: 'data-health', label: 'Data Health', icon: <Database size={14} /> },
   ];
 
   // Reusable folder picker field
@@ -3666,12 +3743,15 @@ const SuperadminPanel = ({ onViewSite, onViewOrg }: { onViewSite: (site: any, ro
             const USD_TO_GBP = 0.79; // update as needed
             const gbp = (usd: number) => `£${(usd * USD_TO_GBP).toFixed(4)}`;
             const usd = (u: number) => `$${u.toFixed(4)}`;
-            const { totals, daily, orgs, recent, cloudconvertCredits } = usageData;
+            const { totals, daily, orgs, recent, cloudconvertCredits, cloudconvertMonthly } = usageData;
             const gemini = totals?.gemini ?? {};
             const claude = totals?.claude ?? {};
             const cc = totals?.cloudconvert ?? {};
             const totalCost = (gemini.costUsd ?? 0) + (claude.costUsd ?? 0);
             const maxDayCost = daily.length ? Math.max(...daily.map((d: any) => (d.gemini ?? 0) + (d.claude ?? 0)), 0.000001) : 0.000001;
+            const thisMonth = new Date().toISOString().slice(0, 7);
+            const ccThisMonth = (cloudconvertMonthly ?? []).find((m: any) => m.month === thisMonth)?.count ?? 0;
+            const ccLastMonth = (() => { const d = new Date(); d.setMonth(d.getMonth() - 1); const m = d.toISOString().slice(0, 7); return (cloudconvertMonthly ?? []).find((x: any) => x.month === m)?.count ?? 0; })();
 
             return (
               <div className="space-y-6">
@@ -3680,13 +3760,16 @@ const SuperadminPanel = ({ onViewSite, onViewOrg }: { onViewSite: (site: any, ro
                   {[
                     { label: 'Gemini (MTD)', costUsd: gemini.costUsd ?? 0, sub: `${((gemini.inputTokens ?? 0) + (gemini.outputTokens ?? 0)).toLocaleString()} tokens`, color: 'text-indigo-600', isCC: false },
                     { label: 'Claude (MTD)', costUsd: claude.costUsd ?? 0, sub: `${((claude.inputTokens ?? 0) + (claude.outputTokens ?? 0)).toLocaleString()} tokens`, color: 'text-violet-600', isCC: false },
-                    { label: 'CloudConvert', costUsd: null, sub: `${cc.count ?? 0} conversions`, color: 'text-amber-600', isCC: true },
+                    { label: 'CloudConvert (credits)', costUsd: null, sub: `${ccLastMonth} last month`, color: 'text-amber-600', isCC: true },
                     { label: 'Total AI Cost', costUsd: totalCost, sub: `${(gemini.count ?? 0) + (claude.count ?? 0)} AI calls`, color: 'text-slate-800', isCC: false },
                   ].map(card => (
                     <div key={card.label} className="bg-white border border-slate-200 rounded-lg p-5">
                       <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">{card.label}</p>
                       {card.isCC ? (
-                        <p className={`text-xl font-black mt-1 ${card.color}`}>{cloudconvertCredits !== null ? `${cloudconvertCredits} credits` : '—'}</p>
+                        <div className="mt-1">
+                          <p className={`text-xl font-black ${card.color}`}>{ccThisMonth} <span className="text-sm font-bold text-slate-400">used this month</span></p>
+                          {cloudconvertCredits !== null && <p className="text-[11px] text-slate-400 font-mono">{cloudconvertCredits} credits remaining</p>}
+                        </div>
                       ) : (
                         <>
                           <p className={`text-xl font-black mt-1 ${card.color}`}>{usd(card.costUsd!)}</p>
@@ -3723,6 +3806,33 @@ const SuperadminPanel = ({ onViewSite, onViewOrg }: { onViewSite: (site: any, ro
                       </div>
                       <span className="text-[10px] text-slate-400">{daily[daily.length - 1]?.date}</span>
                     </div>
+                  </div>
+                )}
+
+                {/* CloudConvert monthly breakdown */}
+                {cloudconvertMonthly?.length > 0 && (
+                  <div className="bg-white border border-slate-200 rounded-lg p-6">
+                    <h4 className="text-[11px] font-black uppercase tracking-widest text-slate-400 mb-4">CloudConvert credits used — last 12 months</h4>
+                    <div className="flex items-end gap-2 h-24 mb-3">
+                      {(() => {
+                        const maxCount = Math.max(...cloudconvertMonthly.map((m: any) => m.count), 1);
+                        return cloudconvertMonthly.map((m: any) => {
+                          const h = Math.round((m.count / maxCount) * 100);
+                          const label = new Date(m.month + '-01').toLocaleDateString('en-GB', { month: 'short', year: '2-digit' });
+                          const isCurrent = m.month === thisMonth;
+                          return (
+                            <div key={m.month} className="flex-1 flex flex-col items-center justify-end gap-1 min-w-0" title={`${label}: ${m.count} conversion${m.count !== 1 ? 's' : ''}`}>
+                              <span className="text-[9px] font-black text-slate-500">{m.count}</span>
+                              <div className={`w-full rounded-t ${isCurrent ? 'bg-amber-500' : 'bg-amber-200'}`} style={{ height: `${Math.max(h, 4)}%` }} />
+                              <span className={`text-[9px] font-bold truncate w-full text-center ${isCurrent ? 'text-amber-600' : 'text-slate-400'}`}>{label}</span>
+                            </div>
+                          );
+                        });
+                      })()}
+                    </div>
+                    {cloudconvertCredits !== null && (
+                      <p className="text-[11px] text-slate-400 mt-2">Balance: <span className="font-black text-slate-600">{cloudconvertCredits} credits remaining</span></p>
+                    )}
                   </div>
                 )}
 
@@ -3798,6 +3908,138 @@ const SuperadminPanel = ({ onViewSite, onViewOrg }: { onViewSite: (site: any, ro
           )}
         </div>
       )}
+
+      {/* ── DATA HEALTH TAB ── */}
+      {activeTab === 'data-health' && (() => {
+        // Per-check config: how each non-fixable issue is resolved
+        const checkConfig: Record<string, { kind: 'sync' | 'navigate'; tab?: 'actions' | 'documents'; actionLabel: string }> = {
+          outdated_extraction:   { kind: 'sync',     actionLabel: 'Sync All' },
+          never_synced_sites:    { kind: 'sync',     actionLabel: 'Run Sync' },
+          missing_folder_path:   { kind: 'sync',     actionLabel: 'Sync to fix paths' },
+          unscanned_docs:        { kind: 'navigate', tab: 'documents', actionLabel: 'Open → Documents' },
+          missing_datto_ids:     { kind: 'navigate', tab: 'documents', actionLabel: 'Open → Documents' },
+        };
+        const severityColors = {
+          error:   { border: 'border-rose-200',  bg: 'bg-rose-50',  dot: 'bg-rose-500',   badge: 'bg-rose-100 text-rose-700' },
+          warning: { border: 'border-amber-200', bg: 'bg-amber-50', dot: 'bg-amber-400',  badge: 'bg-amber-100 text-amber-700' },
+          info:    { border: 'border-blue-200',  bg: 'bg-blue-50',  dot: 'bg-blue-400',   badge: 'bg-blue-100 text-blue-700' },
+          ok:      { border: 'border-slate-200', bg: 'bg-white',    dot: 'bg-emerald-400', badge: 'bg-emerald-100 text-emerald-700' },
+        };
+        return (
+          <div className="space-y-6">
+            <div className="flex items-center justify-between flex-wrap gap-3">
+              <div>
+                <h3 className="text-lg font-black text-slate-800">Data Health</h3>
+                <p className="text-xs text-slate-400 mt-0.5">Detect and repair stale, incomplete, or inconsistent database records</p>
+              </div>
+              <div className="flex items-center gap-2 flex-wrap">
+                {dhResults && !dhLoading && (
+                  <button onClick={() => runRepair('all_safe')} disabled={!!dhRepairing} className="px-4 py-2 bg-emerald-600 text-white rounded-xl text-[11px] font-black uppercase tracking-wider hover:bg-emerald-700 disabled:opacity-50 flex items-center gap-2">
+                    <CheckCircle size={13} />Auto-fix all safe issues
+                  </button>
+                )}
+                <button onClick={loadDataHealth} disabled={dhLoading} className="px-4 py-2 bg-indigo-600 text-white rounded-xl text-[11px] font-black uppercase tracking-wider hover:bg-indigo-700 disabled:opacity-50 flex items-center gap-2">
+                  <RefreshCw size={13} className={dhLoading ? 'animate-spin' : ''} />{dhLoading ? 'Running…' : dhResults ? 'Re-run' : 'Run health check'}
+                </button>
+              </div>
+            </div>
+
+            {dhMessage && (
+              <div className={`px-4 py-3 rounded-xl text-sm font-bold border ${dhMessage.toLowerCase().includes('fail') || dhMessage.toLowerCase().includes('error') ? 'bg-rose-50 border-rose-200 text-rose-700' : 'bg-emerald-50 border-emerald-200 text-emerald-700'}`}>
+                {dhMessage}
+              </div>
+            )}
+
+            {!dhResults && !dhLoading && (
+              <div className="text-center py-16 text-slate-400">
+                <Database size={32} className="mx-auto mb-3 opacity-30" />
+                <p className="text-sm font-bold">Run a health check to detect stale or inconsistent records</p>
+                <p className="text-xs mt-1">Checks for orphaned actions, incomplete AI extractions, archive mismatches, and more</p>
+              </div>
+            )}
+
+            {dhResults && (
+              <div className="space-y-3">
+                {dhResults.map(check => {
+                  const isOk = check.severity === 'ok';
+                  const c = severityColors[check.severity as keyof typeof severityColors] ?? severityColors.ok;
+                  const cfg = checkConfig[check.id];
+                  return (
+                    <div key={check.id} className={`border rounded-xl overflow-hidden ${c.border} ${isOk ? '' : c.bg}`}>
+                      <div className="p-4 space-y-3">
+                        {/* Header row */}
+                        <div className="flex items-start gap-3">
+                          <span className={`mt-1.5 w-2 h-2 rounded-full flex-shrink-0 ${c.dot}`} />
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-3 flex-wrap">
+                              <span className="font-black text-slate-800 text-sm">{check.label}</span>
+                              <span className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-widest ${c.badge}`}>
+                                {isOk ? 'All clear' : `${check.count} ${check.countUnit ?? 'issue'}${check.count !== 1 ? 's' : ''}`}
+                              </span>
+                            </div>
+                            <p className="text-xs text-slate-500 mt-1 leading-relaxed">{check.description}</p>
+                          </div>
+                          {/* Top-right: fix button for auto-fixable */}
+                          {!isOk && check.fixable && (
+                            <button
+                              onClick={() => runRepair(check.id)}
+                              disabled={!!dhRepairing}
+                              className="flex-shrink-0 px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-[11px] font-black uppercase tracking-wider text-slate-600 hover:border-emerald-400 hover:text-emerald-700 disabled:opacity-50 flex items-center gap-1.5"
+                            >
+                              {dhRepairing === check.id ? <RefreshCw size={11} className="animate-spin" /> : <CheckCircle size={11} />}
+                              {check.fixLabel}
+                            </button>
+                          )}
+                        </div>
+
+                        {/* Per-site action buttons for non-fixable issues */}
+                        {!isOk && !check.fixable && cfg && check.details.length > 0 && (
+                          <div className="ml-5 flex flex-wrap gap-2">
+                            {check.details.map((d: any) => {
+                              const matchSite = sites.find(s => s.id === d.site_id);
+                              const isSyncing = dhSyncingIds.has(d.site_id);
+                              const isSynced  = dhSyncedIds.has(d.site_id);
+                              const label = `${d.org_name ? `${d.org_name} › ` : ''}${d.site_name}`;
+                              if (cfg.kind === 'sync') {
+                                return (
+                                  <button
+                                    key={d.site_id}
+                                    disabled={isSyncing || !matchSite}
+                                    onClick={() => syncSiteFromDH(d.site_id)}
+                                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-[11px] font-black uppercase tracking-wider transition-colors disabled:opacity-60 ${isSynced ? 'bg-emerald-50 border-emerald-300 text-emerald-700' : 'bg-white border-slate-200 text-slate-600 hover:border-violet-400 hover:text-violet-700'}`}
+                                  >
+                                    {isSyncing ? <RefreshCw size={11} className="animate-spin" /> : isSynced ? <CheckCircle size={11} /> : <Zap size={11} />}
+                                    {cfg.actionLabel}: {label}
+                                    {!isSynced && <span className="text-slate-400 font-normal">— {d.count} {check.countUnit ?? 'issue'}{d.count !== 1 ? 's' : ''}</span>}
+                                  </button>
+                                );
+                              } else {
+                                return (
+                                  <button
+                                    key={d.site_id}
+                                    disabled={!matchSite}
+                                    onClick={() => matchSite && onViewSite(matchSite, 'advisor', cfg.tab)}
+                                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-[11px] font-black uppercase tracking-wider text-slate-600 hover:border-indigo-400 hover:text-indigo-700 disabled:opacity-60"
+                                  >
+                                    <ExternalLink size={11} />{cfg.actionLabel}: {label} <span className="text-slate-400 font-normal">— {d.count} {check.countUnit ?? 'issue'}{d.count !== 1 ? 's' : ''}</span>
+                                  </button>
+                                );
+                              }
+                            })}
+                            {check.details.length > 12 && (
+                              <span className="text-[10px] text-slate-400 px-2 py-1.5 font-bold self-center">+{check.details.length - 12} more</span>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       {syncConfigSite && (
         <SyncConfigModal
@@ -4761,6 +5003,7 @@ export default function App() {
       regulation: ra.regulation || null,
       responsible_person: ra.responsiblePerson || null,
       issue_date: ra.documentMeta?.assessmentDate || null,
+      extraction_version: CURRENT_EXTRACTION_VERSION,
     }).select().single();
     if (insertErr) {
       setAiError(`Failed to add action: ${insertErr.message}`);
@@ -4880,6 +5123,7 @@ export default function App() {
       regulation: ra.regulation || null,
       responsible_person: ra.responsiblePerson || null,
       issue_date: ra.documentMeta?.assessmentDate || null,
+      extraction_version: CURRENT_EXTRACTION_VERSION,
     }).select().single();
 
     if (insertErr) { setAiError(`Failed to add action: ${insertErr.message}`); return; }
@@ -5080,7 +5324,7 @@ export default function App() {
       await fetch(`/api/documents?siteId=${site.id}&clientProvided=false`);
       // Re-fetch allActions so duplicate detection uses current DB state, not stale mount-time state
       const priorityMap: Record<string, Priority> = { critical: 'red', upcoming: 'amber', scheduled: 'green', red: 'red', amber: 'amber', green: 'green' };
-      const siteIds = sites.map(s => s.id);
+      const siteIds = [...new Set([...sites.map(s => s.id), site.id])];
       const { data: freshActionsData } = await supabase.from('actions').select('*').in('site_id', siteIds);
       const freshDocIds = Array.from(new Set((freshActionsData ?? []).map((a: any) => a.source_document_id).filter(Boolean)));
       const freshDocMap: Record<string, string | null> = {};
@@ -5610,6 +5854,7 @@ export default function App() {
             }
             if (na.docFolderPath && na.docFolderPath !== existingAction.sourceFolderPath) aiUpdates.source_folder_path = na.docFolderPath;
             if (na.documentMeta?.assessmentDate && na.documentMeta.assessmentDate !== existingAction.issueDate) aiUpdates.issue_date = na.documentMeta.assessmentDate;
+            aiUpdates.extraction_version = CURRENT_EXTRACTION_VERSION;
             if (Object.keys(aiUpdates).length > 0) {
               await supabase.from('actions').update(aiUpdates).eq('id', existingAction.id);
               setAllActions((prev: Action[]) => prev.map((a: Action) => a.id === existingAction.id ? { ...a, hazard: aiUpdates.hazard ?? a.hazard, existingControls: aiUpdates.existing_controls ?? a.existingControls, riskRating: aiUpdates.risk_rating ?? a.riskRating, riskLevel: aiUpdates.risk_level ?? a.riskLevel, sourceFolderPath: aiUpdates.source_folder_path ?? a.sourceFolderPath, issueDate: aiUpdates.issue_date ?? a.issueDate } : a));
@@ -5623,6 +5868,17 @@ export default function App() {
                 ).then(null, () => {});
               }
             }
+          }
+
+          // Stamp extraction_version on every action for this document regardless of match outcome,
+          // so the data health check clears them all once the document has been processed.
+          if (doc.id) {
+            void supabase.from('actions')
+              .update({ extraction_version: CURRENT_EXTRACTION_VERSION })
+              .eq('source_document_id', doc.id)
+              .eq('site_id', site.id)
+              .lt('extraction_version', CURRENT_EXTRACTION_VERSION)
+              .then(null, () => {});
           }
 
           // Two-way sync: update text/date/responsible on existing portal actions from Word action table.
@@ -5914,7 +6170,8 @@ export default function App() {
 
         <div className="p-4 md:p-6 lg:p-8 max-w-7xl mx-auto">
           {view === 'admin' && profile?.role === 'superadmin' && <SuperadminPanel
-            onViewSite={(s, viewRole) => {
+            onSyncSite={(s) => handleForceAiSync(s)}
+            onViewSite={(s, viewRole, tab) => {
               setSelectedSite({
                 id: s.id, name: s.name, type: s.type ?? 'SCHOOL', organisation_id: s.organisation_id ?? null,
                 compliance: s.compliance_score ?? 0, trend: s.trend ?? 0, actionProgress: s.action_progress ?? 100,
@@ -5926,6 +6183,7 @@ export default function App() {
                 included_datto_folder_ids: s.included_datto_folder_ids ?? null,
               });
               setViewAsRole(viewRole);
+              if (tab) setSiteTab(tab);
               setView('site');
             }}
             onViewOrg={(orgSites, orgId, viewRole) => {

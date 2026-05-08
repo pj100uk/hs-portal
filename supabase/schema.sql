@@ -1,4 +1,4 @@
--- Schema dumped at 2026-05-06T10:59:06.501Z
+-- Schema dumped at 2026-05-08T16:29:06.834Z
 
 TABLE: action_evidence
   id uuid NOT NULL DEFAULT gen_random_uuid()
@@ -39,6 +39,7 @@ TABLE: actions
   source_folder_path text
   issue_date text
   review_note text
+  extraction_version int4 NOT NULL DEFAULT 1
 
 TABLE: advisor_organisations
   id uuid NOT NULL DEFAULT gen_random_uuid()
@@ -111,6 +112,7 @@ TABLE: site_documents
   people_mentioned _text
   notes text
   client_provided bool NOT NULL DEFAULT true
+  extraction_version int4 NOT NULL DEFAULT 1
 
 TABLE: site_services
   id uuid NOT NULL DEFAULT gen_random_uuid()
