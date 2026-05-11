@@ -462,6 +462,13 @@ function buildOfficeUri(basePath: string, folderPath: string, fileName: string):
   return `${scheme}:ofe|u|file:///${parts.map(encode).join('/')}`;
 }
 const toUKDate = (iso: string) => { if (!isIsoDate(iso)) return iso; const [y, m, d] = iso.split('-'); return `${d}/${m}/${y.slice(2)}`; };
+function apiErr(data: any, fallback: string): string {
+  const base = (data?.error as string | undefined) ?? fallback;
+  const raw = data?.detail;
+  if (!raw) return base;
+  const d = typeof raw === 'string' ? raw : JSON.stringify(raw);
+  return `${base} — ${d.length > 300 ? d.slice(0, 300) + '…' : d}`;
+}
 function highlight(text: string | null | undefined, query: string): React.ReactNode {
   if (!query.trim() || !text) return text ?? '';
   const escaped = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -592,7 +599,7 @@ const ActionCard = ({ action, isResolved, onToggleResolve, onAddNote, onDelete, 
         body: JSON.stringify({ fileId: action.source_document_id, hazardRef: action.hazardRef }),
       });
       const data = await res.json();
-      if (!res.ok) { setSyncResult({ ok: false, msg: data.error || 'Read failed.' }); return; }
+      if (!res.ok) { setSyncResult({ ok: false, msg: apiErr(data, 'Read failed.') }); return; }
       setReadDiff(data as ReadDiff);
     } catch {
       setSyncResult({ ok: false, msg: 'Network error.' });
@@ -611,12 +618,13 @@ const ActionCard = ({ action, isResolved, onToggleResolve, onAddNote, onDelete, 
       fd.append('siteId', siteId);
       if (userId) fd.append('userId', userId);
       if (action.sourceFolderId) fd.append('sourceFolderId', action.sourceFolderId);
+      if (action.sourceFolderPath) fd.append('sourceFolderPath', action.sourceFolderPath);
       if (action.hazardRef) fd.append('hazardRef', action.hazardRef);
       if (action.source_document_id) fd.append('sourceDocumentId', action.source_document_id);
       if (action.source) fd.append('sourceDocumentName', action.source);
       const res = await fetch(`/api/actions/${action.id}/evidence`, { method: 'POST', body: fd });
       const data = await res.json();
-      if (!res.ok) { onFlash?.(data.error ?? 'Upload failed'); return; }
+      if (!res.ok) { onFlash?.(apiErr(data, 'Upload failed')); return; }
       setEvidence(prev => [...prev, data.evidence]);
     } finally {
       setUploading(false);
@@ -751,26 +759,9 @@ const ActionCard = ({ action, isResolved, onToggleResolve, onAddNote, onDelete, 
             <div className="flex items-center gap-4 flex-wrap text-[12px] font-medium text-slate-600">
               <span className="flex items-center gap-1.5">
                 <span className="text-slate-500 font-normal text-[11px] uppercase tracking-wider">Issued:</span>
-                {editingIssueDate ? (
-                  <input
-                    type="date"
-                    value={issueDateInput}
-                    autoFocus
-                    onClick={e => e.stopPropagation()}
-                    onChange={e => setIssueDateInput(e.target.value)}
-                    onBlur={() => { setEditingIssueDate(false); onUpdateIssueDate?.(action.id, issueDateInput || null); }}
-                    onKeyDown={e => { if (e.key === 'Enter') { setEditingIssueDate(false); onUpdateIssueDate?.(action.id, issueDateInput || null); } if (e.key === 'Escape') { setIssueDateInput(action.issueDate || ''); setEditingIssueDate(false); } }}
-                    className="text-sm font-bold text-slate-700 border-b border-indigo-400 outline-none bg-transparent"
-                  />
-                ) : (
-                  <span
-                    onClick={e => { e.stopPropagation(); setIssueDateInput(action.issueDate || ''); setEditingIssueDate(true); }}
-                    className="cursor-pointer hover:text-indigo-600 hover:underline decoration-dotted"
-                    title="Click to edit issue date"
-                  >
-                    {action.issueDate ? toUKDate(action.issueDate) : <span className="text-slate-300 font-normal italic text-xs">not set</span>}
-                  </span>
-                )}
+                <span>
+                  {action.issueDate ? toUKDate(action.issueDate) : <span className="text-slate-300 font-normal italic text-xs">not set</span>}
+                </span>
               </span>
               {!isResolved && <><span className="text-slate-300">|</span><span className="flex items-center gap-1"><span className="text-slate-500 font-normal">Due Date: </span>{role === 'advisor' ? (editingDueDate ? (<input type={dueDateInput && !isIsoDate(dueDateInput) ? 'text' : 'date'} value={dueDateInput} autoFocus onClick={e => e.stopPropagation()} onChange={e => setDueDateInput(e.target.value)} onBlur={() => { setEditingDueDate(false); onUpdateField?.(action.id, { date: dueDateInput }); }} onKeyDown={e => { if (e.key === 'Enter') { setEditingDueDate(false); onUpdateField?.(action.id, { date: dueDateInput }); } if (e.key === 'Escape') { setDueDateInput(action.date || ''); setEditingDueDate(false); } }} className="text-sm font-bold text-slate-700 border-b border-indigo-400 outline-none bg-transparent" />) : (<span onClick={e => { e.stopPropagation(); setDueDateInput(action.date || ''); setEditingDueDate(true); }} className={`cursor-pointer hover:text-indigo-600 hover:underline decoration-dotted ${!action.date ? 'text-amber-400 italic text-xs font-normal' : ''}`} title="Click to edit due date">{action.date ? toUKDate(action.date) : 'no date — click to set'}</span>)) : (<span>{action.date ? toUKDate(action.date) : '—'}</span>)}</span></>}
               {action.resolvedDate && <><span className="text-slate-300">|</span><span className="text-emerald-600"><span className="text-slate-500 font-bold">Resolved: </span>{toUKDate(action.resolvedDate)}{(() => { const d = (action.date && isIsoDate(action.resolvedDate) && isIsoDate(action.date)) ? daysLate(action.resolvedDate, action.date) : 0; return d > 30 ? <span className="text-amber-600 font-semibold ml-1">({d} days late)</span> : null; })()}</span></>}
@@ -2063,11 +2054,11 @@ const DocHealthTab = ({ siteId, onComplianceUpdate, onJumpToActions, role, onArc
   onJumpToActions?: (docName: string) => void;
   role?: string;
   onArchive?: (docName: string, folderPath: string, issueDate: string | null, siteId: string, silent?: boolean) => Promise<{ archivedFileId?: string; originalFolderId?: string; archivedTargetPath?: string } | void>;
-  onClone?: (fileId: string, docName: string, folderId: string) => Promise<{ newFileId: string | null; newFileName: string } | void>;
+  onClone?: (fileId: string, docName: string, folderId: string, folderPath: string | null) => Promise<{ newFileId: string | null; newFileName: string } | void>;
   onUnarchive?: (docName: string) => void;
 }) => {
   type DocRow = { docName: string; issueDate: string | null; actionCount: number; reviewDue: string | null; fileId: string | null; folderPath: string | null; folderId: string | null };
-  type BulkLogEntry = { docName: string; success: boolean; error?: string; archivedFileId?: string | null; originalFolderId?: string; archivedTargetPath?: string; cloneFileId?: string | null; savedRow?: DocRow; undone?: boolean };
+  type BulkLogEntry = { docName: string; success: boolean; error?: string; archivedFileId?: string | null; originalFolderId?: string; archivedTargetPath?: string; archiveWdrivePath?: string; cloneFileId?: string | null; cloneName?: string; cloneWdrivePath?: string; via?: string; savedRow?: DocRow; undone?: boolean };
   const [rows, setRows] = useState<DocRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [editingDoc, setEditingDoc] = useState<string | null>(null);
@@ -2235,13 +2226,19 @@ const DocHealthTab = ({ siteId, onComplianceUpdate, onJumpToActions, role, onArc
       setBulkProgress(`${i + 1} / ${selected.length}: ${row.docName.replace(/\.[^.]+$/, '')}`);
       try {
         let cloneFileId: string | null = null;
+        let cloneName: string | undefined;
+        let cloneVia: string | undefined;
+        let cloneWdrivePath: string | undefined;
         if (withClone && onClone && row.fileId && row.folderId && row.docName.toLowerCase().endsWith('.docx')) {
-          const cloneResult = await onClone(row.fileId, row.docName, row.folderId);
+          const cloneResult = await onClone(row.fileId, row.docName, row.folderId, row.folderPath);
           cloneFileId = (cloneResult as any)?.newFileId ?? null;
+          cloneName = (cloneResult as any)?.newFileName ?? undefined;
+          cloneVia = (cloneResult as any)?.via ?? undefined;
+          cloneWdrivePath = (cloneResult as any)?.wdrivePath ?? undefined;
         }
         const result = await onArchive(row.docName, row.folderPath ?? '', row.issueDate, siteId, true);
-        const r = result as { archivedFileId?: string; originalFolderId?: string; archivedTargetPath?: string } | undefined;
-        log.push({ docName: row.docName, success: true, archivedFileId: r?.archivedFileId, originalFolderId: r?.originalFolderId, archivedTargetPath: r?.archivedTargetPath, cloneFileId, savedRow: row });
+        const r = result as { archivedFileId?: string; originalFolderId?: string; archivedTargetPath?: string; wdrivePath?: string; via?: string } | undefined;
+        log.push({ docName: row.docName, success: true, archivedFileId: r?.archivedFileId, originalFolderId: r?.originalFolderId, archivedTargetPath: r?.archivedTargetPath, archiveWdrivePath: r?.wdrivePath, cloneFileId, cloneName, cloneWdrivePath, via: cloneVia ?? r?.via, savedRow: row });
         setRows(prev => prev.filter(p => p.docName !== row.docName));
       } catch (err: any) {
         log.push({ docName: row.docName, success: false, error: err.message ?? 'Failed', savedRow: row });
@@ -2262,7 +2259,7 @@ const DocHealthTab = ({ siteId, onComplianceUpdate, onJumpToActions, role, onArc
         body: JSON.stringify({ archivedFileId: entry.archivedFileId, originalFolderId: entry.originalFolderId, originalFileName: entry.savedRow?.docName ?? entry.docName }),
       });
       const data = await res.json();
-      if (!res.ok) { alert(data.error ?? 'Undo failed'); return; }
+      if (!res.ok) { alert(apiErr(data, 'Undo failed')); return; }
       await supabase.from('actions').update({ status: 'open', resolved_date: null }).eq('site_id', siteId).eq('source_document_name', entry.savedRow?.docName ?? entry.docName);
       if (entry.savedRow) {
         const todayStr = new Date().toISOString().slice(0, 10);
@@ -2286,14 +2283,20 @@ const DocHealthTab = ({ siteId, onComplianceUpdate, onJumpToActions, role, onArc
     setArchivingDoc(row.docName);
     try {
       let cloneFileId: string | null = null;
+      let cloneName: string | undefined;
+      let cloneVia: string | undefined;
+      let cloneWdrivePath: string | undefined;
       if (withClone && onClone && row.fileId && row.folderId) {
-        const cloneResult = await onClone(row.fileId, row.docName, row.folderId);
+        const cloneResult = await onClone(row.fileId, row.docName, row.folderId, row.folderPath);
         cloneFileId = (cloneResult as any)?.newFileId ?? null;
+        cloneName = (cloneResult as any)?.newFileName ?? undefined;
+        cloneVia = (cloneResult as any)?.via ?? undefined;
+        cloneWdrivePath = (cloneResult as any)?.wdrivePath ?? undefined;
       }
       const result = await onArchive(row.docName, row.folderPath ?? '', row.issueDate, siteId, true);
-      const r = result as { archivedFileId?: string; originalFolderId?: string; archivedTargetPath?: string } | undefined;
+      const r = result as { archivedFileId?: string; originalFolderId?: string; archivedTargetPath?: string; wdrivePath?: string; via?: string } | undefined;
       setRows(prev => prev.filter(p => p.docName !== row.docName));
-      setBulkLog([{ docName: row.docName, success: true, archivedFileId: r?.archivedFileId, originalFolderId: r?.originalFolderId, archivedTargetPath: r?.archivedTargetPath, cloneFileId, savedRow: row }]);
+      setBulkLog([{ docName: row.docName, success: true, archivedFileId: r?.archivedFileId, originalFolderId: r?.originalFolderId, archivedTargetPath: r?.archivedTargetPath, archiveWdrivePath: r?.wdrivePath, cloneFileId, cloneName, cloneWdrivePath, via: cloneVia ?? r?.via, savedRow: row }]);
     } catch (err: any) {
       setBulkLog([{ docName: row.docName, success: false, error: err.message ?? 'Failed', savedRow: row }]);
     } finally {
@@ -2306,10 +2309,12 @@ const DocHealthTab = ({ siteId, onComplianceUpdate, onJumpToActions, role, onArc
     if (!onClone || !row.fileId || !row.folderId) return;
     setCloningDoc(row.docName);
     try {
-      const result = await onClone(row.fileId, row.docName, row.folderId);
+      const result = await onClone(row.fileId, row.docName, row.folderId, row.folderPath);
       const cloneFileId = (result as any)?.newFileId ?? null;
       const cloneName = (result as any)?.newFileName ?? row.docName;
-      setBulkLog([{ docName: cloneName, success: true, cloneFileId, savedRow: row }]);
+      const via = (result as any)?.via ?? undefined;
+      const cloneWdrivePath = (result as any)?.wdrivePath ?? undefined;
+      setBulkLog([{ docName: row.docName, success: true, cloneFileId, cloneName, cloneWdrivePath, via, savedRow: row }]);
     } catch (err: any) {
       setBulkLog([{ docName: row.docName, success: false, error: err.message ?? 'Failed', savedRow: row }]);
     } finally {
@@ -2492,8 +2497,20 @@ const DocHealthTab = ({ siteId, onComplianceUpdate, onJumpToActions, role, onArc
                     : <X size={14} className="text-rose-500 flex-shrink-0" />}
                   <div className="flex-1 min-w-0">
                     <p className="text-[13px] font-bold text-slate-700 truncate">{entry.docName.replace(/\.[^.]+$/, '')}</p>
-                    {entry.success && entry.archivedTargetPath && !entry.undone && <p className="text-[11px] text-slate-400 truncate" title={entry.archivedTargetPath}>→ {entry.archivedTargetPath}</p>}
-                    {entry.error && <p className="text-[11px] text-rose-500">{entry.error}</p>}
+                    {entry.success && !entry.undone && entry.archivedTargetPath && (
+                      <p className="text-[11px] text-slate-400 break-all">
+                        Archived → {entry.archiveWdrivePath ?? entry.archivedTargetPath}
+                      </p>
+                    )}
+                    {entry.success && !entry.undone && entry.cloneName && (
+                      <p className="text-[11px] text-indigo-500 break-all">
+                        Clone → {entry.cloneWdrivePath ?? entry.cloneName.replace(/\.[^.]+$/, '')}
+                      </p>
+                    )}
+                    {entry.success && !entry.undone && !entry.archivedTargetPath && !entry.cloneName && (
+                      <p className="text-[11px] text-emerald-500">Done</p>
+                    )}
+                    {entry.error && <p className="text-[11px] text-rose-500 break-words">{entry.error}</p>}
                     {entry.undone && <p className="text-[11px] text-slate-400 italic">Restored to original location</p>}
                   </div>
                   {entry.success && !entry.undone && (entry.archivedFileId || entry.cloneFileId) && (
@@ -2618,6 +2635,11 @@ const SuperadminPanel = ({ onViewSite, onViewOrg, onSyncSite }: { onViewSite: (s
   // Assignment data
   const [clientSiteAssignments, setClientSiteAssignments] = useState<any[]>([]);
   const [advisorSiteAssignments, setAdvisorSiteAssignments] = useState<any[]>([]);
+
+  // Background sync
+  const [bgSyncRunning, setBgSyncRunning] = useState(false);
+  const [bgSyncStatus, setBgSyncStatus] = useState('');
+  const [bgSyncStats, setBgSyncStats] = useState<{ processed: number; newPending: number; updated: number } | null>(null);
 
   // Requirements tab state
   const [reqSiteType, setReqSiteType] = useState('OFFICE');
@@ -2812,7 +2834,7 @@ const SuperadminPanel = ({ onViewSite, onViewOrg, onSyncSite }: { onViewSite: (s
     if (userRole === 'client' && !userOrgId) { flash('Organisation is required for client users', true); return; }
     const res = await fetch('/api/admin/users', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: userEmail.trim(), password: userPassword, role: userRole, organisation_id: userOrgId || null, site_ids: userSiteIds }) });
     const data = await res.json();
-    if (!res.ok) { flash(data.error, true); return; }
+    if (!res.ok) { flash(apiErr(data, 'Create user failed'), true); return; }
     flash('User created!'); setUserEmail(''); setUserPassword(''); setUserRole('advisor'); setUserOrgId(''); setUserSiteIds([]); setShowUserForm(false); loadUsers(); loadClientSiteAssignments();
   };
 
@@ -2826,13 +2848,13 @@ const SuperadminPanel = ({ onViewSite, onViewOrg, onSyncSite }: { onViewSite: (s
 
   const handleAddOrgClient = async (orgId: string, userId: string) => {
     const res = await fetch('/api/admin/users', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userId, organisation_id: orgId }) });
-    if (!res.ok) { const d = await res.json(); flash(d.error || 'Failed to assign user', true); return; }
+    if (!res.ok) { const d = await res.json(); flash(apiErr(d, 'Failed to assign user'), true); return; }
     flash('Client assigned to organisation'); setOrgClientSearch(''); loadUsers();
   };
 
   const handleRemoveOrgClient = async (userId: string) => {
     const res = await fetch('/api/admin/users', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userId, organisation_id: null }) });
-    if (!res.ok) { const d = await res.json(); flash(d.error || 'Failed to remove user', true); return; }
+    if (!res.ok) { const d = await res.json(); flash(apiErr(d, 'Failed to remove user'), true); return; }
     flash('Client removed from organisation'); loadUsers();
   };
 
@@ -2961,9 +2983,68 @@ const SuperadminPanel = ({ onViewSite, onViewOrg, onSyncSite }: { onViewSite: (s
       <div className="bg-gradient-to-br from-indigo-900 via-indigo-950 to-slate-900 rounded-xl p-6 md:p-10 text-white shadow-2xl relative overflow-hidden">
         <div className="absolute top-0 right-0 w-96 h-96 bg-indigo-500 rounded-full -mr-32 -mt-32 blur-[100px] opacity-20 pointer-events-none" />
         <div className="relative z-10">
-          <span className="text-[10px] font-black uppercase tracking-[0.3em] text-indigo-300">System Administration</span>
-          <h2 className="text-2xl md:text-4xl font-black tracking-tighter mt-2">Superadmin Panel</h2>
-          <p className="text-indigo-300 mt-2 text-sm">Manage organisations, sites, users and advisor assignments.</p>
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div>
+              <span className="text-[10px] font-black uppercase tracking-[0.3em] text-indigo-300">System Administration</span>
+              <h2 className="text-2xl md:text-4xl font-black tracking-tighter mt-2">Superadmin Panel</h2>
+              <p className="text-indigo-300 mt-2 text-sm">Manage organisations, sites, users and advisor assignments.</p>
+            </div>
+            <div className="flex flex-col items-end gap-2">
+              <button
+                onClick={async () => {
+                  setBgSyncRunning(true);
+                  setBgSyncStats(null);
+                  setBgSyncStatus('Starting…');
+                  try {
+                    const res = await fetch('/api/sync/stream', {
+                      method: 'POST',
+                      headers: { 'Authorization': `Bearer ${process.env.NEXT_PUBLIC_SYNC_SECRET}`, 'Content-Type': 'application/json' },
+                    });
+                    if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`);
+                    const reader = res.body.getReader();
+                    const dec = new TextDecoder();
+                    let buf = '';
+                    let totalProcessed = 0; let totalNewPending = 0; let totalUpdated = 0;
+                    while (true) {
+                      const { done, value } = await reader.read();
+                      if (done) break;
+                      buf += dec.decode(value, { stream: true });
+                      const lines = buf.split('\n'); buf = lines.pop() ?? '';
+                      for (const line of lines) {
+                        if (!line.trim()) continue;
+                        try {
+                          const e = JSON.parse(line) as any;
+                          if (e.type === 'scan') setBgSyncStatus(`Scanning ${e.siteName}…`);
+                          else if (e.type === 'docs_found') setBgSyncStatus(`${e.siteName}: ${e.count} doc${e.count !== 1 ? 's' : ''} to process`);
+                          else if (e.type === 'doc_start') setBgSyncStatus(`${e.siteName}: ${e.docName} (${e.index + 1}/${e.total})`);
+                          else if (e.type === 'doc_done') {
+                            totalNewPending += e.newPending ?? 0; totalUpdated += e.updated ?? 0;
+                            setBgSyncStats({ processed: e.index + 1, newPending: totalNewPending, updated: totalUpdated });
+                            setBgSyncStatus(`${e.siteName}: ${e.docName} ✓`);
+                          } else if (e.type === 'site_done' && e.siteName === '__all__') {
+                            totalProcessed = e.processed ?? totalProcessed;
+                            setBgSyncStatus(`Sync complete`);
+                            setBgSyncStats({ processed: totalProcessed, newPending: e.newPending ?? totalNewPending, updated: e.updated ?? totalUpdated });
+                          }
+                        } catch { /* malformed line */ }
+                      }
+                    }
+                  } catch (err: any) {
+                    setBgSyncStatus(`Error: ${err.message}`);
+                  } finally {
+                    setBgSyncRunning(false);
+                  }
+                }}
+                disabled={bgSyncRunning}
+                className="flex items-center gap-2 px-4 py-2 bg-white/10 hover:bg-white/20 disabled:opacity-50 text-white rounded-xl text-[11px] font-black uppercase tracking-wider border border-white/20 transition-all"
+              >
+                <RefreshCw size={13} className={bgSyncRunning ? 'animate-spin' : ''} />
+                {bgSyncRunning ? 'Syncing…' : 'Run Background Sync'}
+              </button>
+              {bgSyncStatus && <p className="text-[11px] text-indigo-200 max-w-[260px] text-right leading-tight">{bgSyncStatus}</p>}
+              {bgSyncStats && <p className="text-[10px] text-indigo-300 max-w-[260px] text-right leading-tight">{bgSyncStats.processed} doc{bgSyncStats.processed !== 1 ? 's' : ''} · {bgSyncStats.newPending} new pending · {bgSyncStats.updated} updated</p>}
+            </div>
+          </div>
         </div>
       </div>
 
@@ -4067,7 +4148,7 @@ const SuperadminPanel = ({ onViewSite, onViewOrg, onSyncSite }: { onViewSite: (s
                 setAdminSetPwLoading(true);
                 const res = await fetch('/api/admin/users', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userId: adminSetPwUser.id, newPassword: adminSetPwValue }) });
                 setAdminSetPwLoading(false);
-                if (!res.ok) { const d = await res.json().catch(() => ({})); flash(d.error || 'Failed to set password', true); return; }
+                if (!res.ok) { const d = await res.json().catch(() => ({})); flash(apiErr(d, 'Failed to set password'), true); return; }
                 setAdminSetPwUser(null); setAdminSetPwValue(''); flash('Password updated');
               }} className="flex-1 py-2.5 bg-indigo-600 text-white rounded-xl text-[11px] font-black uppercase tracking-wider hover:bg-indigo-700 disabled:opacity-50">{adminSetPwLoading ? 'Saving…' : 'Set Password'}</button>
             </div>
@@ -5944,12 +6025,13 @@ export default function App() {
     handleAiSync(site, true, fileId).finally(() => setSyncingDocId(null));
   };
 
-  const handleArchiveDoc = async (docName: string, folderPath: string, issueDate: string | null, siteId: string, silent = false): Promise<{ archivedFileId?: string; originalFolderId?: string; archivedTargetPath?: string } | void> => {
-    // Prefer fresh path from allActions — background refresh keeps this current even after folder renames
-    const freshPath = allActions.find(a => a.source === docName && a.sourceFolderPath)?.sourceFolderPath;
+  const handleArchiveDoc = async (docName: string, folderPath: string, issueDate: string | null, siteId: string, silent = false): Promise<{ archivedFileId?: string; originalFolderId?: string; archivedTargetPath?: string; wdrivePath?: string; via?: string } | void> => {
+    const siteName = sites.find(s => s.id === siteId)?.name;
+    // Prefer fresh path from allActions — must filter by site to avoid cross-site filename collisions
+    const freshPath = allActions.find(a => a.site === siteName && a.source === docName && a.sourceFolderPath)?.sourceFolderPath;
     const effectiveFolderPath = freshPath ?? folderPath;
-    // Look up Datto IDs from actions
-    const actionWithIds = allActions.find(a => a.source === docName && a.source_document_id && a.sourceFolderId);
+    // Look up Datto IDs from actions — filter by site for the same reason
+    const actionWithIds = allActions.find(a => a.site === siteName && a.source === docName && a.source_document_id && a.sourceFolderId);
     const fileId = actionWithIds?.source_document_id;
     const sourceFolderId = actionWithIds?.sourceFolderId;
     const site = sites.find(s => s.id === siteId);
@@ -5988,13 +6070,13 @@ export default function App() {
       body: JSON.stringify({ fileId, fileName: docName, sourceFolderId, siteFolderId, siteFolderPath, sourceFolderPath: effectiveFolderPath }),
     });
     const data = await res.json();
-    if (!res.ok) { showAppFlash(data.error ?? 'Archive failed', 8000); throw new Error(data.error); }
+    if (!res.ok) { const msg = apiErr(data, 'Archive failed'); showAppFlash(msg, 10000); throw new Error(msg); }
     await supabase.from('actions').update({ status: 'archived', resolved_date: today }).eq('site_id', siteId).eq('source_document_name', docName);
     setAllActions(prev => prev.map(a => a.source === docName ? { ...a, status: 'archived' as ActionStatus, resolvedDate: today } : a));
     recalcActionProgress(siteId);
     refreshComplianceScore(siteId);
-    if (!silent) showAppFlash(`Archived to: ${data.targetPath ?? data.archivedFileName}`, 8000);
-    return { archivedFileId: data.archivedFileId ?? null, originalFolderId: sourceFolderId, archivedTargetPath: data.targetPath };
+    if (!silent) showAppFlash(`Archived to: ${data.targetPath ?? data.archivedFileName}${data.via === 'wdrive' ? ' (via W: drive)' : ''}`, 8000);
+    return { archivedFileId: data.archivedFileId ?? null, originalFolderId: sourceFolderId, archivedTargetPath: data.targetPath, wdrivePath: data.wdrivePath ?? undefined, via: data.via ?? 'api' };
   };
 
   const handleRestoreAction = async (id: string) => {
@@ -6007,16 +6089,20 @@ export default function App() {
     showAppFlash('Action restored to open.');
   };
 
-  const handleCloneDoc = async (fileId: string, fileName: string, folderId: string): Promise<{ newFileId: string | null; newFileName: string } | void> => {
+  const handleCloneDoc = async (fileId: string, fileName: string, folderId: string, folderPath: string | null): Promise<{ newFileId: string | null; newFileName: string; via?: string; wdrivePath?: string } | void> => {
+    // Use allActions to get the most current folder path/id for this file — avoids stale DocHealthTab row data
+    const freshAction = allActions.find(a => a.source_document_id === fileId && a.sourceFolderPath && a.sourceFolderId);
+    const effectiveFolderPath = freshAction?.sourceFolderPath ?? folderPath;
+    const effectiveFolderId = freshAction?.sourceFolderId ?? folderId;
     const res = await fetch('/api/datto/clone-document', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ fileId, fileName, folderId }),
+      body: JSON.stringify({ fileId, fileName, folderId: effectiveFolderId, folderPath: effectiveFolderPath }),
     });
     const data = await res.json();
-    if (!res.ok) { showAppFlash(data.error ?? 'Clone failed', 8000); throw new Error(data.error); }
-    showAppFlash(`Blank copy created: ${data.newFileName}`);
-    return { newFileId: data.newFileId ?? null, newFileName: data.newFileName };
+    if (!res.ok) { const msg = apiErr(data, 'Clone failed'); showAppFlash(msg, 10000); throw new Error(msg); }
+    showAppFlash(`Blank copy created: ${data.newFileName}${data.via === 'wdrive' ? ' (via W: drive)' : ''}`);
+    return { newFileId: data.newFileId ?? null, newFileName: data.newFileName, via: data.via ?? 'api', wdrivePath: data.wdrivePath ?? undefined };
   };
 
   const viewSites = filterOrgId ? sites.filter(s => s.organisation_id === filterOrgId) : sites;

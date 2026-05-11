@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import JSZip from 'jszip';
+import fs from 'fs';
+import path from 'path';
 import { BASE_URL, AUTH_HEADER } from '../folder-utils';
+
+const DATTO_DRIVE_ROOT = 'W:\\Customer Documents';
 
 export const runtime = 'nodejs';
 
@@ -88,7 +92,7 @@ function stripDocumentXml(xml: string): string {
 
 export async function POST(request: NextRequest) {
   try {
-    const { fileId, fileName, folderId } = await request.json();
+    const { fileId, fileName, folderId, folderPath } = await request.json();
 
     if (!fileId || !fileName || !folderId) {
       return NextResponse.json({ error: 'fileId, fileName and folderId are required' }, { status: 400 });
@@ -100,20 +104,58 @@ export async function POST(request: NextRequest) {
 
     // Build clone filename with next year
     const ext = '.docx';
-    const baseName = fileName.slice(0, fileName.length - ext.length).replace(/\s+\d{4}-\d{2}$/, '').replace(/\s+\d{4}$/, '').trim();
+    const rawBase = fileName.slice(0, fileName.length - ext.length);
+    // Strip trailing administrative suffixes iteratively (version numbers, dates).
+    // Only strips from the END to avoid touching section refs like "2.1.1" at the start.
+    const STRIP_TAIL = [
+      /\s+\d{4}-\d{2}(-\d{2})?$/,   // YYYY-MM or YYYY-MM-DD
+      /\s+\d{4}$/,                    // YYYY
+      /\s+\d{1,2}\.\d{2,4}$/,         // M.YY, MM.YY, MM.YYYY (e.g. 8.25, 04.26)
+      /\s+[Vv]\d+(?:\.\d+)*$/,       // V1, v2, V1.0, v2.1
+    ];
+    let baseName = rawBase;
+    let changed = true;
+    while (changed) {
+      changed = false;
+      for (const re of STRIP_TAIL) {
+        const stripped = baseName.replace(re, '');
+        if (stripped !== baseName) { baseName = stripped; changed = true; }
+      }
+    }
+    baseName = baseName.trim();
     const curYear = new Date().getFullYear();
     const nextYY = String(curYear + 1).slice(2);
     const cloneName = `${baseName} ${curYear}-${nextYY}${ext}`;
 
-    // Download original
-    const downloadRes = await fetch(`${BASE_URL}/file/${fileId}/data`, {
-      headers: { Authorization: AUTH_HEADER },
-    });
-    if (!downloadRes.ok) {
-      const detail = await downloadRes.text();
-      return NextResponse.json({ error: 'Failed to download from Datto', detail }, { status: 502 });
+    // Download original — try W: drive first, fall back to Datto API
+    let docxBuffer: ArrayBuffer;
+    if (folderPath) {
+      const wPath = path.join(DATTO_DRIVE_ROOT, ...folderPath.split('/').filter(Boolean), fileName);
+      if (fs.existsSync(wPath)) {
+        console.log('[clone-document] reading source from W: drive:', wPath);
+        const nodeBuf = fs.readFileSync(wPath);
+        docxBuffer = nodeBuf.buffer.slice(nodeBuf.byteOffset, nodeBuf.byteOffset + nodeBuf.byteLength) as ArrayBuffer;
+      } else {
+        const downloadRes = await fetch(`${BASE_URL}/file/${fileId}/data`, { headers: { Authorization: AUTH_HEADER } });
+        if (!downloadRes.ok) {
+          const detail = await downloadRes.text();
+          return NextResponse.json({ error: 'Failed to download from Datto', detail }, { status: 502 });
+        }
+        docxBuffer = await downloadRes.arrayBuffer();
+      }
+    } else {
+      const downloadRes = await fetch(`${BASE_URL}/file/${fileId}/data`, { headers: { Authorization: AUTH_HEADER } });
+      if (!downloadRes.ok) {
+        const detail = await downloadRes.text();
+        return NextResponse.json({ error: 'Failed to download from Datto', detail }, { status: 502 });
+      }
+      docxBuffer = await downloadRes.arrayBuffer();
     }
-    const docxBuffer = await downloadRes.arrayBuffer();
+
+    // Reject obviously corrupt downloads (e.g. Datto stub files)
+    if (docxBuffer.byteLength < 100) {
+      return NextResponse.json({ error: 'Source file appears corrupt or empty in Datto', detail: `File size: ${docxBuffer.byteLength} bytes` }, { status: 422 });
+    }
 
     // Strip action tables and labelled fields
     const zip = await JSZip.loadAsync(docxBuffer);
@@ -124,14 +166,30 @@ export async function POST(request: NextRequest) {
     const xml = await docFile.async('string');
     const strippedXml = stripDocumentXml(xml);
     zip.file('word/document.xml', strippedXml);
-    const cloneBuffer = await zip.generateAsync({ type: 'arraybuffer' });
+    const cloneBuffer = await zip.generateAsync({ type: 'arraybuffer', compression: 'DEFLATE' });
+    const cloneBytes = new Uint8Array(cloneBuffer);
 
-    // Upload to same folder
+    // 1. Try W: drive first (direct filesystem write — works even when Datto API blocks new file creation)
+    if (folderPath) {
+      try {
+        const targetDir = path.join(DATTO_DRIVE_ROOT, ...folderPath.split('/').filter(Boolean));
+        const targetFile = path.join(targetDir, cloneName);
+        if (fs.existsSync(targetDir)) {
+          fs.writeFileSync(targetFile, cloneBytes);
+          console.log('[clone-document] wrote via W: drive:', targetFile);
+          return NextResponse.json({ success: true, newFileId: null, newFileName: cloneName, wdrivePath: targetFile, via: 'wdrive' });
+        }
+      } catch (fsErr: any) {
+        console.warn('[clone-document] W: drive write failed, falling back to API:', fsErr.message);
+      }
+    }
+
+    // 2. Fall back to Datto REST API
     const mimeType = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
     const form = new FormData();
-    form.append('partData', new Blob([new Uint8Array(cloneBuffer)], { type: mimeType }), cloneName);
+    form.append('partData', new Blob([cloneBytes], { type: mimeType }), cloneName);
     form.append('fileName', cloneName);
-    form.append('makeUnique', 'true');
+    form.append('makeUnique', 'false');
 
     const uploadRes = await fetch(`${BASE_URL}/file/${folderId}/files`, {
       method: 'POST',
@@ -140,7 +198,8 @@ export async function POST(request: NextRequest) {
     });
     const uploadBody = await uploadRes.text();
     if (!uploadRes.ok) {
-      return NextResponse.json({ error: 'Clone upload failed', detail: uploadBody }, { status: 502 });
+      console.error('[clone-document] upload failed', uploadRes.status, uploadBody);
+      return NextResponse.json({ error: 'Clone upload failed', detail: uploadBody, status: uploadRes.status }, { status: 502 });
     }
 
     let newFileId: string | null = null;
