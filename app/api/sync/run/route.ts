@@ -28,6 +28,6 @@ export async function POST(req: NextRequest) {
   }
   if (!siteId) return NextResponse.json({ error: 'siteId is required' }, { status: 400 });
 
-  const summary = await runSyncForSite(siteId, forceAll, siteBaseUrl(req));
+  const summary = await runSyncForSite(siteId, forceAll, siteBaseUrl(req), undefined, 'ai_suggested');
   return NextResponse.json(summary);
 }

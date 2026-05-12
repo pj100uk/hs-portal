@@ -40,7 +40,7 @@ export async function POST(req: NextRequest) {
       let totalProcessed = 0; let totalNewPending = 0; let totalUpdated = 0;
 
       for (const site of sites) {
-        const result = await runSyncForSite(site.id, false, baseUrl, write);
+        const result = await runSyncForSite(site.id, false, baseUrl, write, 'ai_suggested');
         totalProcessed += result.processed;
         totalNewPending += result.newPending;
         totalUpdated += result.updated;

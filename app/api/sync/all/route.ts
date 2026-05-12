@@ -38,7 +38,7 @@ export async function POST(req: NextRequest) {
   for (const site of sites) {
     console.log(`[sync/all] Starting sync for: ${site.name}`);
     try {
-      const summary = await runSyncForSite(site.id, false, baseUrl);
+      const summary = await runSyncForSite(site.id, false, baseUrl, undefined, 'ai_suggested');
       results.push({ name: site.name, ...summary });
     } catch (err: any) {
       console.error(`[sync/all] ${site.name} failed:`, err.message);

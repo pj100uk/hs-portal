@@ -14,7 +14,7 @@ export type SyncEvent =
   | { type: 'scan'; siteName: string }
   | { type: 'docs_found'; siteName: string; count: number }
   | { type: 'doc_start'; siteName: string; docName: string; index: number; total: number }
-  | { type: 'doc_done'; siteName: string; docName: string; index: number; total: number; newPending: number; updated: number; error?: string }
+  | { type: 'doc_done'; siteName: string; docName: string; index: number; total: number; newPending: number; updated: number; error?: string; skipped?: string }
   | { type: 'site_done'; siteName: string; processed: number; newPending: number; updated: number; errors: string[] };
 
 // ── Datto folder walk ────────────────────────────────────────────────────────
@@ -23,6 +23,7 @@ const EXCLUDED_FOLDERS = ['archive', 'evidence', 'photos', '_doc_converted_tmp',
 
 function normaliseItems(raw: any): { id: string; name: string; type: 'file' | 'folder'; modified?: string }[] {
   const list: any[] = Array.isArray(raw) ? raw
+    : Array.isArray(raw?.result) ? raw.result
     : Array.isArray(raw?.data) ? raw.data
     : Array.isArray(raw?.children) ? raw.children
     : Array.isArray(raw?.items) ? raw.items
@@ -31,7 +32,8 @@ function normaliseItems(raw: any): { id: string; name: string; type: 'file' | 'f
     ...item,
     id: String(item.id ?? item.fileId ?? item.folderId ?? ''),
     name: item.name ?? item.fileName ?? item.folderName ?? 'Unnamed',
-    type: (item.type === 'folder' || item.type === 'FOLDER' || item.isDirectory === true || item.folderType !== undefined || item.childCount !== undefined)
+    modified: item.modified ?? (item.time ? new Date(item.time).toISOString() : undefined),
+    type: (item.type === 'folder' || item.type === 'FOLDER' || item.isDirectory === true || item.folder === true || item.folderType !== undefined || item.childCount !== undefined)
       ? 'folder' : 'file',
   }));
 }
@@ -116,7 +118,7 @@ function resolveDueDate(dueDate: string | null, dueDateRelative: string | null, 
 
 // ── Core sync logic ───────────────────────────────────────────────────────────
 
-export async function runSyncForSite(siteId: string, forceAll: boolean, baseUrl: string, onProgress?: (e: SyncEvent) => void) {
+export async function runSyncForSite(siteId: string, forceAll: boolean, baseUrl: string, onProgress?: (e: SyncEvent) => void, insertStatus: 'open' | 'ai_suggested' = 'ai_suggested') {
   const errors: string[] = [];
   let processed = 0; let newPending = 0; let updated = 0;
 
@@ -137,15 +139,18 @@ export async function runSyncForSite(siteId: string, forceAll: boolean, baseUrl:
     .select('id, title, description, due_date, site_id, source_document_name, source_document_id, source_folder_id, source_folder_path, hazard_ref, hazard, existing_controls, risk_rating, risk_level, status, responsible_person, resolved_date, issue_date, extraction_version')
     .eq('site_id', siteId);
   const currentActions = (freshActionsData ?? []).filter((a: any) => !a.site_document_id);
+  const actionsForDupCheck = currentActions;
 
   const userExcludedIds = new Set<string>(site.excluded_datto_folder_ids ?? []);
   let allItems: Awaited<ReturnType<typeof fetchAllFiles>>;
+  let allFilesForOrphanCheck: Awaited<ReturnType<typeof fetchAllFiles>>;
   if (site.included_datto_folder_ids?.length > 0) {
     const includedSet = new Set(site.included_datto_folder_ids.map(String));
-    const all = await fetchAllFiles(site.datto_folder_id, userExcludedIds, site.datto_folder_path ?? '');
-    allItems = all.filter(f => includedSet.has(String(f.parentFolderId)));
+    allFilesForOrphanCheck = await fetchAllFiles(site.datto_folder_id, userExcludedIds, site.datto_folder_path ?? '');
+    allItems = allFilesForOrphanCheck.filter(f => includedSet.has(String(f.parentFolderId)));
   } else {
-    allItems = await fetchAllFiles(site.datto_folder_id, userExcludedIds, site.datto_folder_path ?? '');
+    allFilesForOrphanCheck = await fetchAllFiles(site.datto_folder_id, userExcludedIds, site.datto_folder_path ?? '');
+    allItems = allFilesForOrphanCheck;
   }
 
   // Refresh stale paths
@@ -216,13 +221,17 @@ export async function runSyncForSite(siteId: string, forceAll: boolean, baseUrl:
   });
   docFiles = deduped;
 
-  const allDattoFileIds = new Set(allItems.map(f => String(f.id)));
-  const uniquePortalDocIds = [...new Set(
-    currentActions.filter((a: any) => a.source_document_id && !a.site_document_id).map((a: any) => String(a.source_document_id))
-  )];
-  const missingDocIds = uniquePortalDocIds.filter(id => !allDattoFileIds.has(id));
-  if (missingDocIds.length > 0) {
-    await supabase.from('actions').delete().in('source_document_id', missingDocIds).eq('site_id', siteId);
+  const allDattoFileIds = new Set(allFilesForOrphanCheck.map(f => String(f.id)));
+  // Only purge orphaned actions if Datto returned a non-empty file listing.
+  // An empty listing likely means the API walk failed — deleting here would wipe all actions.
+  if (allItems.length > 0) {
+    const uniquePortalDocIds = [...new Set(
+      currentActions.filter((a: any) => a.source_document_id && !a.site_document_id).map((a: any) => String(a.source_document_id))
+    )];
+    const missingDocIds = uniquePortalDocIds.filter(id => !allDattoFileIds.has(id));
+    if (missingDocIds.length > 0) {
+      await supabase.from('actions').delete().in('source_document_id', missingDocIds).eq('site_id', siteId);
+    }
   }
 
   const THREE_YEARS_AGO = Date.now() - 3 * 365 * 24 * 60 * 60 * 1000;
@@ -266,7 +275,7 @@ export async function runSyncForSite(siteId: string, forceAll: boolean, baseUrl:
         const magic = new Uint8Array(buffer.slice(0, 4));
         if (magic[0] !== 0x50 || magic[1] !== 0x4B || magic[2] !== 0x03 || magic[3] !== 0x04)
           throw new Error(`${doc.name} is not a valid DOCX (bad magic bytes)`);
-        const extracted = await mammoth.convertToHtml({ arrayBuffer: buffer });
+        const extracted = await mammoth.convertToHtml({ buffer: Buffer.from(buffer) });
         const htmlContent = extracted.value
           .replace(/â€¦/g, '…').replace(/â€™/g, '’').replace(/â€œ/g, '“')
           .replace(/â€/g, '”').replace(/Ã©/g, 'é').replace(/Â·/g, '·').replace(/Â /g, ' ');
@@ -317,8 +326,78 @@ export async function runSyncForSite(siteId: string, forceAll: boolean, baseUrl:
         });
       const documentType = documentMeta?.documentType ?? 'general_ra';
 
-      if (!documentMeta?.assessmentDate) return;
-      if (documentType === 'coshh' || documentType === 'dse') return;
+      // 'other' = Gemini couldn't identify this as any known RA type
+      if (documentType === 'other') {
+        onProgress?.({ type: 'doc_done', siteName: site.name, docName: doc.name, index, total: docFiles.length, newPending: 0, updated: 0, skipped: 'Not an RA (other)' });
+        return;
+      }
+
+      // COSHH: controls document — if filled in, create a standing annual review action
+      if (documentType === 'coshh') {
+        if (!documentMeta?.assessmentDate) {
+          onProgress?.({ type: 'doc_done', siteName: site.name, docName: doc.name, index, total: docFiles.length, newPending: 0, updated: 0, skipped: 'Not an RA (coshh — unfilled)' });
+          return;
+        }
+        const coshhTitle = 'Review and update COSHH assessment — confirm controls remain adequate and substance/process has not changed';
+        const alreadyCoshh = actionsForDupCheck.some((e: any) => e.source_document_id === doc.id && e.title === coshhTitle);
+        if (!alreadyCoshh) {
+          const { error: insertErr } = await supabase.from('actions').insert({
+            site_id: siteId, title: coshhTitle, description: '', priority: 'green',
+            status: insertStatus, is_suggested: insertStatus === 'ai_suggested', due_date: null,
+            source_document_name: doc.name, source_document_id: doc.id,
+            source_folder_id: doc.parentFolderId, source_folder_path: doc.folderPath ?? null,
+            hazard: 'Chemical/substance exposure', regulation: 'COSHH Regulations 2002',
+            issue_date: documentMeta.assessmentDate, extraction_version: CURRENT_EXTRACTION_VERSION,
+          });
+          if (!insertErr) { newPending++; docNewPending.count++; }
+        }
+        processed++;
+        onProgress?.({ type: 'doc_done', siteName: site.name, docName: doc.name, index, total: docFiles.length, newPending: docNewPending.count, updated: docUpdated.count });
+        return;
+      }
+
+      // DSE: if all compliant (no actions) create annual review; otherwise process NO-answer actions normally
+      if (documentType === 'dse') {
+        if (!documentMeta?.assessmentDate) {
+          onProgress?.({ type: 'doc_done', siteName: site.name, docName: doc.name, index, total: docFiles.length, newPending: 0, updated: 0, skipped: 'Not an RA (dse — unfilled)' });
+          return;
+        }
+        if (actions.length === 0) {
+          const dseTitle = 'Annual DSE workstation review — confirm all workstation requirements continue to be met';
+          const alreadyDse = actionsForDupCheck.some((e: any) => e.source_document_id === doc.id && e.title === dseTitle);
+          if (!alreadyDse) {
+            const { error: insertErr } = await supabase.from('actions').insert({
+              site_id: siteId, title: dseTitle, description: '', priority: 'green',
+              status: insertStatus, is_suggested: insertStatus === 'ai_suggested', due_date: null,
+              source_document_name: doc.name, source_document_id: doc.id,
+              source_folder_id: doc.parentFolderId, source_folder_path: doc.folderPath ?? null,
+              hazard: 'Display screen equipment use',
+              regulation: 'Health and Safety (Display Screen Equipment) Regulations 1992',
+              risk_level: 'LOW', issue_date: documentMeta.assessmentDate,
+              extraction_version: CURRENT_EXTRACTION_VERSION,
+            });
+            if (!insertErr) { newPending++; docNewPending.count++; }
+          }
+          processed++;
+          onProgress?.({ type: 'doc_done', siteName: site.name, docName: doc.name, index, total: docFiles.length, newPending: docNewPending.count, updated: docUpdated.count });
+          return;
+        }
+        // Has NO-answer actions — fall through to normal processing below
+      }
+
+      // No assessment date: use additional signals to decide if genuine or unfilled template
+      if (!documentMeta?.assessmentDate) {
+        const trimSig = (s: string | null | undefined) => (s ?? '').trim();
+        const hasAssessor    = !!trimSig(documentMeta?.assessor);
+        const hasClientName  = !!trimSig(documentMeta?.clientConsulted);
+        const hasResponsible = actions.some((a: any) => !!trimSig(a.responsiblePerson));
+        const hasHazardRef   = actions.some((a: any) => !!trimSig(a.hazardRef));
+        if (!hasAssessor && !hasClientName && !hasResponsible && !hasHazardRef) {
+          onProgress?.({ type: 'doc_done', siteName: site.name, docName: doc.name, index, total: docFiles.length, newPending: 0, updated: 0, skipped: 'No assessment date — template?' });
+          return;
+        }
+        // Has enough signals to treat as genuine — proceed without a date
+      }
 
       type ReadRow = { hazardRef: string; actionText: string; responsiblePerson: string; targetDate: string; completedDate: string; riskRating: string };
       let readRows: ReadRow[] = [];
@@ -367,7 +446,7 @@ export async function runSyncForSite(siteId: string, forceAll: boolean, baseUrl:
           ?? rows[0];
       };
 
-      const docActionsForDoc = currentActions.filter((a: any) => a.source_document_id === doc.id);
+      const docActionsForDoc = actionsForDupCheck.filter((a: any) => a.source_document_id === doc.id);
       const docBaseName = doc.name.replace(/\.[^.]+$/, '').toLowerCase();
       const normText = (s: string | null | undefined) => (s ?? '').toLowerCase().replace(/\s+/g, ' ').trim();
 
@@ -415,7 +494,7 @@ export async function runSyncForSite(siteId: string, forceAll: boolean, baseUrl:
             if (geminiCountForRef <= portalActionsForRef.length) return true;
             return portalActionsForRef.some((e: any) => e.title === a.description || textSimilarity(e.title, a.description) > 0.8);
           }
-          return currentActions.some((e: any) => {
+          return actionsForDupCheck.some((e: any) => {
             if (e.site_id !== siteId) return false;
             if (e.source_document_id !== doc.id) {
               const eBase = (e.source_document_name ?? '').replace(/\.[^.]+$/, '').toLowerCase();
@@ -428,7 +507,7 @@ export async function runSyncForSite(siteId: string, forceAll: boolean, baseUrl:
         if (!alreadyAdded) {
           const { error: insertErr } = await supabase.from('actions').insert({
             site_id: siteId, title: a.description, description: '', priority: 'green',
-            status: 'pending_review', is_suggested: true,
+            status: insertStatus, is_suggested: insertStatus === 'ai_suggested',
             due_date: resolveDueDate(a.dueDate ?? null, a.dueDateRelative ?? null, documentMeta?.assessmentDate ?? null),
             source_document_name: doc.name, source_document_id: doc.id,
             source_folder_id: doc.parentFolderId, source_folder_path: doc.folderPath ?? null,

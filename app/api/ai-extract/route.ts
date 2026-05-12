@@ -29,7 +29,7 @@ const PROMPT_SUFFIX = `You are an expert H&S (Health & Safety) compliance assist
 Analyse the following document and extract all action items, required controls, recommended actions, outstanding items, corrective actions, or any other content indicating something needs to be done or improved. Return a single JSON object with two keys: "documentMeta" and "actions".
 
 "documentMeta" must have:
-- "assessmentDate": string | null (ISO date YYYY-MM-DD if found, otherwise null)
+- "assessmentDate": string | null — the date this specific risk assessment was completed or last reviewed, as recorded in a field explicitly labelled "Assessment Date", "Date of Assessment", "Date Completed", "Review Date", "Date", "Issue Date", or similar in the document's header information block or cover table. Accept any date format (e.g. DD/MM/YYYY, D Month YYYY, Month YYYY) and convert to ISO YYYY-MM-DD. Return null only if no such labelled date field exists — a missing assessmentDate is the primary signal that this is an unfilled template rather than a completed assessment. Do NOT use version history dates, footer timestamps, or document creation/modified metadata.
 - "reviewDate": string | null (ISO date YYYY-MM-DD of last review/update if found, otherwise null)
 - "assessor": string | null (name of the person who completed the assessment, otherwise null)
 - "clientConsulted": string | null (name of client or person consulted, otherwise null)
