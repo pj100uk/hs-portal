@@ -15,7 +15,8 @@ export async function POST(request: NextRequest) {
     .from('actions')
     .select('status, due_date, site_document_id')
     .eq('site_id', body.site_id)
-    .is('site_document_id', null); // exclude client-managed doc actions
+    .is('site_document_id', null)
+    .neq('status', 'ai_suggested');
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   if (!actions || actions.length === 0) {

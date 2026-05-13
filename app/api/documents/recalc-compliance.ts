@@ -27,7 +27,8 @@ export async function recalcSiteCompliance(siteId: string, supabase: SupabaseCli
       .from('actions')
       .select('source_document_name, issue_date')
       .eq('site_id', siteId)
-      .not('source_document_name', 'is', null),
+      .not('source_document_name', 'is', null)
+      .neq('status', 'ai_suggested'),
     supabase
       .from('document_health')
       .select('document_name, review_due')

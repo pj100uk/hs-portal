@@ -33,6 +33,7 @@ export async function GET(req: NextRequest) {
     .from('actions')
     .select('hazard_ref, title, risk_level, priority, status, due_date, responsible_person, resolved_date, source_document_name, created_at')
     .eq('site_id', siteId)
+    .neq('status', 'ai_suggested')
     .order('created_at', { ascending: true });
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });

@@ -430,7 +430,8 @@ function SiteReport({ siteId }: { siteId: string }) {
           .from('actions')
           .select('hazard_ref, title, risk_level, priority, status, due_date, resolved_date, responsible_person, source_document_name')
           .eq('site_id', siteId)
-          .is('site_document_id', null),
+          .is('site_document_id', null)
+          .neq('status', 'ai_suggested'),
         supabase
           .from('site_services')
           .select('purchased, site_type_requirements(requirement_name, is_mandatory)')
@@ -467,7 +468,8 @@ function OrgReport({ orgId }: { orgId: string }) {
           .from('actions')
           .select('site_id, hazard_ref, title, risk_level, priority, status, due_date, resolved_date, responsible_person, source_document_name')
           .in('site_id', siteIds)
-          .is('site_document_id', null),
+          .is('site_document_id', null)
+          .neq('status', 'ai_suggested'),
         supabase
           .from('site_services')
           .select('site_id, purchased, site_type_requirements(requirement_name, is_mandatory)')

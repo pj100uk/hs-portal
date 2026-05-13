@@ -426,10 +426,10 @@ const ScoreExplanationModal = ({ card, onClose }: { card: 'implementation' | 'ia
       <div className="bg-white rounded-xl shadow-2xl w-full max-w-md overflow-hidden" onClick={e => e.stopPropagation()}>
         <div className={`${content.color} px-6 py-4 flex items-center justify-between`}>
           <h2 className="font-black text-white text-sm uppercase tracking-widest">{content.title}</h2>
-          <button onClick={onClose} className="text-white/70 hover:text-white"><X size={18} /></button>
+          <button onClick={onClose} title="Dismiss" className="text-white/70 hover:text-white"><X size={18} /></button>
         </div>
         <div className="p-6">{content.body}</div>
-        <div className="px-6 pb-6"><button onClick={onClose} className="w-full py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-black text-[11px] uppercase tracking-widest rounded-xl transition-colors">Got it</button></div>
+        <div className="px-6 pb-6"><button onClick={onClose} title="Dismiss" className="w-full py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-black text-[11px] uppercase tracking-widest rounded-xl transition-colors">Got it</button></div>
       </div>
     </div>
   );
@@ -768,7 +768,7 @@ const ActionCard = ({ action, isResolved, onToggleResolve, onAddNote, onDelete, 
               <><span className="text-slate-300">|</span><span className="flex items-center gap-1"><span className="text-slate-500 font-normal">Responsibility: </span>{role === 'advisor' ? (editingWho ? (<input type="text" value={whoInput} autoFocus onClick={e => e.stopPropagation()} onChange={e => setWhoInput(e.target.value)} onBlur={() => { setEditingWho(false); onUpdateField?.(action.id, { who: whoInput }); }} onKeyDown={e => { if (e.key === 'Enter') { setEditingWho(false); onUpdateField?.(action.id, { who: whoInput }); } if (e.key === 'Escape') { setWhoInput(action.who || ''); setEditingWho(false); } }} className="text-sm font-bold text-slate-700 border-b border-indigo-400 outline-none bg-transparent w-40" />) : (<span onClick={e => { e.stopPropagation(); setWhoInput(action.who || ''); setEditingWho(true); }} className={`cursor-pointer hover:text-indigo-600 hover:underline decoration-dotted ${!action.who ? 'text-amber-400 italic text-xs font-normal' : ''}`} title="Click to edit responsible person">{action.who ? highlight(action.who, searchQuery ?? '') : 'not set — click to add'}</span>)) : (<span>{highlight(action.who, searchQuery ?? '')}</span>)}</span></>
             </div>
             {canDelete && onDelete && (
-              <button onClick={e => { e.stopPropagation(); if (confirm('Delete this action? This cannot be undone.')) onDelete(action.id); }} className="flex items-center gap-1 text-[11px] text-slate-400 hover:text-rose-400 transition-colors flex-shrink-0">
+              <button onClick={e => { e.stopPropagation(); if (confirm('Delete this action? This cannot be undone.')) onDelete(action.id); }} title="Permanently delete this action from the portal" className="flex items-center gap-1 text-[11px] text-slate-400 hover:text-rose-400 transition-colors flex-shrink-0">
                 <Trash2 size={11} />Delete from portal database
               </button>
             )}
@@ -878,10 +878,10 @@ const ActionCard = ({ action, isResolved, onToggleResolve, onAddNote, onDelete, 
                       return (
                     <div key={ev.id} className="flex items-center gap-2 py-0.5">
                       <Paperclip size={11} className="text-slate-400 flex-shrink-0" />
-                      <button onClick={() => openEvidence(ev)} className="text-[12px] text-indigo-600 hover:underline flex-1 text-left truncate">{displayName}</button>
+                      <button onClick={() => openEvidence(ev)} title="View evidence file" className="text-[12px] text-indigo-600 hover:underline flex-1 text-left truncate">{displayName}</button>
                       {ev.fileSizeBytes && <span className="text-[10px] text-slate-400 flex-shrink-0">{Math.round(ev.fileSizeBytes / 1024)}KB</span>}
                       {(role === 'advisor' || role === 'superadmin' || ev.uploadedBy === userId) && (
-                        <button onClick={() => handleDeleteEvidence(ev)} className="text-slate-300 hover:text-rose-400 flex-shrink-0 ml-1"><X size={12} /></button>
+                        <button onClick={() => handleDeleteEvidence(ev)} title="Remove this evidence file" className="text-slate-300 hover:text-rose-400 flex-shrink-0 ml-1"><X size={12} /></button>
                       )}
                     </div>
                       );
@@ -897,7 +897,7 @@ const ActionCard = ({ action, isResolved, onToggleResolve, onAddNote, onDelete, 
                       <span>This action was closed when its source document was archived. It was not manually resolved.</span>
                     </div>
                     {(role === 'advisor' || role === 'superadmin') && onRestore && (
-                      <button onClick={e => { e.stopPropagation(); onRestore(action.id); }} className="w-full px-4 py-2 rounded-xl font-black text-xs uppercase tracking-wider border border-slate-200 text-slate-400 hover:border-indigo-200 hover:text-indigo-500 bg-white flex items-center justify-center gap-2">
+                      <button onClick={e => { e.stopPropagation(); onRestore(action.id); }} title="Restore this action to open status in the portal" className="w-full px-4 py-2 rounded-xl font-black text-xs uppercase tracking-wider border border-slate-200 text-slate-400 hover:border-indigo-200 hover:text-indigo-500 bg-white flex items-center justify-center gap-2">
                         <RotateCcw size={13} />Restore Action
                       </button>
                     )}
@@ -909,34 +909,34 @@ const ActionCard = ({ action, isResolved, onToggleResolve, onAddNote, onDelete, 
                         <div className="w-full px-4 py-2 rounded-xl font-black text-xs uppercase tracking-wider bg-amber-50 border border-amber-200 text-amber-700 flex items-center justify-center gap-2">
                           <Clock size={13} />Awaiting Confirmation
                         </div>
-                        <button onClick={e => { e.stopPropagation(); onClientWithdraw?.(action.id); }} className="w-full px-4 py-2 rounded-xl font-black text-xs uppercase tracking-wider border border-slate-200 text-slate-400 hover:border-rose-200 hover:text-rose-400 bg-white flex items-center justify-center gap-2"><X size={13} />Withdraw</button>
+                        <button onClick={e => { e.stopPropagation(); onClientWithdraw?.(action.id); }} title="Withdraw submission — return action to in-progress" className="w-full px-4 py-2 rounded-xl font-black text-xs uppercase tracking-wider border border-slate-200 text-slate-400 hover:border-rose-200 hover:text-rose-400 bg-white flex items-center justify-center gap-2"><X size={13} />Withdraw</button>
                       </>
                     )}
                     {action.status === 'pending_review' && (role === 'advisor' || role === 'superadmin') && (
                       <>
-                        <button onClick={e => { e.stopPropagation(); onAdvisorConfirm?.(action.id); if (canSync) { doSync(new Date().toLocaleDateString('en-CA')); } }} className="w-full px-4 py-2 rounded-xl font-black text-xs uppercase tracking-wider active:scale-95 bg-emerald-600 text-white hover:bg-emerald-700 flex items-center justify-center gap-2"><CheckCircle size={13} />Confirm Resolved</button>
+                        <button onClick={e => { e.stopPropagation(); onAdvisorConfirm?.(action.id); if (canSync) { doSync(new Date().toLocaleDateString('en-CA')); } }} title="Confirm this action is resolved in the portal" className="w-full px-4 py-2 rounded-xl font-black text-xs uppercase tracking-wider active:scale-95 bg-emerald-600 text-white hover:bg-emerald-700 flex items-center justify-center gap-2"><CheckCircle size={13} />Confirm Resolved</button>
                         {showRejectInput ? (
                           <div className="space-y-2">
                             <textarea value={rejectNote} onChange={e => setRejectNote(e.target.value)} placeholder="Reason for rejection…" rows={2} className="w-full text-sm border border-slate-200 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-rose-200 resize-none bg-white" />
                             <div className="flex gap-2">
-                              <button onClick={e => { e.stopPropagation(); onAdvisorReject?.(action.id, rejectNote); setRejectNote(''); setShowRejectInput(false); }} className="flex-1 px-4 py-2 rounded-xl font-black text-xs uppercase bg-rose-600 text-white hover:bg-rose-700 flex items-center justify-center gap-2"><X size={13} />Send Back</button>
-                              <button onClick={() => { setShowRejectInput(false); setRejectNote(''); }} className="px-4 py-2 rounded-xl font-black text-xs bg-white border border-slate-200 text-slate-400">Cancel</button>
+                              <button onClick={e => { e.stopPropagation(); onAdvisorReject?.(action.id, rejectNote); setRejectNote(''); setShowRejectInput(false); }} title="Send back to client with this note" className="flex-1 px-4 py-2 rounded-xl font-black text-xs uppercase bg-rose-600 text-white hover:bg-rose-700 flex items-center justify-center gap-2"><X size={13} />Send Back</button>
+                              <button onClick={() => { setShowRejectInput(false); setRejectNote(''); }} title="Cancel rejection" className="px-4 py-2 rounded-xl font-black text-xs bg-white border border-slate-200 text-slate-400">Cancel</button>
                             </div>
                           </div>
                         ) : (
-                          <button onClick={e => { e.stopPropagation(); setShowRejectInput(true); }} className="w-full px-4 py-2 rounded-xl font-black text-xs uppercase tracking-wider border border-rose-200 text-rose-500 hover:bg-rose-50 flex items-center justify-center gap-2"><X size={13} />Reject</button>
+                          <button onClick={e => { e.stopPropagation(); setShowRejectInput(true); }} title="Reject — send back to client with a note" className="w-full px-4 py-2 rounded-xl font-black text-xs uppercase tracking-wider border border-rose-200 text-rose-500 hover:bg-rose-50 flex items-center justify-center gap-2"><X size={13} />Reject</button>
                         )}
                       </>
                     )}
                     {action.status !== 'pending_review' && role === 'client' && !isResolved && (
-                      <button onClick={e => { e.stopPropagation(); onClientSubmit?.(action.id); }} className="w-full px-4 py-2 rounded-xl font-black text-xs uppercase tracking-wider active:scale-95 shadow-sm bg-slate-900 text-white hover:bg-indigo-700 flex items-center justify-center gap-2"><Clock size={13} />Submit for Review</button>
+                      <button onClick={e => { e.stopPropagation(); onClientSubmit?.(action.id); }} title="Submit this action for advisor review" className="w-full px-4 py-2 rounded-xl font-black text-xs uppercase tracking-wider active:scale-95 shadow-sm bg-slate-900 text-white hover:bg-indigo-700 flex items-center justify-center gap-2"><Clock size={13} />Submit for Review</button>
                     )}
                     {action.status !== 'pending_review' && role === 'client' && isResolved && (
                       <div className="w-full px-4 py-2 rounded-xl font-black text-xs uppercase tracking-wider bg-white border border-slate-200 text-slate-400 flex items-center justify-center gap-2"><CheckCircle size={13} />Confirmed</div>
                     )}
                     {action.status !== 'pending_review' && (role === 'advisor' || role === 'superadmin') && (
                       <>
-                        <button onClick={handleResolve} className={`w-full px-4 py-2 rounded-xl font-black text-xs uppercase tracking-wider active:scale-95 shadow-sm flex items-center justify-center gap-2 ${isResolved ? 'bg-white border border-slate-200 text-slate-400 hover:border-rose-200 hover:text-rose-400' : 'bg-slate-900 text-white hover:bg-indigo-700'}`}>
+                        <button onClick={handleResolve} title={isResolved ? 'Undo — reopen this action in the portal' : 'Mark this action as resolved in the portal'} className={`w-full px-4 py-2 rounded-xl font-black text-xs uppercase tracking-wider active:scale-95 shadow-sm flex items-center justify-center gap-2 ${isResolved ? 'bg-white border border-slate-200 text-slate-400 hover:border-rose-200 hover:text-rose-400' : 'bg-slate-900 text-white hover:bg-indigo-700'}`}>
                           {isResolved ? <><X size={13} />Undo Resolve</> : <><CheckCircle size={13} />Mark as Resolved</>}
                         </button>
                         {!isResolved && <p className="text-[11px] text-slate-400 italic mt-1.5 text-center">Add a note or upload evidence to demonstrate how this was resolved.</p>}
@@ -951,12 +951,12 @@ const ActionCard = ({ action, isResolved, onToggleResolve, onAddNote, onDelete, 
             <div className="flex gap-2 items-start">
               <textarea value={noteText} onChange={e => setNoteText(e.target.value)} placeholder="Add a progress note…" rows={2} className="flex-1 text-sm border border-slate-200 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-indigo-300 resize-none bg-white" />
               <div className="flex flex-col gap-2">
-                <button onClick={() => { onAddNote(action.id, noteText); setNoteText(''); setShowNoteInput(false); }} className="px-4 py-2.5 bg-indigo-600 text-white rounded-xl text-xs font-black hover:bg-indigo-700">Save</button>
-                <button onClick={() => setShowNoteInput(false)} className="px-4 py-2.5 bg-white border border-slate-200 text-slate-400 rounded-xl text-xs font-black">Cancel</button>
+                <button onClick={() => { onAddNote(action.id, noteText); setNoteText(''); setShowNoteInput(false); }} title="Save note to this action" className="px-4 py-2.5 bg-indigo-600 text-white rounded-xl text-xs font-black hover:bg-indigo-700">Save</button>
+                <button onClick={() => setShowNoteInput(false)} title="Cancel without saving" className="px-4 py-2.5 bg-white border border-slate-200 text-slate-400 rounded-xl text-xs font-black">Cancel</button>
               </div>
             </div>
           ) : (
-            <button onClick={() => setShowNoteInput(true)} className="text-[11px] font-black uppercase tracking-wider text-indigo-500 hover:text-indigo-700 flex items-center gap-1.5"><Plus size={13} />Add Note</button>
+            <button onClick={() => setShowNoteInput(true)} title="Add a progress note to this action" className="text-[11px] font-black uppercase tracking-wider text-indigo-500 hover:text-indigo-700 flex items-center gap-1.5"><Plus size={13} />Add Note</button>
           )}
           {/* Sync Doc */}
           {canSync && (role === 'advisor' || role === 'superadmin') && (
@@ -966,6 +966,7 @@ const ActionCard = ({ action, isResolved, onToggleResolve, onAddNote, onDelete, 
                 <button
                   onClick={handleSyncToDoc}
                   disabled={syncing || reading}
+                  title="Push portal values into the Word document (doc updated)"
                   className="text-[11px] font-black uppercase tracking-wider text-emerald-600 hover:text-emerald-800 flex items-center gap-1.5 disabled:opacity-50"
                 >
                   <RefreshCw size={13} className={syncing ? 'animate-spin' : ''} />
@@ -975,6 +976,7 @@ const ActionCard = ({ action, isResolved, onToggleResolve, onAddNote, onDelete, 
                 <button
                   onClick={handleReadFromWord}
                   disabled={reading || syncing}
+                  title="Pull values from the Word document and preview changes (doc unaffected)"
                   className="text-[11px] font-black uppercase tracking-wider text-indigo-500 hover:text-indigo-700 flex items-center gap-1.5 disabled:opacity-50"
                 >
                   <RefreshCw size={13} className={reading ? 'animate-spin' : ''} />
@@ -1028,13 +1030,13 @@ const ActionCard = ({ action, isResolved, onToggleResolve, onAddNote, onDelete, 
                     </div>
                     {hasDiffs ? (
                       <div className="flex gap-2">
-                        <button onClick={() => { onApplyFromWord?.(action.id, readDiff); setReadDiff(null); }} className="flex-1 px-3 py-2 rounded-xl font-black text-xs uppercase tracking-wider bg-indigo-600 text-white hover:bg-indigo-700 flex items-center justify-center gap-1.5"><RefreshCw size={11} />Apply Word Values</button>
-                        <button onClick={() => setReadDiff(null)} className="px-3 py-2 rounded-xl font-black text-xs uppercase bg-white border border-slate-200 text-slate-400 hover:text-slate-600">Cancel</button>
+                        <button onClick={() => { onApplyFromWord?.(action.id, readDiff); setReadDiff(null); }} title="Update portal with Word document values" className="flex-1 px-3 py-2 rounded-xl font-black text-xs uppercase tracking-wider bg-indigo-600 text-white hover:bg-indigo-700 flex items-center justify-center gap-1.5"><RefreshCw size={11} />Apply Word Values</button>
+                        <button onClick={() => setReadDiff(null)} title="Dismiss — keep portal values unchanged" className="px-3 py-2 rounded-xl font-black text-xs uppercase bg-white border border-slate-200 text-slate-400 hover:text-slate-600">Cancel</button>
                       </div>
                     ) : (
                       <div className="flex items-center justify-between">
                         <p className="text-[11px] text-emerald-600 font-bold">Word document matches portal — nothing to apply.</p>
-                        <button onClick={() => setReadDiff(null)} className="text-[10px] font-black uppercase text-slate-400 hover:text-slate-600">Dismiss</button>
+                        <button onClick={() => setReadDiff(null)} title="Dismiss — portal already matches Word" className="text-[10px] font-black uppercase text-slate-400 hover:text-slate-600">Dismiss</button>
                       </div>
                     )}
                   </div>
@@ -1097,13 +1099,13 @@ const DattoFileBrowser = ({ rootFolderId, siteName, onSelect, onClose }: {
     <div className="border border-indigo-200 rounded-xl overflow-hidden bg-white shadow-sm">
       <div className="bg-indigo-600 px-4 py-2.5 flex items-center justify-between">
         <span className="text-[11px] font-black text-white uppercase tracking-widest flex items-center gap-2"><FolderOpen size={13} />Browse Documents</span>
-        <button onClick={onClose} className="text-indigo-200 hover:text-white"><X size={15} /></button>
+        <button onClick={onClose} title="Close browser" className="text-indigo-200 hover:text-white"><X size={15} /></button>
       </div>
       <div className="bg-slate-50 border-b border-slate-100 px-4 py-2 flex items-center gap-1 flex-wrap min-h-[36px]">
         {breadcrumbs.map((crumb, i) => (
           <React.Fragment key={`${crumb.id}-${i}`}>
             {i > 0 && <ChevronRight size={10} className="text-slate-300" />}
-            <button onClick={() => setBreadcrumbs(prev => prev.slice(0, i + 1))} className={`text-[10px] font-black truncate max-w-[120px] ${i === breadcrumbs.length - 1 ? 'text-indigo-700 cursor-default' : 'text-indigo-500 hover:underline'}`}>{crumb.name}</button>
+            <button onClick={() => setBreadcrumbs(prev => prev.slice(0, i + 1))} title="Go to this folder" className={`text-[10px] font-black truncate max-w-[120px] ${i === breadcrumbs.length - 1 ? 'text-indigo-700 cursor-default' : 'text-indigo-500 hover:underline'}`}>{crumb.name}</button>
           </React.Fragment>
         ))}
       </div>
@@ -1113,12 +1115,12 @@ const DattoFileBrowser = ({ rootFolderId, siteName, onSelect, onClose }: {
         {!loading && !apiError && items.length === 0 && <div className="p-6 text-center text-xs font-bold text-slate-400">Empty folder.</div>}
         {!loading && !apiError && (<>
           {folders.map(item => (
-            <button key={item.id} onClick={() => setBreadcrumbs(prev => [...prev, { id: item.id, name: item.name }])} className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-amber-50 group border-b border-slate-50 text-left">
+            <button key={item.id} onClick={() => setBreadcrumbs(prev => [...prev, { id: item.id, name: item.name }])} title="Open this folder" className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-amber-50 group border-b border-slate-50 text-left">
               <Folder size={14} className="text-amber-400 flex-shrink-0" /><span className="text-xs font-bold text-slate-700 group-hover:text-amber-700 flex-1 truncate">{item.name}</span><ChevronRight size={12} className="text-slate-300" />
             </button>
           ))}
           {files.map(item => (
-            <button key={item.id} onClick={() => onSelect(item.name, item.id)} className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-indigo-50 group border-b border-slate-50 text-left">
+            <button key={item.id} onClick={() => onSelect(item.name, item.id)} title="Use this document as the source" className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-indigo-50 group border-b border-slate-50 text-left">
               <File size={14} className="text-indigo-400 flex-shrink-0" /><span className="text-xs font-bold text-slate-700 group-hover:text-indigo-700 flex-1 truncate">{item.name}</span>
               <span className="text-[10px] font-black text-indigo-500 bg-indigo-50 px-2 py-0.5 rounded group-hover:bg-indigo-100">Select</span>
             </button>
@@ -1127,7 +1129,7 @@ const DattoFileBrowser = ({ rootFolderId, siteName, onSelect, onClose }: {
       </div>
       <div className="bg-slate-50 border-t border-slate-100 px-4 py-2 flex items-center justify-between">
         <span className="text-[10px] text-slate-400">{!loading && !apiError && `${folders.length} folders, ${files.length} files`}</span>
-        <button onClick={onClose} className="text-[10px] font-black text-slate-400 hover:text-slate-600 uppercase">Cancel</button>
+        <button onClick={onClose} title="Close without selecting" className="text-[10px] font-black text-slate-400 hover:text-slate-600 uppercase">Cancel</button>
       </div>
     </div>
   );
@@ -1187,13 +1189,13 @@ const DattoFolderPicker = ({ startFolderId = DATTO_ROOT_ID, startFolderName = 'C
     <div className="border border-indigo-200 rounded-xl overflow-hidden bg-white shadow-sm">
       <div className="bg-indigo-600 px-4 py-2.5 flex items-center justify-between">
         <span className="text-[11px] font-black text-white uppercase tracking-widest flex items-center gap-2"><FolderOpen size={13} />Select Folder</span>
-        <button onClick={onClose} className="text-indigo-200 hover:text-white"><X size={15} /></button>
+        <button onClick={onClose} title="Close without selecting" className="text-indigo-200 hover:text-white"><X size={15} /></button>
       </div>
       <div className="bg-slate-50 border-b border-slate-100 px-4 py-2 flex items-center gap-1 flex-wrap">
         {breadcrumbs.map((crumb, i) => (
           <React.Fragment key={`${crumb.id}-${i}`}>
             {i > 0 && <ChevronRight size={10} className="text-slate-300" />}
-            <button onClick={() => setBreadcrumbs(prev => prev.slice(0, i + 1))} className={`text-[10px] font-black truncate max-w-[120px] ${i === breadcrumbs.length - 1 ? 'text-indigo-700 cursor-default' : 'text-indigo-500 hover:underline'}`}>{crumb.name}</button>
+            <button onClick={() => setBreadcrumbs(prev => prev.slice(0, i + 1))} title="Go to this folder" className={`text-[10px] font-black truncate max-w-[120px] ${i === breadcrumbs.length - 1 ? 'text-indigo-700 cursor-default' : 'text-indigo-500 hover:underline'}`}>{crumb.name}</button>
           </React.Fragment>
         ))}
       </div>
@@ -1209,13 +1211,13 @@ const DattoFolderPicker = ({ startFolderId = DATTO_ROOT_ID, startFolderName = 'C
                 ? breadcrumbs.slice(1).map(b => b.name).join('/') + (breadcrumbs.length > 1 ? '/' : '') + item.name
                 : breadcrumbs.map(b => b.name).join('/') + '/' + item.name;
               onSelect(item.name, item.id, path);
-            }} className="text-xs font-bold text-slate-700 group-hover:text-amber-700 flex-1 truncate text-left">{item.name}</button>
+            }} title="Select this folder" className="text-xs font-bold text-slate-700 group-hover:text-amber-700 flex-1 truncate text-left">{item.name}</button>
             <button onClick={() => navigateTo(item.name, item.id)} className="text-slate-300 hover:text-indigo-500 flex-shrink-0 p-1" title="Open subfolder"><ChevronRight size={12} /></button>
           </div>
         ))}
       </div>
       <div className="bg-slate-50 border-t border-slate-100 px-4 py-2 flex justify-end">
-        <button onClick={onClose} className="text-[10px] font-black text-slate-400 hover:text-slate-600 uppercase">Cancel</button>
+        <button onClick={onClose} title="Close without selecting" className="text-[10px] font-black text-slate-400 hover:text-slate-600 uppercase">Cancel</button>
       </div>
     </div>
   );
@@ -1363,7 +1365,7 @@ const AddActionForm = ({ site, onSave, onCancel }: { site: Site; onSave: (action
     <div className="bg-white rounded-lg border border-indigo-200 shadow-lg overflow-hidden">
       <div className="bg-indigo-600 px-6 py-4 flex items-center justify-between">
         <h3 className="font-black text-white uppercase tracking-widest text-sm">Add New Action</h3>
-        <button onClick={onCancel} className="text-indigo-200 hover:text-white"><X size={18} /></button>
+        <button onClick={onCancel} title="Close without saving" className="text-indigo-200 hover:text-white"><X size={18} /></button>
       </div>
       <div className="p-6 space-y-5">
         {error && <div className="bg-rose-50 border border-rose-200 text-rose-700 text-sm font-bold px-4 py-3 rounded-xl">{error}</div>}
@@ -1383,7 +1385,7 @@ const AddActionForm = ({ site, onSave, onCancel }: { site: Site; onSave: (action
             <DattoFileBrowser rootFolderId={site.datto_folder_id} siteName={site.name} onSelect={handleDocSelect} onClose={() => setShowFileBrowser(false)} />
           ) : (
             <div onClick={() => site.datto_folder_id && setShowFileBrowser(true)} className={`${inputClass} flex items-center justify-between gap-2 ${site.datto_folder_id ? 'cursor-pointer hover:border-indigo-300' : 'cursor-not-allowed opacity-60'}`}>
-              {sourceDocName ? <><span className="flex items-center gap-2 text-indigo-700 font-bold truncate"><File size={14} className="text-indigo-400 flex-shrink-0" />{sourceDocName}</span><button onClick={handleClearDoc} className="text-slate-300 hover:text-rose-400"><X size={14} /></button></> : <><span className="text-slate-400">{site.datto_folder_id ? 'Click to browse documents…' : 'No Datto folder linked'}</span><FolderOpen size={16} className="text-slate-300" /></>}
+              {sourceDocName ? <><span className="flex items-center gap-2 text-indigo-700 font-bold truncate"><File size={14} className="text-indigo-400 flex-shrink-0" />{sourceDocName}</span><button onClick={handleClearDoc} title="Clear selected document" className="text-slate-300 hover:text-rose-400"><X size={14} /></button></> : <><span className="text-slate-400">{site.datto_folder_id ? 'Click to browse documents…' : 'No Datto folder linked'}</span><FolderOpen size={16} className="text-slate-300" /></>}
             </div>
           )}
         </div>
@@ -1408,7 +1410,7 @@ const AddActionForm = ({ site, onSave, onCancel }: { site: Site; onSave: (action
             <label className={labelClass}>Risk Rating</label>
             <div className="flex gap-2">
               {([{ val: 'high', label: 'High', active: 'bg-rose-600 text-white border-rose-600' }, { val: 'medium', label: 'Medium', active: 'bg-amber-500 text-white border-amber-500' }, { val: 'low', label: 'Low', active: 'bg-emerald-600 text-white border-emerald-600' }] as const).map(r => (
-                <button key={r.val} type="button" onClick={() => { setRiskRating(r.val); setRiskRatingOverridden(true); }} className={`flex-1 py-2.5 rounded-xl text-[11px] font-black border transition-all ${riskRating === r.val ? r.active : 'bg-white text-slate-500 border-slate-200'}`}>{r.label}</button>
+                <button key={r.val} type="button" onClick={() => { setRiskRating(r.val); setRiskRatingOverridden(true); }} title={`Set risk rating to ${r.label}`} className={`flex-1 py-2.5 rounded-xl text-[11px] font-black border transition-all ${riskRating === r.val ? r.active : 'bg-white text-slate-500 border-slate-200'}`}>{r.label}</button>
               ))}
             </div>
           </div>
@@ -1429,8 +1431,8 @@ const AddActionForm = ({ site, onSave, onCancel }: { site: Site; onSave: (action
           </div>
         )}
         <div className="flex gap-3 pt-2">
-          <button onClick={handleSave} disabled={saving} className="flex-1 bg-indigo-600 text-white py-3 rounded-xl font-black text-sm uppercase tracking-wider hover:bg-indigo-700 disabled:opacity-50">{saving ? 'Saving…' : 'Save Action'}</button>
-          <button onClick={onCancel} className="px-6 py-3 bg-white border border-slate-200 text-slate-500 rounded-xl font-black text-sm uppercase tracking-wider hover:bg-slate-50">Cancel</button>
+          <button onClick={handleSave} disabled={saving} title="Save new action to the portal" className="flex-1 bg-indigo-600 text-white py-3 rounded-xl font-black text-sm uppercase tracking-wider hover:bg-indigo-700 disabled:opacity-50">{saving ? 'Saving…' : 'Save Action'}</button>
+          <button onClick={onCancel} title="Cancel without saving" className="px-6 py-3 bg-white border border-slate-200 text-slate-500 rounded-xl font-black text-sm uppercase tracking-wider hover:bg-slate-50">Cancel</button>
         </div>
       </div>
     </div>
@@ -1778,7 +1780,7 @@ const UploadModal = ({ site, userId, onClose, onSaved }: {
           <h2 className="font-black text-white text-sm uppercase tracking-widest flex items-center gap-2">
             <Upload size={14} />Upload Documents
           </h2>
-          <button onClick={onClose} className="text-amber-200 hover:text-white"><X size={18} /></button>
+          <button onClick={onClose} title="Close without saving" className="text-amber-200 hover:text-white"><X size={18} /></button>
         </div>
 
         <div className="px-6 py-5 space-y-5 max-h-[75vh] overflow-y-auto">
@@ -1822,6 +1824,7 @@ const UploadModal = ({ site, userId, onClose, onSaved }: {
                 <div key={idx} className={`border rounded-lg overflow-hidden ${it.status === 'error' ? 'border-rose-200 opacity-50' : 'border-slate-200'}`}>
                   <button
                     onClick={() => setExpandedIdx(prev => prev === idx ? null : idx)}
+                    title="Expand to review and edit document details"
                     className="w-full flex items-center gap-3 px-4 py-3 bg-slate-50 hover:bg-slate-100 transition-colors text-left"
                   >
                     <div className="flex-shrink-0">
@@ -1901,8 +1904,8 @@ const UploadModal = ({ site, userId, onClose, onSaved }: {
             <span className="text-[11px] font-bold flex-1">
               {saveError ? <span className="text-rose-600">{saveError}</span> : <span className="text-slate-400">{doneCount} document{doneCount !== 1 ? 's' : ''} ready</span>}
             </span>
-            <button onClick={onClose} className="px-5 py-2.5 bg-white border border-slate-200 text-slate-500 rounded-xl font-black text-[11px] uppercase tracking-wider hover:bg-slate-50">Cancel</button>
-            <button onClick={handleSave} disabled={saving || doneCount === 0} className="px-6 py-2.5 bg-amber-500 text-white rounded-xl font-black text-[11px] uppercase tracking-wider hover:bg-amber-600 disabled:opacity-50">{saving ? 'Saving…' : `Save ${doneCount > 1 ? `All ${doneCount}` : 'Document'}`}</button>
+            <button onClick={onClose} title="Cancel without saving" className="px-5 py-2.5 bg-white border border-slate-200 text-slate-500 rounded-xl font-black text-[11px] uppercase tracking-wider hover:bg-slate-50">Cancel</button>
+            <button onClick={handleSave} disabled={saving || doneCount === 0} title="Save documents to the portal" className="px-6 py-2.5 bg-amber-500 text-white rounded-xl font-black text-[11px] uppercase tracking-wider hover:bg-amber-600 disabled:opacity-50">{saving ? 'Saving…' : `Save ${doneCount > 1 ? `All ${doneCount}` : 'Document'}`}</button>
           </div>
         )}
       </div>
@@ -2329,7 +2332,7 @@ const DocHealthTab = ({ siteId, onComplianceUpdate, onJumpToActions, role, onArc
     <div className="space-y-3">
       {/* Helper text */}
       <div className="bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden">
-        <button onClick={() => setShowHelper(h => !h)} className="w-full px-5 py-3.5 flex items-center justify-between text-left hover:bg-slate-50 transition-colors">
+        <button onClick={() => setShowHelper(h => !h)} title="How document health scores are calculated" className="w-full px-5 py-3.5 flex items-center justify-between text-left hover:bg-slate-50 transition-colors">
           <span className="text-[11px] font-black uppercase tracking-widest text-slate-500 flex items-center gap-2"><AlertCircle size={13} className="text-slate-400" />How document health is calculated</span>
           <ChevronDown size={14} className={`text-slate-400 transition-transform ${showHelper ? 'rotate-180' : ''}`} />
         </button>
@@ -2362,16 +2365,16 @@ const DocHealthTab = ({ siteId, onComplianceUpdate, onJumpToActions, role, onArc
         {someSelected && !bulkRunning && !showBulkConfirm && (
           <div className="bg-amber-50 border-b border-amber-200 px-5 py-2.5 flex items-center gap-3">
             <span className="text-[12px] font-bold text-amber-800 flex-1">{selectedDocs.size} document{selectedDocs.size !== 1 ? 's' : ''} selected</span>
-            {onArchive && <button onClick={() => { setBulkWithClone(false); setShowBulkConfirm(true); }} className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-500 text-white rounded-lg text-[11px] font-black hover:bg-amber-600"><Archive size={11} />Archive</button>}
-            {onArchive && hasCloneable && <button onClick={() => { setBulkWithClone(true); setShowBulkConfirm(true); }} className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-500 text-white rounded-lg text-[11px] font-black hover:bg-indigo-600"><Copy size={11} />Archive + Clone</button>}
-            <button onClick={() => setSelectedDocs(new Set())} className="text-[11px] font-bold text-slate-500 hover:text-slate-700">Clear</button>
+            {onArchive && <button onClick={() => { setBulkWithClone(false); setShowBulkConfirm(true); }} title="Move selected documents to Z-Archived in Datto and remove their portal actions" className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-500 text-white rounded-lg text-[11px] font-black hover:bg-amber-600"><Archive size={11} />Archive</button>}
+            {onArchive && hasCloneable && <button onClick={() => { setBulkWithClone(true); setShowBulkConfirm(true); }} title="Archive selected and create blank clones for new assessments" className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-500 text-white rounded-lg text-[11px] font-black hover:bg-indigo-600"><Copy size={11} />Archive + Clone</button>}
+            <button onClick={() => setSelectedDocs(new Set())} title="Clear document selection" className="text-[11px] font-bold text-slate-500 hover:text-slate-700">Clear</button>
           </div>
         )}
         {showBulkConfirm && (
           <div className="bg-amber-100 border-b border-amber-200 px-5 py-2.5 flex items-center gap-3">
             <span className="flex-1 text-[12px] font-medium text-amber-900">Archive {selectedDocs.size} document{selectedDocs.size !== 1 ? 's' : ''}?{bulkWithClone ? ' A blank clone will be created for each.' : ' They will be moved to Z-Archived Documents.'}</span>
-            <button onClick={() => runBulkArchive(bulkWithClone)} className="px-3 py-1.5 bg-amber-500 text-white rounded-lg font-black text-[11px] hover:bg-amber-600">Confirm</button>
-            <button onClick={() => setShowBulkConfirm(false)} className="px-3 py-1.5 bg-white border border-slate-200 text-slate-600 rounded-lg font-black text-[11px] hover:bg-slate-50">Cancel</button>
+            <button onClick={() => runBulkArchive(bulkWithClone)} title="Confirm bulk archive" className="px-3 py-1.5 bg-amber-500 text-white rounded-lg font-black text-[11px] hover:bg-amber-600">Confirm</button>
+            <button onClick={() => setShowBulkConfirm(false)} title="Cancel" className="px-3 py-1.5 bg-white border border-slate-200 text-slate-600 rounded-lg font-black text-[11px] hover:bg-slate-50">Cancel</button>
           </div>
         )}
         {bulkRunning && (
@@ -2469,8 +2472,8 @@ const DocHealthTab = ({ siteId, onComplianceUpdate, onJumpToActions, role, onArc
                               Clone existing
                             </label>
                           )}
-                          <button onClick={() => doArchive(row, archiveWithClone)} className="px-3 py-1 bg-amber-500 text-white rounded-lg font-black text-[11px] hover:bg-amber-600">Confirm</button>
-                          <button onClick={() => setConfirmingArchive(null)} className="px-3 py-1 bg-white border border-slate-200 text-slate-600 rounded-lg font-black text-[11px] hover:bg-slate-50">Cancel</button>
+                          <button onClick={() => doArchive(row, archiveWithClone)} title="Confirm archive — moves document in Datto and removes portal actions" className="px-3 py-1 bg-amber-500 text-white rounded-lg font-black text-[11px] hover:bg-amber-600">Confirm</button>
+                          <button onClick={() => setConfirmingArchive(null)} title="Cancel" className="px-3 py-1 bg-white border border-slate-200 text-slate-600 rounded-lg font-black text-[11px] hover:bg-slate-50">Cancel</button>
                         </div>
                       </td>
                     </tr>
@@ -2487,7 +2490,7 @@ const DocHealthTab = ({ siteId, onComplianceUpdate, onJumpToActions, role, onArc
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg mx-4 flex flex-col" style={{ maxHeight: '80vh' }}>
             <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
               <h3 className="font-black text-slate-800 text-sm uppercase tracking-widest flex items-center gap-2"><Archive size={14} />Archive Log</h3>
-              <button onClick={() => setShowBulkLog(false)} className="text-slate-400 hover:text-slate-600"><X size={16} /></button>
+              <button onClick={() => setShowBulkLog(false)} title="Close log" className="text-slate-400 hover:text-slate-600"><X size={16} /></button>
             </div>
             <div className="overflow-y-auto flex-1 divide-y divide-slate-100">
               {bulkLog.map((entry, idx) => (
@@ -2514,7 +2517,7 @@ const DocHealthTab = ({ siteId, onComplianceUpdate, onJumpToActions, role, onArc
                     {entry.undone && <p className="text-[11px] text-slate-400 italic">Restored to original location</p>}
                   </div>
                   {entry.success && !entry.undone && (entry.archivedFileId || entry.cloneFileId) && (
-                    <button onClick={() => undoBulkEntry(entry, idx)} className="flex items-center gap-1.5 text-[11px] font-bold text-indigo-600 hover:text-indigo-800 flex-shrink-0">
+                    <button onClick={() => undoBulkEntry(entry, idx)} title="Restore document to its original location (doc unaffected in portal)" className="flex items-center gap-1.5 text-[11px] font-bold text-indigo-600 hover:text-indigo-800 flex-shrink-0">
                       <RotateCcw size={11} />Undo
                     </button>
                   )}
@@ -3078,7 +3081,7 @@ const SuperadminPanel = ({ onViewSite, onViewOrg, onSyncSite }: { onViewSite: (s
         <div className="space-y-4">
           <div className="flex justify-between items-center">
             <h3 className="font-black text-slate-900 uppercase tracking-widest text-sm">{organisations.length} Organisation{organisations.length !== 1 ? 's' : ''}</h3>
-            <button onClick={() => setShowOrgForm(v => !v)} className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-xl text-[11px] font-black uppercase tracking-wider hover:bg-indigo-700"><Plus size={13} />Add Organisation</button>
+            <button onClick={() => setShowOrgForm(v => !v)} className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-xl text-[11px] font-black uppercase tracking-wider hover:bg-indigo-700" title="Add a new organisation"><Plus size={13} />Add Organisation</button>
           </div>
 
           {showOrgForm && (
@@ -3101,8 +3104,8 @@ const SuperadminPanel = ({ onViewSite, onViewOrg, onSyncSite }: { onViewSite: (s
                 orgForPicker={null} labelText="Datto Root Folder" labelHint="browse to select the client folder in Datto"
               />
               <div className="flex gap-3">
-                <button onClick={handleCreateOrg} className="px-6 py-2.5 bg-indigo-600 text-white rounded-xl text-[11px] font-black uppercase tracking-wider hover:bg-indigo-700">Create Organisation</button>
-                <button onClick={() => { setShowOrgForm(false); setShowOrgFolderPicker(false); }} className="px-6 py-2.5 bg-white border border-slate-200 text-slate-500 rounded-xl text-[11px] font-black uppercase tracking-wider">Cancel</button>
+                <button onClick={handleCreateOrg} className="px-6 py-2.5 bg-indigo-600 text-white rounded-xl text-[11px] font-black uppercase tracking-wider hover:bg-indigo-700" title="Create this organisation in the portal">Create Organisation</button>
+                <button onClick={() => { setShowOrgForm(false); setShowOrgFolderPicker(false); }} className="px-6 py-2.5 bg-white border border-slate-200 text-slate-500 rounded-xl text-[11px] font-black uppercase tracking-wider" title="Cancel without saving">Cancel</button>
               </div>
             </div>
           )}
@@ -3128,12 +3131,12 @@ const SuperadminPanel = ({ onViewSite, onViewOrg, onSyncSite }: { onViewSite: (s
                               : <span className="text-slate-300 text-xs">—</span>}
                           </td>
                           <td className="px-6 py-4 font-bold text-slate-800">
-                            <button onClick={e => { e.stopPropagation(); setSelectedOrgFilter(org.id); setActiveTab('sites'); setEditingOrgId(null); setEditingSiteId(null); setShowEditOrgPicker(false); }} className="hover:text-indigo-600 hover:underline text-left">{org.name}</button>
+                            <button onClick={e => { e.stopPropagation(); setSelectedOrgFilter(org.id); setActiveTab('sites'); setEditingOrgId(null); setEditingSiteId(null); setShowEditOrgPicker(false); }} className="hover:text-indigo-600 hover:underline text-left" title="View this organisation's sites">{org.name}</button>
                             {(() => { const orgSites = sites.filter(s => s.organisation_id === org.id); if (orgSites.length === 0) return null; return (
                               <div className="flex gap-2 mt-0.5">
-                                <button onClick={e => { e.stopPropagation(); onViewOrg(orgSites, org.id, 'advisor'); }} className="text-[10px] font-bold text-indigo-500 hover:text-indigo-700 hover:underline">View as advisor</button>
+                                <button onClick={e => { e.stopPropagation(); onViewOrg(orgSites, org.id, 'advisor'); }} className="text-[10px] font-bold text-indigo-500 hover:text-indigo-700 hover:underline" title="Switch to advisor view for this organisation">View as advisor</button>
                                 <span className="text-slate-300 text-[10px]">|</span>
-                                <button onClick={e => { e.stopPropagation(); onViewOrg(orgSites, org.id, 'client'); }} className="text-[10px] font-bold text-indigo-500 hover:text-indigo-700 hover:underline">View as client</button>
+                                <button onClick={e => { e.stopPropagation(); onViewOrg(orgSites, org.id, 'client'); }} className="text-[10px] font-bold text-indigo-500 hover:text-indigo-700 hover:underline" title="Switch to client view for this organisation">View as client</button>
                               </div>
                             ); })()}
                           </td>
@@ -3155,7 +3158,7 @@ const SuperadminPanel = ({ onViewSite, onViewOrg, onSyncSite }: { onViewSite: (s
                                   title="Run AI sync for all sites in this org"
                                 ><RefreshCw size={14} /></button>
                               )}
-                              <button onClick={e => { e.stopPropagation(); handleDeleteOrg(org.id); }} className="text-rose-400 hover:text-rose-600 p-1.5 rounded-lg hover:bg-rose-50"><X size={14} /></button>
+                              <button onClick={e => { e.stopPropagation(); handleDeleteOrg(org.id); }} className="text-rose-400 hover:text-rose-600 p-1.5 rounded-lg hover:bg-rose-50" title="Permanently delete this organisation from the portal"><X size={14} /></button>
                             </div>
                           </td>
                         </tr>
@@ -3224,8 +3227,8 @@ const SuperadminPanel = ({ onViewSite, onViewOrg, onSyncSite }: { onViewSite: (s
                                     )}
                                   </div>
                                   <div className="flex gap-2 pt-1">
-                                    <button onClick={() => handleUpdateOrg(org.id)} className="px-4 py-2 bg-indigo-600 text-white rounded-xl text-[11px] font-black uppercase tracking-wider hover:bg-indigo-700">Save Changes</button>
-                                    <button onClick={() => { setEditingOrgId(null); setShowEditOrgPicker(false); setOrgAdvisorSearch(''); setOrgClientSearch(''); }} className="px-4 py-2 bg-white border border-slate-200 text-slate-500 rounded-xl text-[11px] font-black uppercase tracking-wider">Cancel</button>
+                                    <button onClick={() => handleUpdateOrg(org.id)} className="px-4 py-2 bg-indigo-600 text-white rounded-xl text-[11px] font-black uppercase tracking-wider hover:bg-indigo-700" title="Save organisation changes">Save Changes</button>
+                                    <button onClick={() => { setEditingOrgId(null); setShowEditOrgPicker(false); setOrgAdvisorSearch(''); setOrgClientSearch(''); }} className="px-4 py-2 bg-white border border-slate-200 text-slate-500 rounded-xl text-[11px] font-black uppercase tracking-wider" title="Cancel without saving">Cancel</button>
                                   </div>
                                 </div>
                                 {/* Right: user assignment */}
@@ -3236,7 +3239,7 @@ const SuperadminPanel = ({ onViewSite, onViewOrg, onSyncSite }: { onViewSite: (s
                                       {assignments.filter((a: any) => a.organisation_id === org.id).map((a: any) => (
                                         <div key={a.id} className="flex items-center justify-between px-3 py-1.5 bg-white border border-slate-200 rounded-xl text-sm">
                                           <span className="font-bold text-slate-700">{users.find(u => u.id === a.advisor_id)?.email || a.advisor_id}</span>
-                                          <button onClick={() => handleDeleteAssignment(a.id)} className="text-rose-400 hover:text-rose-600 p-0.5 rounded"><X size={13} /></button>
+                                          <button onClick={() => handleDeleteAssignment(a.id)} className="text-rose-400 hover:text-rose-600 p-0.5 rounded" title="Remove this advisor from the organisation"><X size={13} /></button>
                                         </div>
                                       ))}
                                       {assignments.filter((a: any) => a.organisation_id === org.id).length === 0 && <p className="text-xs text-slate-400">No advisors assigned</p>}
@@ -3246,7 +3249,7 @@ const SuperadminPanel = ({ onViewSite, onViewOrg, onSyncSite }: { onViewSite: (s
                                       {orgAdvisorSearch && (
                                         <div className="absolute z-10 left-0 right-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-lg overflow-hidden">
                                           {advisors.filter(a => a.email.toLowerCase().includes(orgAdvisorSearch.toLowerCase()) && !assignments.some((as: any) => as.organisation_id === org.id && as.advisor_id === a.id)).slice(0, 5).map(a => (
-                                            <button key={a.id} onClick={() => handleAddOrgAdvisor(org.id, a.id)} className="w-full text-left px-4 py-2.5 text-sm font-bold text-slate-700 hover:bg-indigo-50 hover:text-indigo-700">{a.email}</button>
+                                            <button key={a.id} onClick={() => handleAddOrgAdvisor(org.id, a.id)} className="w-full text-left px-4 py-2.5 text-sm font-bold text-slate-700 hover:bg-indigo-50 hover:text-indigo-700" title="Add this advisor to the organisation">{a.email}</button>
                                           ))}
                                           {advisors.filter(a => a.email.toLowerCase().includes(orgAdvisorSearch.toLowerCase()) && !assignments.some((as: any) => as.organisation_id === org.id && as.advisor_id === a.id)).length === 0 && <p className="px-4 py-2.5 text-sm text-slate-400">No matches</p>}
                                         </div>
@@ -3263,7 +3266,7 @@ const SuperadminPanel = ({ onViewSite, onViewOrg, onSyncSite }: { onViewSite: (s
                                         return (
                                           <div key={u.id} className="bg-white border border-slate-200 rounded-xl overflow-hidden">
                                             <div className="flex items-center justify-between px-3 py-1.5 text-sm">
-                                              <button onClick={() => setExpandingUserId(isExpanded ? null : u.id)} className="flex items-center gap-1.5 font-bold text-slate-700 hover:text-indigo-600 text-left">
+                                              <button onClick={() => setExpandingUserId(isExpanded ? null : u.id)} className="flex items-center gap-1.5 font-bold text-slate-700 hover:text-indigo-600 text-left" title="Expand to manage site access">
                                                 <ChevronRight size={12} className={`transition-transform ${isExpanded ? 'rotate-90' : ''}`} />
                                                 {u.email}
                                                 {assignedSiteIds.size > 0 && <span className="text-[10px] font-black text-indigo-500 bg-indigo-50 px-1.5 py-0.5 rounded-full">{assignedSiteIds.size} site{assignedSiteIds.size !== 1 ? 's' : ''}</span>}
@@ -3273,7 +3276,7 @@ const SuperadminPanel = ({ onViewSite, onViewOrg, onSyncSite }: { onViewSite: (s
                                                   <input type="checkbox" checked={!!u.profile?.view_only} onChange={e => handleSetViewOnly(u.id, e.target.checked)} className="accent-indigo-600" />
                                                   Viewer only
                                                 </label>
-                                                <button onClick={() => handleRemoveOrgClient(u.id)} className="text-rose-400 hover:text-rose-600 p-0.5 rounded"><X size={13} /></button>
+                                                <button onClick={() => handleRemoveOrgClient(u.id)} className="text-rose-400 hover:text-rose-600 p-0.5 rounded" title="Remove this client from the organisation"><X size={13} /></button>
                                               </div>
                                             </div>
                                             {isExpanded && (
@@ -3307,7 +3310,7 @@ const SuperadminPanel = ({ onViewSite, onViewOrg, onSyncSite }: { onViewSite: (s
                                       {orgClientSearch && (
                                         <div className="absolute z-10 left-0 right-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-lg overflow-hidden">
                                           {users.filter(u => u.profile?.role === 'client' && u.email.toLowerCase().includes(orgClientSearch.toLowerCase()) && u.profile?.organisation_id !== org.id).slice(0, 5).map(u => (
-                                            <button key={u.id} onClick={() => handleAddOrgClient(org.id, u.id)} className="w-full text-left px-4 py-2 text-sm font-bold text-slate-700 hover:bg-indigo-50 hover:text-indigo-700">{u.email}</button>
+                                            <button key={u.id} onClick={() => handleAddOrgClient(org.id, u.id)} className="w-full text-left px-4 py-2 text-sm font-bold text-slate-700 hover:bg-indigo-50 hover:text-indigo-700" title="Add this client to the organisation">{u.email}</button>
                                           ))}
                                           {users.filter(u => u.profile?.role === 'client' && u.email.toLowerCase().includes(orgClientSearch.toLowerCase()) && u.profile?.organisation_id !== org.id).length === 0 && <p className="px-4 py-2 text-sm text-slate-400">No matches</p>}
                                         </div>
@@ -3339,7 +3342,7 @@ const SuperadminPanel = ({ onViewSite, onViewOrg, onSyncSite }: { onViewSite: (s
                 {organisations.map(org => <option key={org.id} value={org.id}>{org.name}</option>)}
               </select>
             </div>
-            <button onClick={() => setShowSiteForm(v => !v)} className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-xl text-[11px] font-black uppercase tracking-wider hover:bg-indigo-700"><Plus size={13} />Add Site</button>
+            <button onClick={() => setShowSiteForm(v => !v)} className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-xl text-[11px] font-black uppercase tracking-wider hover:bg-indigo-700" title="Add a new site"><Plus size={13} />Add Site</button>
           </div>
 
           {showSiteForm && (
@@ -3379,8 +3382,8 @@ const SuperadminPanel = ({ onViewSite, onViewOrg, onSyncSite }: { onViewSite: (s
                 orgForPicker={selectedOrgForSitePicker} labelText="Datto Folder" labelHint="optional — if blank, uses the organisation folder"
               />
               <div className="flex gap-3">
-                <button onClick={handleCreateSite} className="px-6 py-2.5 bg-indigo-600 text-white rounded-xl text-[11px] font-black uppercase tracking-wider hover:bg-indigo-700">Create Site</button>
-                <button onClick={() => { setShowSiteForm(false); setShowSiteFolderPicker(false); }} className="px-6 py-2.5 bg-white border border-slate-200 text-slate-500 rounded-xl text-[11px] font-black uppercase tracking-wider">Cancel</button>
+                <button onClick={handleCreateSite} className="px-6 py-2.5 bg-indigo-600 text-white rounded-xl text-[11px] font-black uppercase tracking-wider hover:bg-indigo-700" title="Create this site in the portal">Create Site</button>
+                <button onClick={() => { setShowSiteForm(false); setShowSiteFolderPicker(false); }} className="px-6 py-2.5 bg-white border border-slate-200 text-slate-500 rounded-xl text-[11px] font-black uppercase tracking-wider" title="Cancel without saving">Cancel</button>
               </div>
             </div>
           )}
@@ -3402,9 +3405,9 @@ const SuperadminPanel = ({ onViewSite, onViewOrg, onSyncSite }: { onViewSite: (s
                           <td className="px-6 py-4 font-bold text-slate-800">
                             {site.name}
                             <div className="flex gap-2 mt-0.5">
-                              <button onClick={e => { e.stopPropagation(); onViewSite(site, 'advisor'); }} className="text-[10px] font-bold text-indigo-500 hover:text-indigo-700 hover:underline">View as advisor</button>
+                              <button onClick={e => { e.stopPropagation(); onViewSite(site, 'advisor'); }} className="text-[10px] font-bold text-indigo-500 hover:text-indigo-700 hover:underline" title="Switch to advisor view for this site">View as advisor</button>
                               <span className="text-slate-300 text-[10px]">|</span>
-                              <button onClick={e => { e.stopPropagation(); onViewSite(site, 'client'); }} className="text-[10px] font-bold text-indigo-500 hover:text-indigo-700 hover:underline">View as client</button>
+                              <button onClick={e => { e.stopPropagation(); onViewSite(site, 'client'); }} className="text-[10px] font-bold text-indigo-500 hover:text-indigo-700 hover:underline" title="Switch to client view for this site">View as client</button>
                             </div>
                           </td>
                           <td className="px-6 py-4 text-sm text-slate-500">{site.organisations?.name || '—'}</td>
@@ -3435,7 +3438,7 @@ const SuperadminPanel = ({ onViewSite, onViewOrg, onSyncSite }: { onViewSite: (s
                                   ><Settings size={14} /></button>
                                 </>
                               )}
-                              <button onClick={e => { e.stopPropagation(); handleDeleteSite(site.id); }} className="text-rose-400 hover:text-rose-600 p-1.5 rounded-lg hover:bg-rose-50"><X size={14} /></button>
+                              <button onClick={e => { e.stopPropagation(); handleDeleteSite(site.id); }} className="text-rose-400 hover:text-rose-600 p-1.5 rounded-lg hover:bg-rose-50" title="Permanently delete this site from the portal"><X size={14} /></button>
                             </div>
                           </td>
                         </tr>
@@ -3489,7 +3492,7 @@ const SuperadminPanel = ({ onViewSite, onViewOrg, onSyncSite }: { onViewSite: (s
                                       {advisorSiteAssignments.filter((a: any) => a.site_id === site.id).map((a: any) => (
                                         <div key={a.id} className="flex items-center justify-between px-3 py-1.5 bg-white border border-slate-200 rounded-xl text-sm">
                                           <span className="font-bold text-slate-700">{users.find(u => u.id === a.advisor_id)?.email || a.advisor_id}</span>
-                                          <button onClick={() => handleDeleteAdvisorSiteAssignment(a.id)} className="text-rose-400 hover:text-rose-600 p-0.5 rounded"><X size={13} /></button>
+                                          <button onClick={() => handleDeleteAdvisorSiteAssignment(a.id)} className="text-rose-400 hover:text-rose-600 p-0.5 rounded" title="Remove this advisor from the site"><X size={13} /></button>
                                         </div>
                                       ))}
                                       {advisorSiteAssignments.filter((a: any) => a.site_id === site.id).length === 0 && <p className="text-[11px] text-slate-400">No advisors assigned</p>}
@@ -3499,7 +3502,7 @@ const SuperadminPanel = ({ onViewSite, onViewOrg, onSyncSite }: { onViewSite: (s
                                       {siteAdvisorSearch && (
                                         <div className="absolute z-10 left-0 right-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-lg overflow-hidden">
                                           {advisors.filter(a => a.email.toLowerCase().includes(siteAdvisorSearch.toLowerCase()) && !advisorSiteAssignments.some((as: any) => as.site_id === site.id && as.advisor_id === a.id)).slice(0, 5).map(a => (
-                                            <button key={a.id} onClick={() => handleAddSiteAdvisor(site.id, a.id)} className="w-full text-left px-4 py-2 text-sm font-bold text-slate-700 hover:bg-indigo-50 hover:text-indigo-700">{a.email}</button>
+                                            <button key={a.id} onClick={() => handleAddSiteAdvisor(site.id, a.id)} className="w-full text-left px-4 py-2 text-sm font-bold text-slate-700 hover:bg-indigo-50 hover:text-indigo-700" title="Add this advisor to the site">{a.email}</button>
                                           ))}
                                           {advisors.filter(a => a.email.toLowerCase().includes(siteAdvisorSearch.toLowerCase()) && !advisorSiteAssignments.some((as: any) => as.site_id === site.id && as.advisor_id === a.id)).length === 0 && <p className="px-4 py-2 text-sm text-slate-400">No matches</p>}
                                         </div>
@@ -3512,7 +3515,7 @@ const SuperadminPanel = ({ onViewSite, onViewOrg, onSyncSite }: { onViewSite: (s
                                       {clientSiteAssignments.filter((a: any) => a.site_id === site.id).map((a: any) => (
                                         <div key={a.id} className="flex items-center justify-between px-3 py-1.5 bg-white border border-slate-200 rounded-xl text-sm">
                                           <span className="font-bold text-slate-700">{users.find(u => u.id === a.client_user_id)?.email || a.client_user_id}</span>
-                                          <button onClick={() => handleDeleteClientSiteAssignment(a.id)} className="text-rose-400 hover:text-rose-600 p-0.5 rounded"><X size={13} /></button>
+                                          <button onClick={() => handleDeleteClientSiteAssignment(a.id)} className="text-rose-400 hover:text-rose-600 p-0.5 rounded" title="Remove this client from this site"><X size={13} /></button>
                                         </div>
                                       ))}
                                       {clientSiteAssignments.filter((a: any) => a.site_id === site.id).length === 0 && <p className="text-[11px] text-slate-400">No specific clients assigned</p>}
@@ -3522,7 +3525,7 @@ const SuperadminPanel = ({ onViewSite, onViewOrg, onSyncSite }: { onViewSite: (s
                                       {siteClientSearch && (
                                         <div className="absolute z-10 left-0 right-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-lg overflow-hidden">
                                           {users.filter((u: any) => u.profile?.role === 'client' && u.email.toLowerCase().includes(siteClientSearch.toLowerCase()) && !clientSiteAssignments.some((a: any) => a.site_id === site.id && a.client_user_id === u.id)).slice(0, 5).map((u: any) => (
-                                            <button key={u.id} onClick={() => handleAddSiteClient(site.id, u.id)} className="w-full text-left px-4 py-2 text-sm font-bold text-slate-700 hover:bg-indigo-50 hover:text-indigo-700">{u.email}</button>
+                                            <button key={u.id} onClick={() => handleAddSiteClient(site.id, u.id)} className="w-full text-left px-4 py-2 text-sm font-bold text-slate-700 hover:bg-indigo-50 hover:text-indigo-700" title="Restrict this client to this site">{u.email}</button>
                                           ))}
                                           {users.filter((u: any) => u.profile?.role === 'client' && u.email.toLowerCase().includes(siteClientSearch.toLowerCase()) && !clientSiteAssignments.some((a: any) => a.site_id === site.id && a.client_user_id === u.id)).length === 0 && <p className="px-4 py-2 text-sm text-slate-400">No matches</p>}
                                         </div>
@@ -3563,8 +3566,8 @@ const SuperadminPanel = ({ onViewSite, onViewOrg, onSyncSite }: { onViewSite: (s
                                     <button onClick={async () => {
                                       await handleUpdateSite(site.id);
                                       await Promise.all(siteServices.map(svc => fetch(`/api/sites/${site.id}/services`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ requirementId: svc.id, purchased: svc.purchased }) })));
-                                    }} className="px-4 py-2 bg-indigo-600 text-white rounded-xl text-[11px] font-black uppercase tracking-wider hover:bg-indigo-700">Save Changes</button>
-                                    <button onClick={() => { setEditingSiteId(null); setShowEditSitePicker(false); setSiteServices([]); setSiteAdvisorSearch(''); setSiteClientSearch(''); }} className="px-4 py-2 bg-white border border-slate-200 text-slate-500 rounded-xl text-[11px] font-black uppercase tracking-wider">Cancel</button>
+                                    }} className="px-4 py-2 bg-indigo-600 text-white rounded-xl text-[11px] font-black uppercase tracking-wider hover:bg-indigo-700" title="Save site changes">Save Changes</button>
+                                    <button onClick={() => { setEditingSiteId(null); setShowEditSitePicker(false); setSiteServices([]); setSiteAdvisorSearch(''); setSiteClientSearch(''); }} className="px-4 py-2 bg-white border border-slate-200 text-slate-500 rounded-xl text-[11px] font-black uppercase tracking-wider" title="Cancel without saving">Cancel</button>
                                   </div>
                                 </div>
                               ) : null}
@@ -3585,7 +3588,7 @@ const SuperadminPanel = ({ onViewSite, onViewOrg, onSyncSite }: { onViewSite: (s
         <div className="space-y-4">
           <div className="flex justify-between items-center">
             <h3 className="font-black text-slate-900 uppercase tracking-widest text-sm">{users.length} User{users.length !== 1 ? 's' : ''}</h3>
-            <button onClick={() => setShowUserForm(v => !v)} className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-xl text-[11px] font-black uppercase tracking-wider hover:bg-indigo-700"><Plus size={13} />Add User</button>
+            <button onClick={() => setShowUserForm(v => !v)} className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-xl text-[11px] font-black uppercase tracking-wider hover:bg-indigo-700" title="Add a new user account"><Plus size={13} />Add User</button>
           </div>
           {showUserForm && (
             <div className="bg-white border border-indigo-200 rounded-lg p-6 space-y-4">
@@ -3628,8 +3631,8 @@ const SuperadminPanel = ({ onViewSite, onViewOrg, onSyncSite }: { onViewSite: (s
                 </>
               )}
               <div className="flex gap-3">
-                <button onClick={handleCreateUser} className="px-6 py-2.5 bg-indigo-600 text-white rounded-xl text-[11px] font-black uppercase tracking-wider hover:bg-indigo-700">Create User</button>
-                <button onClick={() => setShowUserForm(false)} className="px-6 py-2.5 bg-white border border-slate-200 text-slate-500 rounded-xl text-[11px] font-black uppercase tracking-wider">Cancel</button>
+                <button onClick={handleCreateUser} className="px-6 py-2.5 bg-indigo-600 text-white rounded-xl text-[11px] font-black uppercase tracking-wider hover:bg-indigo-700" title="Create this user account">Create User</button>
+                <button onClick={() => setShowUserForm(false)} className="px-6 py-2.5 bg-white border border-slate-200 text-slate-500 rounded-xl text-[11px] font-black uppercase tracking-wider" title="Cancel without saving">Cancel</button>
               </div>
             </div>
           )}
@@ -3658,7 +3661,7 @@ const SuperadminPanel = ({ onViewSite, onViewOrg, onSyncSite }: { onViewSite: (s
                           <td className="px-6 py-4 text-right">
                             <div className="flex items-center justify-end gap-1">
                               {user.profile?.role !== 'superadmin' && <button onClick={e => { e.stopPropagation(); setAdminSetPwUser({ id: user.id, email: user.email }); setAdminSetPwValue(''); }} className="text-slate-400 hover:text-indigo-600 p-1.5 rounded-lg hover:bg-indigo-50" title="Set password"><KeyRound size={14} /></button>}
-                              {user.profile?.role !== 'superadmin' && <button onClick={e => { e.stopPropagation(); handleDeleteUser(user.id); }} className="text-rose-400 hover:text-rose-600 p-1.5 rounded-lg hover:bg-rose-50"><X size={14} /></button>}
+                              {user.profile?.role !== 'superadmin' && <button onClick={e => { e.stopPropagation(); handleDeleteUser(user.id); }} className="text-rose-400 hover:text-rose-600 p-1.5 rounded-lg hover:bg-rose-50" title="Permanently delete this user account"><X size={14} /></button>}
                             </div>
                           </td>
                         </tr>
@@ -3683,7 +3686,7 @@ const SuperadminPanel = ({ onViewSite, onViewOrg, onSyncSite }: { onViewSite: (s
                                   {userSiteSearch && (
                                     <div className="absolute z-10 left-0 right-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-lg overflow-hidden">
                                       {sites.filter((s: any) => s.name.toLowerCase().includes(userSiteSearch.toLowerCase()) && !userAssignments.some((a: any) => a.site_id === s.id)).slice(0, 5).map((s: any) => (
-                                        <button key={s.id} onClick={() => { handleAddSiteClient(s.id, user.id); setUserSiteSearch(''); }} className="w-full text-left px-4 py-2 text-sm font-bold text-slate-700 hover:bg-indigo-50 hover:text-indigo-700">{s.name}</button>
+                                        <button key={s.id} onClick={() => { handleAddSiteClient(s.id, user.id); setUserSiteSearch(''); }} className="w-full text-left px-4 py-2 text-sm font-bold text-slate-700 hover:bg-indigo-50 hover:text-indigo-700" title="Restrict this user to this site">{s.name}</button>
                                       ))}
                                       {sites.filter((s: any) => s.name.toLowerCase().includes(userSiteSearch.toLowerCase()) && !userAssignments.some((a: any) => a.site_id === s.id)).length === 0 && <p className="px-4 py-2 text-sm text-slate-400">No matches</p>}
                                     </div>
@@ -3719,9 +3722,9 @@ const SuperadminPanel = ({ onViewSite, onViewOrg, onSyncSite }: { onViewSite: (s
               </div>
             </div>
             <div className="flex gap-2">
-              <button onClick={() => setShowAddReqForm(v => !v)} className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 text-slate-600 rounded-xl text-[11px] font-black uppercase tracking-wider hover:bg-slate-50"><Plus size={13} />Add Requirement</button>
+              <button onClick={() => setShowAddReqForm(v => !v)} className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 text-slate-600 rounded-xl text-[11px] font-black uppercase tracking-wider hover:bg-slate-50" title="Add a requirement manually"><Plus size={13} />Add Requirement</button>
               <button onClick={handleGenerateRequirements} disabled={generating}
-                className="flex items-center gap-2 px-4 py-2 bg-violet-600 text-white rounded-xl text-[11px] font-black uppercase tracking-wider hover:bg-violet-700 disabled:opacity-50">
+                className="flex items-center gap-2 px-4 py-2 bg-violet-600 text-white rounded-xl text-[11px] font-black uppercase tracking-wider hover:bg-violet-700 disabled:opacity-50" title="Generate requirements for this site type using AI">
                 <Sparkles size={13} />{generating ? 'Generating…' : 'Generate with AI'}
               </button>
             </div>
@@ -3744,8 +3747,8 @@ const SuperadminPanel = ({ onViewSite, onViewOrg, onSyncSite }: { onViewSite: (s
                 <div className="flex items-center gap-3 pt-6"><input type="checkbox" id="newMandatory" checked={newReqMandatory} onChange={e => setNewReqMandatory(e.target.checked)} className="rounded" /><label htmlFor="newMandatory" className="text-sm font-bold text-slate-700">Mandatory (legally required)</label></div>
               </div>
               <div className="flex gap-3">
-                <button onClick={handleAddRequirement} className="px-6 py-2.5 bg-indigo-600 text-white rounded-xl text-[11px] font-black uppercase tracking-wider hover:bg-indigo-700">Add Requirement</button>
-                <button onClick={() => setShowAddReqForm(false)} className="px-6 py-2.5 bg-white border border-slate-200 text-slate-500 rounded-xl text-[11px] font-black uppercase tracking-wider">Cancel</button>
+                <button onClick={handleAddRequirement} className="px-6 py-2.5 bg-indigo-600 text-white rounded-xl text-[11px] font-black uppercase tracking-wider hover:bg-indigo-700" title="Save this requirement to the portal">Add Requirement</button>
+                <button onClick={() => setShowAddReqForm(false)} className="px-6 py-2.5 bg-white border border-slate-200 text-slate-500 rounded-xl text-[11px] font-black uppercase tracking-wider" title="Cancel without saving">Cancel</button>
               </div>
             </div>
           )}
@@ -3755,11 +3758,11 @@ const SuperadminPanel = ({ onViewSite, onViewOrg, onSyncSite }: { onViewSite: (s
             <div className="bg-white border border-violet-200 rounded-lg overflow-hidden">
               <div className="bg-violet-600 px-6 py-4 flex items-center justify-between">
                 <h4 className="font-black text-white text-sm uppercase tracking-widest flex items-center gap-2"><Sparkles size={14} />Review AI-Generated Requirements</h4>
-                <button onClick={() => setGeneratePreview(null)} className="text-violet-200 hover:text-white"><X size={18} /></button>
+                <button onClick={() => setGeneratePreview(null)} className="text-violet-200 hover:text-white" title="Dismiss AI preview"><X size={18} /></button>
               </div>
               <div className="px-6 pt-4 flex items-center justify-between">
                 <p className="text-[11px] text-slate-500 font-bold">Select the requirements to add. These will replace existing requirements for {SITE_TYPE_LABELS[reqSiteType]}.</p>
-                <button onClick={() => { const allSelected = generatePreview.every((r: any) => r.selected); setGeneratePreview(generatePreview.map((r: any) => ({ ...r, selected: !allSelected }))); }} className="text-[11px] font-black text-violet-600 hover:text-violet-800 shrink-0 ml-4">
+                <button onClick={() => { const allSelected = generatePreview.every((r: any) => r.selected); setGeneratePreview(generatePreview.map((r: any) => ({ ...r, selected: !allSelected }))); }} className="text-[11px] font-black text-violet-600 hover:text-violet-800 shrink-0 ml-4" title="Toggle selection for all requirements">
                   {generatePreview.every((r: any) => r.selected) ? 'Deselect All' : 'Select All'}
                 </button>
               </div>
@@ -3776,8 +3779,8 @@ const SuperadminPanel = ({ onViewSite, onViewOrg, onSyncSite }: { onViewSite: (s
                 ))}
               </div>
               <div className="px-6 py-4 flex items-center gap-3 border-t border-slate-100">
-                <button onClick={handleConfirmGenerate} className="px-6 py-2.5 bg-violet-600 text-white rounded-xl text-[11px] font-black uppercase tracking-wider hover:bg-violet-700">Save {generatePreview.filter((r: any) => r.selected).length} Requirement{generatePreview.filter((r: any) => r.selected).length !== 1 ? 's' : ''}</button>
-                <button onClick={() => setGeneratePreview(null)} className="px-6 py-2.5 bg-white border border-slate-200 text-slate-500 rounded-xl text-[11px] font-black uppercase tracking-wider">Cancel</button>
+                <button onClick={handleConfirmGenerate} className="px-6 py-2.5 bg-violet-600 text-white rounded-xl text-[11px] font-black uppercase tracking-wider hover:bg-violet-700" title="Save selected requirements to the portal">Save {generatePreview.filter((r: any) => r.selected).length} Requirement{generatePreview.filter((r: any) => r.selected).length !== 1 ? 's' : ''}</button>
+                <button onClick={() => setGeneratePreview(null)} className="px-6 py-2.5 bg-white border border-slate-200 text-slate-500 rounded-xl text-[11px] font-black uppercase tracking-wider" title="Cancel without saving">Cancel</button>
               </div>
             </div>
           )}
@@ -3805,7 +3808,7 @@ const SuperadminPanel = ({ onViewSite, onViewOrg, onSyncSite }: { onViewSite: (s
                         <td className="px-6 py-4">{req.is_mandatory ? <span className="text-[10px] font-black uppercase px-2 py-1 rounded-full bg-rose-100 text-rose-700 border border-rose-200">Mandatory</span> : <span className="text-[10px] font-black uppercase px-2 py-1 rounded-full bg-slate-100 text-slate-500 border border-slate-200">Recommended</span>}</td>
                         <td className="px-6 py-4 text-[11px] text-slate-400 font-mono">{req.legal_basis || '—'}</td>
                         <td className="px-6 py-4 text-right">
-                          <button onClick={e => { e.stopPropagation(); handleDeleteRequirement(req.id); }} className="text-rose-400 hover:text-rose-600 p-1.5 rounded-lg hover:bg-rose-50"><X size={14} /></button>
+                          <button onClick={e => { e.stopPropagation(); handleDeleteRequirement(req.id); }} className="text-rose-400 hover:text-rose-600 p-1.5 rounded-lg hover:bg-rose-50" title="Permanently delete this requirement"><X size={14} /></button>
                         </td>
                       </tr>
                       {editingReqId === req.id && (
@@ -3818,7 +3821,7 @@ const SuperadminPanel = ({ onViewSite, onViewOrg, onSyncSite }: { onViewSite: (s
                               <div><label className={labelClass}>Legal Basis</label><input value={editReqLegal} onChange={e => setEditReqLegal(e.target.value)} className={inputClass} /></div>
                               <div className="flex items-center gap-3 pt-6"><input type="checkbox" id={`mand-${req.id}`} checked={editReqMandatory} onChange={e => setEditReqMandatory(e.target.checked)} className="rounded" /><label htmlFor={`mand-${req.id}`} className="text-sm font-bold text-slate-700">Mandatory</label></div>
                             </div>
-                            <div className="flex gap-3"><button onClick={() => handleUpdateRequirement(req.id)} className="px-5 py-2 bg-indigo-600 text-white rounded-xl text-[11px] font-black uppercase tracking-wider hover:bg-indigo-700">Save</button><button onClick={() => setEditingReqId(null)} className="px-5 py-2 bg-white border border-slate-200 text-slate-500 rounded-xl text-[11px] font-black uppercase tracking-wider">Cancel</button></div>
+                            <div className="flex gap-3"><button onClick={() => handleUpdateRequirement(req.id)} className="px-5 py-2 bg-indigo-600 text-white rounded-xl text-[11px] font-black uppercase tracking-wider hover:bg-indigo-700" title="Save requirement changes">Save</button><button onClick={() => setEditingReqId(null)} className="px-5 py-2 bg-white border border-slate-200 text-slate-500 rounded-xl text-[11px] font-black uppercase tracking-wider" title="Cancel without saving">Cancel</button></div>
                           </div>
                         </td></tr>
                       )}
@@ -4181,7 +4184,7 @@ const SuperadminPanel = ({ onViewSite, onViewOrg, onSyncSite }: { onViewSite: (s
             {flashError && <div className="bg-rose-50 border border-rose-200 text-rose-700 text-xs font-bold px-3 py-2 rounded-xl mb-3">{flashError}</div>}
             <div><label className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1 block">New Password</label><div className="relative"><Lock size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300" /><input type="password" value={adminSetPwValue} onChange={e => setAdminSetPwValue(e.target.value)} onKeyDown={async e => { if (e.key === 'Enter') { /* submit */ } }} placeholder="Min. 8 characters" className="w-full pl-9 pr-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300" /></div></div>
             <div className="flex gap-2 mt-5">
-              <button onClick={() => { setAdminSetPwUser(null); setAdminSetPwValue(''); }} className="flex-1 py-2.5 border border-slate-200 rounded-xl text-[11px] font-black uppercase tracking-wider text-slate-500 hover:bg-slate-50">Cancel</button>
+              <button onClick={() => { setAdminSetPwUser(null); setAdminSetPwValue(''); }} className="flex-1 py-2.5 border border-slate-200 rounded-xl text-[11px] font-black uppercase tracking-wider text-slate-500 hover:bg-slate-50" title="Cancel without saving">Cancel</button>
               <button disabled={adminSetPwLoading} onClick={async () => {
                 if (adminSetPwValue.length < 8) { flash('Password must be at least 8 characters', true); return; }
                 setAdminSetPwLoading(true);
@@ -4189,7 +4192,7 @@ const SuperadminPanel = ({ onViewSite, onViewOrg, onSyncSite }: { onViewSite: (s
                 setAdminSetPwLoading(false);
                 if (!res.ok) { const d = await res.json().catch(() => ({})); flash(apiErr(d, 'Failed to set password'), true); return; }
                 setAdminSetPwUser(null); setAdminSetPwValue(''); flash('Password updated');
-              }} className="flex-1 py-2.5 bg-indigo-600 text-white rounded-xl text-[11px] font-black uppercase tracking-wider hover:bg-indigo-700 disabled:opacity-50">{adminSetPwLoading ? 'Saving…' : 'Set Password'}</button>
+              }} className="flex-1 py-2.5 bg-indigo-600 text-white rounded-xl text-[11px] font-black uppercase tracking-wider hover:bg-indigo-700 disabled:opacity-50" title="Set new password for this user">{adminSetPwLoading ? 'Saving…' : 'Set Password'}</button>
             </div>
           </div>
         </div>
@@ -4325,6 +4328,13 @@ const DattoPathModal = ({ userId, currentPath, onClose, onSave }: {
   );
 };
 
+const fmtDate = (d: string | null) => {
+  if (!d) return null;
+  const m = d.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (m) return `${m[3]}/${m[2]}/${m[1].slice(2)}`;
+  return d;
+};
+
 const AiSuggestionsPanel = ({ siteId, siteName, onClose, onCountChange, onActionAccepted }: {
   siteId: string;
   siteName: string;
@@ -4335,33 +4345,41 @@ const AiSuggestionsPanel = ({ siteId, siteName, onClose, onCountChange, onAction
   type Suggestion = {
     id: string; title: string; hazard_ref: string | null; hazard: string | null;
     existing_controls: string | null; risk_level: string | null; risk_rating: string | null;
-    source_document_name: string; due_date: string | null; responsible_person: string | null;
+    source_document_name: string; source_document_id: string | null; source_folder_path: string | null;
+    due_date: string | null; responsible_person: string | null; issue_date: string | null; regulation: string | null;
   };
-  type EditFields = { title: string; risk_level: string; due_date: string; responsible_person: string };
+  type ItemEdits = { title: string; risk_level: string; due_date: string; responsible_person: string };
   type DocGroup = { docName: string; items: Suggestion[] };
 
   const [groups, setGroups] = useState<DocGroup[]>([]);
   const [loading, setLoading] = useState(true);
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [editFields, setEditFields] = useState<EditFields>({ title: '', risk_level: '', due_date: '', responsible_person: '' });
+  const [itemEdits, setItemEdits] = useState<Record<string, ItemEdits>>({});
   const [working, setWorking] = useState<Set<string>>(new Set());
-  const [expandedDetails, setExpandedDetails] = useState<Set<string>>(new Set());
   const [skipped, setSkipped] = useState<Set<string>>(new Set());
+  const [resolveExpanded, setResolveExpanded] = useState<Record<string, boolean>>({});
+  const [resolveDates, setResolveDates] = useState<Record<string, string>>({});
+  const titleRefs = useRef<Record<string, HTMLTextAreaElement>>({});
+  type LogEntry = { action: 'accepted' | 'resolved' | 'skipped' | 'rejected'; docName: string; title: string };
+  const [sessionLog, setSessionLog] = useState<LogEntry[]>([]);
+  const [logExpanded, setLogExpanded] = useState(false);
 
   const totalRemaining = groups.reduce((s, g) => s + g.items.filter(i => !skipped.has(i.id)).length, 0);
 
   const load = async () => {
     setLoading(true);
     const { data } = await supabase.from('actions')
-      .select('id, title, hazard_ref, hazard, existing_controls, risk_level, risk_rating, source_document_name, due_date, responsible_person')
+      .select('id, title, hazard_ref, hazard, existing_controls, risk_level, risk_rating, source_document_name, source_document_id, source_folder_path, due_date, responsible_person, issue_date, regulation')
       .eq('site_id', siteId).eq('status', 'ai_suggested').order('source_document_name').order('hazard_ref');
     const map = new Map<string, Suggestion[]>();
+    const edits: Record<string, ItemEdits> = {};
     for (const a of (data ?? [])) {
       const doc = a.source_document_name ?? 'Unknown document';
       if (!map.has(doc)) map.set(doc, []);
       map.get(doc)!.push(a as Suggestion);
+      edits[a.id] = { title: a.title, risk_level: a.risk_level ?? '', due_date: a.due_date ?? '', responsible_person: a.responsible_person ?? '' };
     }
     setGroups(Array.from(map.entries()).map(([docName, items]) => ({ docName, items })));
+    setItemEdits(edits);
     onCountChange(data?.length ?? 0);
     setLoading(false);
   };
@@ -4376,41 +4394,83 @@ const AiSuggestionsPanel = ({ siteId, siteName, onClose, onCountChange, onAction
     });
   };
 
-  const accept = async (item: Suggestion, overrides?: Partial<EditFields>) => {
-    setWorking(prev => new Set([...prev, item.id]));
-    const updates: Record<string, any> = { status: 'open', is_suggested: false };
-    if (overrides) {
-      if (overrides.title) updates.title = overrides.title;
-      if (overrides.risk_level) updates.risk_level = overrides.risk_level;
-      updates.due_date = overrides.due_date || null;
-      updates.responsible_person = overrides.responsible_person || null;
+  const getItemInfo = (id: string) => {
+    for (const g of groups) {
+      const item = g.items.find(i => i.id === id);
+      if (item) return { docName: g.docName, title: itemEdits[id]?.title || item.title };
     }
-    const { error, data } = await supabase.from('actions').update(updates).eq('id', item.id).select().single();
-    if (!error && data) { onActionAccepted(data); remove(item.id); }
-    setWorking(prev => { const n = new Set(prev); n.delete(item.id); return n; });
-    setEditingId(null);
+    return null;
+  };
+
+  const accept = async (id: string) => {
+    setWorking(prev => new Set([...prev, id]));
+    const edits = itemEdits[id];
+    const info = getItemInfo(id);
+    const updates: Record<string, any> = { status: 'open', is_suggested: false };
+    let finalTitle = info?.title ?? '';
+    if (edits) {
+      const titleVal = titleRefs.current[id]?.value ?? edits.title;
+      if (titleVal) { updates.title = titleVal; finalTitle = titleVal; }
+      if (edits.risk_level) updates.risk_level = edits.risk_level;
+      updates.due_date = edits.due_date || null;
+      updates.responsible_person = edits.responsible_person || null;
+    }
+    const { error, data } = await supabase.from('actions').update(updates).eq('id', id).select().single();
+    if (!error && data) {
+      if (info) setSessionLog(prev => [...prev, { action: 'accepted', docName: info.docName, title: finalTitle }]);
+      onActionAccepted(data); remove(id);
+    }
+    setWorking(prev => { const n = new Set(prev); n.delete(id); return n; });
   };
 
   const markResolved = async (id: string) => {
     setWorking(prev => new Set([...prev, id]));
-    await supabase.from('actions').update({ status: 'resolved', is_suggested: false, resolved_date: new Date().toISOString().slice(0, 10) }).eq('id', id);
+    const info = getItemInfo(id);
+    const resolvedDate = resolveDates[id] ?? new Date().toISOString().slice(0, 10);
+    await supabase.from('actions').update({ status: 'resolved', is_suggested: false, resolved_date: resolvedDate }).eq('id', id);
+    if (info) setSessionLog(prev => [...prev, { action: 'resolved', docName: info.docName, title: info.title }]);
     remove(id);
     setWorking(prev => { const n = new Set(prev); n.delete(id); return n; });
+    setResolveExpanded(prev => { const n = { ...prev }; delete n[id]; return n; });
   };
 
   const reject = async (id: string) => {
     setWorking(prev => new Set([...prev, id]));
+    const info = getItemInfo(id);
     await supabase.from('actions').delete().eq('id', id);
+    if (info) setSessionLog(prev => [...prev, { action: 'rejected', docName: info.docName, title: info.title }]);
     remove(id);
     setWorking(prev => { const n = new Set(prev); n.delete(id); return n; });
   };
 
-  const skip = (id: string) => setSkipped(prev => new Set([...prev, id]));
+  const skip = (id: string) => {
+    const info = getItemInfo(id);
+    if (info) setSessionLog(prev => [...prev, { action: 'skipped', docName: info.docName, title: info.title }]);
+    setSkipped(prev => new Set([...prev, id]));
+  };
 
   const acceptAll = async (docName: string) => {
     const group = groups.find(g => g.docName === docName);
     if (!group) return;
-    for (const item of group.items) if (!skipped.has(item.id)) await accept(item);
+    for (const item of group.items) if (!skipped.has(item.id)) await accept(item.id);
+  };
+
+  const resolveAll = async (docName: string) => {
+    const group = groups.find(g => g.docName === docName);
+    if (!group) return;
+    const today = new Date().toISOString().slice(0, 10);
+    for (const item of group.items) if (!skipped.has(item.id)) {
+      setWorking(prev => new Set([...prev, item.id]));
+      await supabase.from('actions').update({ status: 'resolved', is_suggested: false, resolved_date: resolveDates[item.id] ?? today }).eq('id', item.id);
+      remove(item.id);
+      setWorking(prev => { const n = new Set(prev); n.delete(item.id); return n; });
+    }
+  };
+
+  const skipAll = (docName: string) => {
+    const group = groups.find(g => g.docName === docName);
+    if (!group) return;
+    setSkipped(prev => new Set([...prev, ...group.items.map(i => i.id)]));
   };
 
   const rejectAll = async (docName: string) => {
@@ -4419,136 +4479,236 @@ const AiSuggestionsPanel = ({ siteId, siteName, onClose, onCountChange, onAction
     for (const item of group.items) if (!skipped.has(item.id)) await reject(item.id);
   };
 
-  const riskBadge = (level: string | null) => {
-    if (!level) return null;
-    const cls = level === 'HIGH' ? 'bg-rose-100 text-rose-700 border-rose-200' : level === 'MEDIUM' ? 'bg-amber-100 text-amber-700 border-amber-200' : 'bg-emerald-100 text-emerald-700 border-emerald-200';
-    return <span className={`text-[9px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded border ${cls}`}>{level}</span>;
+  const updateEdit = (id: string, field: keyof ItemEdits, value: string) => {
+    setItemEdits(prev => ({ ...prev, [id]: { ...(prev[id] ?? { title: '', risk_level: '', due_date: '', responsible_person: '' }), [field]: value } }));
   };
 
+  const riskCls = (level: string | null | undefined) =>
+    level === 'HIGH' ? 'bg-rose-100 text-rose-700 border-rose-200' :
+    level === 'MEDIUM' ? 'bg-amber-100 text-amber-700 border-amber-200' :
+    level === 'LOW' ? 'bg-emerald-100 text-emerald-700 border-emerald-200' :
+    'bg-slate-100 text-slate-600 border-slate-200';
+
   return (
-    <div className="fixed inset-0 z-50 bg-white flex flex-col">
-      {/* Header */}
-      <div className="bg-amber-500 px-6 py-4 flex items-center justify-between flex-shrink-0">
+    <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
+      <div className="bg-white rounded-xl shadow-2xl w-[90vw] flex flex-col max-h-[92vh]">
+      {/* Header — violet to match existing advisor panel */}
+      <div className="bg-violet-600 px-6 py-4 flex items-center justify-between flex-shrink-0 rounded-t-xl">
         <div>
           <h2 className="font-black text-white text-sm uppercase tracking-widest flex items-center gap-2">
-            <Sparkles size={14} />AI Suggestions
+            <Sparkles size={14} />AI Extracted Actions
             {totalRemaining > 0 && <span className="bg-white/20 text-white text-[10px] font-black px-2 py-0.5 rounded-full">{totalRemaining}</span>}
           </h2>
-          <p className="text-amber-100 text-[11px] mt-0.5">{siteName} — review and accept, edit, skip or reject each suggestion</p>
+          <p className="text-violet-200 text-[11px] mt-0.5">{siteName} — review and accept, resolve, skip or reject each suggestion</p>
         </div>
-        <button onClick={onClose} className="text-amber-100 hover:text-white"><X size={18} /></button>
+        <button onClick={onClose} title="Close panel" className="text-violet-200 hover:text-white"><X size={18} /></button>
       </div>
 
       {/* Body */}
-      <div className="flex-1 overflow-y-auto">
+      <div className="flex-1 overflow-y-auto min-h-0">
         {loading && <div className="p-8 text-center text-sm font-bold text-slate-400 animate-pulse">Loading suggestions…</div>}
         {!loading && groups.length === 0 && (
           <div className="p-12 text-center">
             <CheckCircle size={32} className="text-emerald-400 mx-auto mb-3" />
             <p className="font-black text-slate-700 text-sm">All suggestions reviewed</p>
             <p className="text-sm text-slate-400 mt-1">Accepted actions are now in the main list.</p>
-            <button onClick={onClose} className="mt-5 px-5 py-2 bg-emerald-600 text-white rounded-xl text-[11px] font-black uppercase tracking-wider hover:bg-emerald-700">Close</button>
           </div>
         )}
         {!loading && groups.map(group => {
           const visibleItems = group.items.filter(i => !skipped.has(i.id));
           if (!visibleItems.length) return null;
           return (
-            <div key={group.docName} className="border-b border-slate-100 last:border-b-0 max-w-4xl mx-auto">
-              <div className="flex items-center justify-between px-6 py-3 bg-slate-50 border-b border-slate-100 sticky top-0 z-10">
-                <div className="flex items-center gap-2 min-w-0">
-                  <FileText size={12} className="text-slate-400 flex-shrink-0" />
+            <div key={group.docName} className="border-b border-slate-100 last:border-b-0">
+              {/* Doc group header */}
+              <div className="bg-slate-100/80 border-b border-slate-200 flex items-center">
+                <div className="flex items-center gap-2 flex-1 px-5 py-2 min-w-0">
+                  <FileText size={11} className="text-violet-400 flex-shrink-0" />
                   <span className="text-[11px] font-black text-slate-600 truncate">{group.docName}</span>
-                  <span className="text-[10px] font-black text-slate-400 bg-white border border-slate-200 px-1.5 py-0.5 rounded-full flex-shrink-0">{visibleItems.length}</span>
                 </div>
-                <div className="flex gap-2 flex-shrink-0 ml-3">
-                  <button onClick={() => acceptAll(group.docName)} className="text-[10px] font-black text-emerald-600 hover:text-emerald-800 px-2 py-1 hover:bg-emerald-50 rounded-lg">Accept all</button>
-                  <button onClick={() => rejectAll(group.docName)} className="text-[10px] font-black text-rose-500 hover:text-rose-700 px-2 py-1 hover:bg-rose-50 rounded-lg">Reject all</button>
+                <div className="flex items-center gap-2 pr-5 flex-shrink-0">
+                  <button onClick={() => acceptAll(group.docName)} title="Add all actions to the portal" className="border border-slate-300 rounded-lg text-[10px] font-black px-2.5 py-1 text-slate-500 hover:bg-emerald-50 hover:border-emerald-300 hover:text-emerald-700 transition-colors">Accept all</button>
+                  <button onClick={() => resolveAll(group.docName)} title="Mark all actions as resolved in the portal (docs unaffected)" className="border border-slate-300 rounded-lg text-[10px] font-black px-2.5 py-1 text-slate-500 hover:bg-slate-100 hover:border-slate-400 hover:text-slate-700 transition-colors">Resolve all</button>
+                  <button onClick={() => skipAll(group.docName)} title="Hide all for this session — no portal changes saved" className="border border-slate-300 rounded-lg text-[10px] font-black px-2.5 py-1 text-slate-500 hover:bg-slate-100 hover:border-slate-400 hover:text-slate-700 transition-colors">Skip all</button>
+                  <button onClick={() => rejectAll(group.docName)} title="Permanently delete all actions from the portal (docs unaffected)" className="border border-slate-300 rounded-lg text-[10px] font-black px-2.5 py-1 text-slate-500 hover:bg-rose-50 hover:border-rose-300 hover:text-rose-600 transition-colors">Reject all</button>
+                  <span className="text-[10px] font-bold text-slate-400">{visibleItems.length} action{visibleItems.length !== 1 ? 's' : ''}</span>
                 </div>
               </div>
-              {visibleItems.map(item => (
-                <div key={item.id} className={`px-6 py-4 border-b border-slate-50 last:border-b-0 ${working.has(item.id) ? 'opacity-40 pointer-events-none' : ''}`}>
-                  <div className="flex items-start gap-4">
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-1.5 flex-wrap">
-                        {item.hazard_ref && <span className="text-[10px] font-black text-indigo-600 bg-indigo-50 border border-indigo-100 px-1.5 py-0.5 rounded">#{item.hazard_ref}</span>}
-                        {riskBadge(editingId === item.id ? (editFields.risk_level || null) : item.risk_level)}
-                        {(editingId !== item.id && item.due_date) && <span className="text-[10px] text-slate-400 font-bold">Due: {item.due_date}</span>}
+
+              {/* Items */}
+              {visibleItems.map(item => {
+                const edits = itemEdits[item.id] ?? { title: item.title, risk_level: item.risk_level ?? '', due_date: item.due_date ?? '', responsible_person: item.responsible_person ?? '' };
+                return (
+                  <div key={item.id} className={`p-5 transition-colors hover:bg-slate-50 border-b border-slate-300 last:border-b-0 ${working.has(item.id) ? 'opacity-40 pointer-events-none' : ''}`}>
+                    <div className="flex gap-4 items-start">
+                      <div className="flex-1 min-w-0 space-y-2">
+                        {/* Per-item breadcrumb: doc name + open link | Hazard No | Issued | Due */}
+                        <div className="flex items-center flex-wrap gap-x-2 gap-y-0.5 pb-2 border-b border-slate-100">
+                          <span className="text-[11px] font-black text-slate-600">{item.source_document_name}</span>
+                          {item.hazard_ref && <><span className="text-slate-300 text-[10px]">|</span><span className="text-[10px] font-bold text-slate-500">Hazard No. {item.hazard_ref}</span></>}
+                          {item.issue_date && <><span className="text-slate-300 text-[10px]">|</span><span className="text-[10px] font-bold text-slate-400">Issued: {fmtDate(item.issue_date)}</span></>}
+                          {edits.due_date && <><span className="text-slate-300 text-[10px]">|</span><span className="text-[10px] font-bold text-slate-400">Due: {fmtDate(edits.due_date)}</span></>}
+                        </div>
+                        {/* Hazard description + existing controls with column layout */}
+                        {(item.hazard || item.existing_controls) && (
+                          <div className="space-y-2 pl-1">
+                            {item.hazard && (
+                              <div>
+                                <p className="text-[10px] font-black uppercase tracking-wider text-slate-700 mb-0.5">Hazard</p>
+                                {formatExtractedText(item.hazard)}
+                              </div>
+                            )}
+                            {item.existing_controls && (
+                              <div>
+                                <p className="text-[10px] font-black uppercase tracking-wider text-slate-700 mb-0.5">Existing Measures</p>
+                                {formatExtractedText(item.existing_controls)}
+                              </div>
+                            )}
+                          </div>
+                        )}
+                        {/* Action textarea — always editable */}
+                        <div className="flex flex-col gap-1">
+                          <span className="text-[10px] font-black uppercase tracking-wider text-slate-700">Action Required<span className="font-normal normal-case text-slate-400"> — editable</span></span>
+                          <textarea
+                            ref={el => { if (el) { titleRefs.current[item.id] = el; el.style.height = 'auto'; el.style.height = el.scrollHeight + 'px'; } }}
+                            defaultValue={edits.title}
+                            onInput={e => { const t = e.currentTarget; t.style.height = 'auto'; t.style.height = t.scrollHeight + 'px'; }}
+                            rows={1}
+                            className="w-full text-xs font-bold text-slate-800 border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-violet-300 resize-none overflow-hidden bg-white"
+                          />
+                        </div>
+                        {/* Controls row */}
+                        <div className="flex flex-wrap gap-3 items-end">
+                          <div className="flex flex-col gap-1">
+                            <span className="text-[10px] font-black uppercase tracking-wider text-slate-400 pl-3">Due Date</span>
+                            <input
+                              type="date"
+                              value={edits.due_date}
+                              onChange={e => updateEdit(item.id, 'due_date', e.target.value)}
+                              className={`px-3 py-1.5 border rounded-lg text-xs text-slate-600 focus:outline-none focus:ring-2 bg-white ${!edits.due_date ? 'border-amber-300 focus:ring-amber-200' : 'border-slate-200 focus:ring-violet-300'}`}
+                            />
+                            {!edits.due_date && <span className="text-[10px] text-amber-500 pl-3">No date found — check document</span>}
+                          </div>
+                          <div className="flex flex-col gap-1">
+                            <span className="text-[10px] font-black uppercase tracking-wider text-slate-400 pl-3">Responsible Person</span>
+                            <input
+                              type="text"
+                              value={edits.responsible_person}
+                              onChange={e => updateEdit(item.id, 'responsible_person', e.target.value)}
+                              placeholder="e.g. Site Manager"
+                              className="px-3 py-1.5 border border-slate-200 rounded-lg text-xs text-slate-600 focus:outline-none focus:ring-2 focus:ring-violet-300 bg-white w-44"
+                            />
+                          </div>
+                          <div className="flex flex-col gap-1">
+                            <span className="text-[10px] font-black uppercase tracking-wider text-slate-400 pl-3">Risk Rating</span>
+                            <select
+                              value={edits.risk_level}
+                              onChange={e => updateEdit(item.id, 'risk_level', e.target.value)}
+                              className={`px-3 py-1.5 border rounded-lg text-xs font-black focus:outline-none focus:ring-2 focus:ring-violet-300 ${riskCls(edits.risk_level || null)}`}
+                            >
+                              <option value="">— not set</option>
+                              <option value="HIGH">High</option>
+                              <option value="MEDIUM">Medium</option>
+                              <option value="LOW">Low</option>
+                            </select>
+                          </div>
+                        </div>
+                        {/* AI suggestion card */}
+                        {(item.risk_rating || item.regulation) && (
+                          <div className="rounded-xl border border-violet-100 bg-violet-50/60 px-4 py-3 space-y-1.5">
+                            <div className="flex items-center justify-between gap-2 flex-wrap gap-y-1">
+                              <span className="text-[10px] font-black uppercase tracking-wider text-violet-500 flex items-center gap-1.5"><Sparkles size={10} />AI Suggestion</span>
+                              {item.risk_rating && (
+                                <span className={`px-2 py-0.5 rounded-md text-[10px] font-black border ${riskCls(item.risk_level)}`}>Risk: {item.risk_rating}</span>
+                              )}
+                            </div>
+                            {item.risk_level && <p className="text-[11px] text-slate-600"><span className="font-black">Risk Level:</span> {item.risk_level}</p>}
+                            {item.regulation && <p className="text-[11px] text-slate-600"><span className="font-black">Regulation:</span> {item.regulation}</p>}
+                          </div>
+                        )}
+                        {/* Already resolved expansion */}
+                        {resolveExpanded[item.id] && (
+                          <div className="mt-1 pt-3 border-t border-slate-100 space-y-3">
+                            <p className="text-[11px] font-black text-slate-600">Mark as already resolved</p>
+                            <div className="flex flex-col gap-1">
+                              <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">Resolved date</span>
+                              <input type="date" value={resolveDates[item.id] ?? new Date().toISOString().slice(0, 10)} onChange={e => setResolveDates(prev => ({ ...prev, [item.id]: e.target.value }))} className="px-3 py-1.5 border border-slate-200 rounded-lg text-xs text-slate-600 focus:outline-none focus:ring-2 focus:ring-emerald-300 bg-white w-fit" />
+                            </div>
+                            <div className="flex gap-2">
+                              <button onClick={() => markResolved(item.id)} className="px-4 py-1.5 bg-emerald-600 text-white rounded-xl text-[11px] font-black hover:bg-emerald-700">Confirm resolved</button>
+                              <button onClick={() => setResolveExpanded(prev => ({ ...prev, [item.id]: false }))} className="px-4 py-1.5 border border-rose-200 text-rose-500 rounded-xl text-[11px] font-black hover:bg-rose-50 hover:border-rose-300">Cancel</button>
+                            </div>
+                          </div>
+                        )}
                       </div>
-                      {editingId === item.id ? (
-                        <div className="space-y-3">
-                          <div>
-                            <label className="text-[10px] font-black text-slate-500 uppercase tracking-wider mb-1 block">Action</label>
-                            <textarea autoFocus value={editFields.title} onChange={e => setEditFields(f => ({ ...f, title: e.target.value }))} className="w-full text-sm border border-violet-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-violet-300 resize-none" rows={3} />
-                          </div>
-                          <div className="grid grid-cols-3 gap-3">
-                            <div>
-                              <label className="text-[10px] font-black text-slate-500 uppercase tracking-wider mb-1 block">Risk level</label>
-                              <select value={editFields.risk_level} onChange={e => setEditFields(f => ({ ...f, risk_level: e.target.value }))} className="w-full text-xs border border-slate-200 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-violet-300">
-                                <option value="">— not set</option>
-                                <option value="HIGH">High</option>
-                                <option value="MEDIUM">Medium</option>
-                                <option value="LOW">Low</option>
-                              </select>
-                            </div>
-                            <div>
-                              <label className="text-[10px] font-black text-slate-500 uppercase tracking-wider mb-1 block">Due date</label>
-                              <input type="date" value={editFields.due_date} onChange={e => setEditFields(f => ({ ...f, due_date: e.target.value }))} className="w-full text-xs border border-slate-200 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-violet-300" />
-                            </div>
-                            <div>
-                              <label className="text-[10px] font-black text-slate-500 uppercase tracking-wider mb-1 block">Responsible</label>
-                              <input type="text" value={editFields.responsible_person} onChange={e => setEditFields(f => ({ ...f, responsible_person: e.target.value }))} placeholder="Name or role…" className="w-full text-xs border border-slate-200 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-violet-300" />
-                            </div>
-                          </div>
-                        </div>
-                      ) : (
-                        <p className="text-sm text-slate-700 font-bold leading-snug">{item.title}</p>
-                      )}
-                      {item.hazard && (
-                        <button onClick={() => setExpandedDetails(prev => { const n = new Set(prev); n.has(item.id) ? n.delete(item.id) : n.add(item.id); return n; })} className="text-[10px] font-black text-slate-400 hover:text-slate-600 mt-1.5 flex items-center gap-1">
-                          {expandedDetails.has(item.id) ? <ChevronDown size={10} /> : <ChevronRight size={10} />}Hazard details
-                        </button>
-                      )}
-                      {expandedDetails.has(item.id) && (
-                        <div className="mt-2 space-y-1.5 text-[11px] text-slate-500 bg-slate-50 rounded-lg p-3 border border-slate-100">
-                          {item.hazard && <p><span className="font-black text-slate-600">Hazard:</span> {item.hazard}</p>}
-                          {item.existing_controls && <p><span className="font-black text-slate-600">Existing controls:</span> {item.existing_controls}</p>}
-                          {item.risk_rating && <p><span className="font-black text-slate-600">Risk rating:</span> {item.risk_rating}</p>}
-                          {item.responsible_person && <p><span className="font-black text-slate-600">Responsible:</span> {item.responsible_person}</p>}
-                        </div>
-                      )}
-                    </div>
-                    <div className="flex flex-col gap-1.5 flex-shrink-0 w-32">
-                      {editingId === item.id ? (
-                        <>
-                          <button onClick={() => accept(item, editFields)} className="px-3 py-1.5 bg-emerald-600 text-white rounded-lg text-[10px] font-black hover:bg-emerald-700 text-center">Save & Accept</button>
-                          <button onClick={() => setEditingId(null)} className="px-3 py-1.5 bg-white border border-slate-200 text-slate-500 rounded-lg text-[10px] font-black hover:bg-slate-50 text-center">Cancel</button>
-                        </>
-                      ) : (
-                        <>
-                          <button onClick={() => accept(item)} className="px-3 py-1.5 bg-emerald-600 text-white rounded-lg text-[10px] font-black hover:bg-emerald-700 flex items-center gap-1 justify-center"><CheckCircle size={10} />Accept</button>
-                          <button onClick={() => { setEditingId(item.id); setEditFields({ title: item.title, risk_level: item.risk_level ?? '', due_date: item.due_date ?? '', responsible_person: item.responsible_person ?? '' }); }} className="px-3 py-1.5 bg-white border border-violet-200 text-violet-700 rounded-lg text-[10px] font-black hover:bg-violet-50 flex items-center gap-1 justify-center"><Pencil size={10} />Edit</button>
-                          <button onClick={() => markResolved(item.id)} className="px-3 py-1.5 bg-white border border-slate-200 text-slate-600 rounded-lg text-[10px] font-black hover:bg-slate-50 flex items-center gap-1 justify-center"><CheckCircle size={10} />Resolved</button>
-                          <button onClick={() => skip(item.id)} className="px-3 py-1.5 bg-white border border-slate-200 text-slate-400 rounded-lg text-[10px] font-black hover:bg-slate-50 flex items-center gap-1 justify-center"><ChevronRight size={10} />Skip</button>
-                          <button onClick={() => reject(item.id)} className="px-3 py-1.5 bg-white border border-rose-200 text-rose-600 rounded-lg text-[10px] font-black hover:bg-rose-50 flex items-center gap-1 justify-center"><Trash2 size={10} />Reject</button>
-                        </>
-                      )}
+                      {/* Button column */}
+                      <div className="flex-shrink-0 flex flex-col gap-2">
+                        <button onClick={() => accept(item.id)} title="Add this action to the portal" className="px-4 py-1.5 bg-violet-600 text-white rounded-xl text-[11px] font-black hover:bg-violet-700">Accept</button>
+                        <button onClick={() => { setResolveExpanded(prev => ({ ...prev, [item.id]: !prev[item.id] })); if (!resolveDates[item.id]) setResolveDates(prev => ({ ...prev, [item.id]: new Date().toISOString().slice(0, 10) })); }} title="Already completed — add as resolved in the portal (doc unaffected)" className={`border rounded-xl text-[11px] font-black px-3 py-1.5 transition-colors ${resolveExpanded[item.id] ? 'bg-slate-100 border-slate-300 text-slate-600' : 'border-slate-200 text-slate-500 hover:bg-slate-50 hover:border-slate-300'}`}>Already Resolved</button>
+                        <button onClick={() => skip(item.id)} title="Hide for now — no portal changes saved. Reappears next session." className="px-3 py-1.5 border border-slate-300 text-slate-600 rounded-xl text-[11px] font-black hover:bg-slate-50 hover:border-slate-400 flex items-center gap-1 justify-center"><ChevronRight size={10} />Skip</button>
+                        <button onClick={() => reject(item.id)} title="Permanently delete from the portal (doc unaffected)" className="px-3 py-1.5 border border-rose-200 text-rose-600 rounded-xl text-[11px] font-black hover:bg-rose-50 flex items-center gap-1 justify-center"><Trash2 size={10} />Reject</button>
+                        {item.source_document_id && (() => {
+                          const basePath = typeof window !== 'undefined' ? (localStorage.getItem('dattoBasePath') || 'W:/Customer Documents') : 'W:/Customer Documents';
+                          const uri = item.source_folder_path ? buildOfficeUri(basePath, item.source_folder_path, item.source_document_name) : null;
+                          const href = uri ?? `/api/datto/file?fileId=${item.source_document_id}&fileName=${encodeURIComponent(item.source_document_name)}&forceDownload=true`;
+                          return (
+                            <a href={href} target={uri ? '_self' : '_blank'} rel="noopener noreferrer" className="px-3 py-1.5 border border-indigo-200 text-indigo-500 rounded-xl text-[11px] font-black hover:bg-indigo-50 hover:border-indigo-300 flex items-center gap-1 justify-center" title="Open source document locally">
+                              <ExternalLink size={10} />Open doc
+                            </a>
+                          );
+                        })()}
+                      </div>
                     </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           );
         })}
       </div>
 
       {/* Footer */}
-      {!loading && groups.length > 0 && (
-        <div className="border-t border-slate-100 bg-slate-50 px-6 py-4 flex items-center justify-between flex-shrink-0">
-          <span className="text-[11px] font-bold text-slate-500">{totalRemaining} suggestion{totalRemaining !== 1 ? 's' : ''} remaining{skipped.size > 0 ? ` · ${skipped.size} skipped` : ''}</span>
-          <button onClick={onClose} className="px-4 py-2 bg-white border border-slate-200 text-slate-500 rounded-xl text-[11px] font-black uppercase tracking-wider hover:bg-slate-50">Close</button>
+      {!loading && (
+        <div className="border-t border-slate-100 bg-slate-50 px-6 py-4 flex-shrink-0 rounded-b-xl space-y-3">
+          {sessionLog.length > 0 && (() => {
+            const counts = { accepted: 0, resolved: 0, skipped: 0, rejected: 0 };
+            for (const e of sessionLog) counts[e.action]++;
+            const chips: { label: string; cls: string }[] = [
+              counts.accepted > 0 ? { label: `${counts.accepted} accepted`, cls: 'text-emerald-700 bg-emerald-50 border-emerald-200' } : null,
+              counts.resolved > 0 ? { label: `${counts.resolved} resolved`, cls: 'text-blue-700 bg-blue-50 border-blue-200' } : null,
+              counts.skipped > 0 ? { label: `${counts.skipped} skipped`, cls: 'text-slate-600 bg-slate-100 border-slate-200' } : null,
+              counts.rejected > 0 ? { label: `${counts.rejected} rejected`, cls: 'text-rose-700 bg-rose-50 border-rose-200' } : null,
+            ].filter(Boolean) as { label: string; cls: string }[];
+            return (
+              <div>
+                <button onClick={() => setLogExpanded(v => !v)} className="flex items-center gap-2 flex-wrap mb-2">
+                  <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">Session summary</span>
+                  {chips.map(c => <span key={c.label} className={`text-[10px] font-black px-2 py-0.5 rounded-md border ${c.cls}`}>{c.label}</span>)}
+                  <ChevronDown size={11} className={`text-slate-400 transition-transform ${logExpanded ? '' : '-rotate-90'}`} />
+                </button>
+                {logExpanded && (
+                  <div className="space-y-0.5 max-h-36 overflow-y-auto pr-1">
+                    {sessionLog.map((e, i) => (
+                      <div key={i} className="flex items-start gap-2 text-[11px]">
+                        <span className={`flex-shrink-0 font-black w-16 ${e.action === 'accepted' ? 'text-emerald-600' : e.action === 'resolved' ? 'text-blue-600' : e.action === 'skipped' ? 'text-slate-400' : 'text-rose-600'}`}>{e.action}</span>
+                        <span className="text-slate-600 truncate flex-1" title={e.title}>{e.title}</span>
+                        <span className="text-slate-400 text-[10px] flex-shrink-0 truncate max-w-[160px]" title={e.docName}>{e.docName}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+          <div className="flex items-center justify-between">
+            {groups.length > 0
+              ? <span className="text-[11px] font-bold text-slate-400">{totalRemaining} remaining{skipped.size > 0 ? ` · ${skipped.size} skipped` : ''}</span>
+              : <span className="text-[11px] font-bold text-slate-400">All suggestions reviewed</span>
+            }
+            <button onClick={onClose} className="px-4 py-2 bg-white border border-slate-200 text-slate-500 rounded-xl text-[11px] font-black uppercase tracking-wider hover:bg-slate-50">Close</button>
+          </div>
         </div>
       )}
+      </div>
     </div>
   );
 };
@@ -4648,7 +4808,7 @@ const SyncProgressModal = ({ sites, onClose, onViewSite }: {
             </h2>
             <p className="text-violet-200 text-[11px] mt-0.5">{isMultiSite ? sites.map(s => s.name).join(', ').slice(0, 60) + (sites.map(s => s.name).join(', ').length > 60 ? '…' : '') : sites[0]?.name}</p>
           </div>
-          {phase !== 'running' && <button onClick={onClose} className="text-violet-200 hover:text-white"><X size={18} /></button>}
+          {phase !== 'running' && <button onClick={onClose} className="text-violet-200 hover:text-white" title="Close"><X size={18} /></button>}
         </div>
 
         {/* Mode picker */}
@@ -4686,8 +4846,8 @@ const SyncProgressModal = ({ sites, onClose, onViewSite }: {
               </button>
             </div>
             <div className="flex gap-3 pt-1">
-              <button onClick={onClose} className="flex-1 px-4 py-2.5 bg-white border border-slate-200 text-slate-500 rounded-xl text-[11px] font-black uppercase tracking-wider hover:bg-slate-50">Cancel</button>
-              <button onClick={() => startSync(forceAll)} className="flex-1 px-4 py-2.5 bg-violet-600 text-white rounded-xl text-[11px] font-black uppercase tracking-wider hover:bg-violet-700 flex items-center justify-center gap-2">
+              <button onClick={onClose} className="flex-1 px-4 py-2.5 bg-white border border-slate-200 text-slate-500 rounded-xl text-[11px] font-black uppercase tracking-wider hover:bg-slate-50" title="Cancel without syncing">Cancel</button>
+              <button onClick={() => startSync(forceAll)} className="flex-1 px-4 py-2.5 bg-violet-600 text-white rounded-xl text-[11px] font-black uppercase tracking-wider hover:bg-violet-700 flex items-center justify-center gap-2" title="Run AI sync now">
                 <RefreshCw size={12} />Start Sync
               </button>
             </div>
@@ -4736,11 +4896,11 @@ const SyncProgressModal = ({ sites, onClose, onViewSite }: {
               </div>
               <div className="flex gap-2 flex-wrap justify-end">
                 {phase === 'done' && summary.sitesWithSuggestions.map(s => (
-                  <button key={s.id} onClick={() => { onViewSite(s.id); onClose(); }} className="px-4 py-2 bg-violet-600 text-white rounded-xl text-[11px] font-black uppercase tracking-wider hover:bg-violet-700">
+                  <button key={s.id} onClick={() => { onViewSite(s.id); onClose(); }} className="px-4 py-2 bg-violet-600 text-white rounded-xl text-[11px] font-black uppercase tracking-wider hover:bg-violet-700" title="Go to this site to review AI-suggested actions">
                     {isMultiSite ? `Review ${s.name} (${s.count})` : `Review ${s.count} Suggestion${s.count !== 1 ? 's' : ''}`}
                   </button>
                 ))}
-                <button onClick={onClose} disabled={phase === 'running'} className="px-4 py-2 bg-white border border-slate-200 text-slate-500 rounded-xl text-[11px] font-black uppercase tracking-wider hover:bg-slate-50 disabled:opacity-40">
+                <button onClick={onClose} disabled={phase === 'running'} className="px-4 py-2 bg-white border border-slate-200 text-slate-500 rounded-xl text-[11px] font-black uppercase tracking-wider hover:bg-slate-50 disabled:opacity-40" title="Close sync log (doc unaffected in portal)">
                   {phase === 'running' ? 'Syncing…' : 'Close'}
                 </button>
               </div>
@@ -4821,7 +4981,7 @@ const SyncConfigModal = ({ site, onClose, onSave }: {
             <h2 className="font-black text-white text-sm uppercase tracking-widest flex items-center gap-2"><Settings size={14} />Configure AI Sync</h2>
             <p className="text-violet-200 text-[11px] mt-0.5">{site.name}</p>
           </div>
-          <button onClick={onClose} className="text-violet-200 hover:text-white"><X size={18} /></button>
+          <button onClick={onClose} className="text-violet-200 hover:text-white" title="Close without saving"><X size={18} /></button>
         </div>
         <div className="bg-violet-50 border-b border-violet-100 px-6 py-3">
           <p className="text-[11px] text-violet-700 font-bold">Tick folders to include in AI Sync. Leave all unticked to scan everything.</p>
@@ -4843,8 +5003,8 @@ const SyncConfigModal = ({ site, onClose, onSave }: {
             {saveError && <p className="text-[11px] font-bold text-rose-600 mt-1">{saveError}</p>}
           </div>
           <div className="flex gap-3">
-            <button onClick={onClose} className="px-5 py-2 bg-white border border-slate-200 text-slate-500 rounded-xl text-[11px] font-black uppercase tracking-wider hover:bg-slate-50">Cancel</button>
-            <button onClick={handleSave} disabled={saving} className="px-5 py-2 bg-violet-600 text-white rounded-xl text-[11px] font-black uppercase tracking-wider hover:bg-violet-700 disabled:opacity-50">{saving ? 'Saving…' : 'Save Config'}</button>
+            <button onClick={onClose} className="px-5 py-2 bg-white border border-slate-200 text-slate-500 rounded-xl text-[11px] font-black uppercase tracking-wider hover:bg-slate-50" title="Cancel without saving">Cancel</button>
+            <button onClick={handleSave} disabled={saving} className="px-5 py-2 bg-violet-600 text-white rounded-xl text-[11px] font-black uppercase tracking-wider hover:bg-violet-700 disabled:opacity-50" title="Save folder configuration for this site">{saving ? 'Saving…' : 'Save Config'}</button>
           </div>
         </div>
       </div>
@@ -4998,6 +5158,10 @@ export default function App() {
   const [aiStatusMessage, setAiStatusMessage] = useState('');
   const [aiError, setAiError] = useState<string | null>(null);
   const [reviewActions, setReviewActions] = useState<ReviewAction[]>([]);
+  const reviewDescRefs = useRef<Record<string, HTMLTextAreaElement>>({});
+  const [reviewLog, setReviewLog] = useState<Array<{ action: 'added' | 'resolved' | 'skipped' | 'rejected'; docName: string; title: string }>>([]);
+  const [reviewLogExpanded, setReviewLogExpanded] = useState(false);
+  const [skippedReview, setSkippedReview] = useState<Set<string>>(new Set());
   const [unverifiedDates, setUnverifiedDates] = useState<Record<string, string>>({});
   const [resolveExpanded, setResolveExpanded] = useState<Record<string, boolean>>({});
   const [resolveDates, setResolveDates] = useState<Record<string, string>>({});
@@ -5564,13 +5728,14 @@ export default function App() {
     const ra = reviewActions.find(a => a.id === actionId);
     if (!ra || !selectedSite) return;
 
+    const description = reviewDescRefs.current[actionId]?.value ?? ra.description;
     // Dedup check: skip insert if a matching action already exists in any status.
     // Match on site + (file ID or doc name as fallback) + normalised title + hazard_ref.
     {
       let dupQuery = supabase.from('actions')
         .select('id', { count: 'exact', head: true })
         .eq('site_id', selectedSite.id)
-        .ilike('title', ra.description.trim());
+        .ilike('title', description.trim());
       dupQuery = ra.docFileId
         ? dupQuery.eq('source_document_id', ra.docFileId)
         : dupQuery.eq('source_document_name', ra.docName);
@@ -5586,7 +5751,7 @@ export default function App() {
 
     const { data, error: insertErr } = await supabase.from('actions').insert({
       site_id: selectedSite.id,
-      title: ra.description,
+      title: description,
       description: '',
       priority: 'green',
       status: 'open',
@@ -5619,6 +5784,7 @@ export default function App() {
       ).then(null, () => {});
     }
     setReviewActions(prev => prev.map(a => a.id === actionId ? { ...a, added: true, justAdded: true } : a));
+    setReviewLog(prev => [...prev, { action: 'added', docName: ra.docName, title: description }]);
     if (data) {
       setAllActions(prev => [...prev, { id: data.id, action: ra.description, description: '', date: ra.dueDate || '', site: selectedSite.name, who: ra.responsiblePerson || '', contractor: '', source: ra.docName, source_document_id: ra.docFileId || '', sourceFolderId: ra.docFolderFileId || null, sourceFolderPath: ra.docFolderPath || null, priority: 'green' as Priority, regulation: ra.regulation || '', notes: '', status: 'open', resolvedDate: null, hazardRef: ra.hazardRef || null, hazard: ra.hazard || null, existingControls: ra.existingControls || null, riskRating: ra.riskRating || null, riskLevel: ra.riskLevel || null, updatedAt: data.updated_at || null, issueDate: ra.documentMeta?.assessmentDate || null }]);
       recalcActionProgress(selectedSite.id);
@@ -5627,8 +5793,30 @@ export default function App() {
   };
 
   const handleAddSelectedReviewActions = async () => {
-    const toAdd = reviewActions.filter(a => a.selected && !a.added);
+    const toAdd = reviewActions.filter(a => a.selected && !a.added && !skippedReview.has(a.id));
     for (const ra of toAdd) await handleAddReviewAction(ra.id);
+  };
+
+  const skipReviewAction = (id: string) => {
+    const ra = reviewActions.find(a => a.id === id);
+    if (ra) setReviewLog(prev => [...prev, { action: 'skipped', docName: ra.docName, title: reviewDescRefs.current[id]?.value || ra.description }]);
+    setSkippedReview(prev => new Set([...prev, id]));
+  };
+
+  const rejectReviewAction = (id: string) => {
+    const ra = reviewActions.find(a => a.id === id);
+    if (ra) setReviewLog(prev => [...prev, { action: 'rejected', docName: ra.docName, title: reviewDescRefs.current[id]?.value || ra.description }]);
+    setReviewActions(prev => prev.filter(a => a.id !== id));
+  };
+
+  const skipAllReviewDoc = (docFileId: string) => {
+    const ids = reviewActions.filter(ra => ra.docFileId === docFileId && !ra.added && !ra.isError && !ra.isUnverified).map(ra => ra.id);
+    for (const id of ids) skipReviewAction(id);
+  };
+
+  const rejectAllReviewDoc = (docFileId: string) => {
+    const ids = reviewActions.filter(ra => ra.docFileId === docFileId && !ra.added && !ra.isError && !ra.isUnverified && !skippedReview.has(ra.id)).map(ra => ra.id);
+    for (const id of ids) rejectReviewAction(id);
   };
 
   const handleUnverifiedProcess = (actionId: string, assessmentDate: string) => {
@@ -5749,6 +5937,7 @@ export default function App() {
     }
 
     setReviewActions(prev => prev.map(a => a.id === actionId ? { ...a, added: true, justAdded: true } : a));
+    setReviewLog(prev => [...prev, { action: 'resolved', docName: ra.docName, title: ra.description }]);
     if (data) {
       setAllActions(prev => [...prev, { id: data.id, action: ra.description, description: '', date: ra.dueDate || '', site: selectedSite.name, who: ra.responsiblePerson || '', contractor: '', source: ra.docName, source_document_id: ra.docFileId || '', sourceFolderId: ra.docFolderFileId || null, sourceFolderPath: ra.docFolderPath || null, priority: 'green' as Priority, regulation: ra.regulation || '', notes: '', status: 'resolved', resolvedDate: resolvedDate, hazardRef: ra.hazardRef || null, hazard: ra.hazard || null, existingControls: ra.existingControls || null, riskRating: ra.riskRating || null, riskLevel: ra.riskLevel || null, updatedAt: data.updated_at || null, issueDate: ra.documentMeta?.assessmentDate || null }]);
       recalcActionProgress(selectedSite.id);
@@ -5807,6 +5996,7 @@ export default function App() {
         }
       }
       setReviewActions(prev => prev.map(a => a.id === ra.id ? { ...a, added: true, justAdded: true } : a));
+      setReviewLog(prev => [...prev, { action: 'resolved', docName: ra.docName, title: ra.description }]);
       if (data) {
         setAllActions(prev => [...prev, { id: data.id, action: ra.description, description: '', date: ra.dueDate || '', site: selectedSite.name, who: ra.responsiblePerson || '', contractor: '', source: ra.docName, source_document_id: ra.docFileId || '', sourceFolderId: ra.docFolderFileId || null, sourceFolderPath: ra.docFolderPath || null, priority: 'green' as Priority, regulation: ra.regulation || '', notes: '', status: 'resolved', resolvedDate: resolvedDate, hazardRef: ra.hazardRef || null, hazard: ra.hazard || null, existingControls: ra.existingControls || null, riskRating: ra.riskRating || null, riskLevel: ra.riskLevel || null, updatedAt: data.updated_at || null, issueDate: ra.documentMeta?.assessmentDate || null }]);
         writebackActionToDoc(ra, resolvedDate);
@@ -5918,6 +6108,9 @@ export default function App() {
     setAiError(null);
     setAiStatusMessage('');
     setReviewActions([]);
+    setReviewLog([]);
+    setReviewLogExpanded(false);
+    setSkippedReview(new Set());
     setShowAiPanel(true);
     try {
       // Trigger server-side Datto existence check — removes advisor docs deleted from Datto + their actions
@@ -7424,8 +7617,9 @@ export default function App() {
 
               {/* ── AI Review Panel ── */}
               {showAiPanel && (
-                <div className="bg-white border border-violet-200 rounded-lg overflow-hidden shadow-lg">
-                  <div className="bg-violet-600 px-6 py-4 flex items-center justify-between">
+                <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-start justify-center p-4 overflow-y-auto">
+                <div className="bg-white rounded-xl shadow-2xl w-[90vw] flex flex-col max-h-[92vh] mt-8 mb-8">
+                  <div className="bg-violet-600 px-6 py-4 flex items-center justify-between rounded-t-xl">
                     <div className="flex items-center gap-3">
                       <Sparkles className="w-4 h-4 text-violet-200" />
                       <h3 className="font-black text-white uppercase tracking-widest text-sm">AI Extracted Actions</h3>
@@ -7435,8 +7629,8 @@ export default function App() {
                       {!aiSyncing && (
                         <button onClick={() => handleForceAiSync(selectedSite)} title="Reprocess all docs regardless of date" className="px-4 py-2 bg-violet-500 text-white rounded-xl text-[11px] font-black uppercase tracking-wider hover:bg-violet-400">Sync all</button>
                       )}
-                      {!aiSyncing && reviewActions.some(a => a.selected && !a.added) && (
-                        <button onClick={handleAddSelectedReviewActions} className="px-4 py-2 bg-white text-violet-700 rounded-xl text-[11px] font-black uppercase tracking-wider hover:bg-violet-50">Add Selected</button>
+                      {!aiSyncing && reviewActions.some(a => a.selected && !a.added && !skippedReview.has(a.id)) && (
+                        <button onClick={handleAddSelectedReviewActions} title="Accept all checked actions and add them to the portal" className="px-4 py-2 bg-white text-violet-700 rounded-xl text-[11px] font-black uppercase tracking-wider hover:bg-violet-50">Accept Selected</button>
                       )}
                       {aiSyncing && <button onClick={() => { aiCancelledRef.current = true; }} className="px-3 py-1.5 bg-rose-500 text-white rounded-lg text-[11px] font-black uppercase tracking-wider hover:bg-rose-600">Cancel</button>}
                       <button onClick={() => setShowAiPanel(false)} className="text-violet-200 hover:text-white"><X size={18} /></button>
@@ -7455,7 +7649,7 @@ export default function App() {
                     </div>
                   )}
                   {reviewActions.length > 0 && (
-                    <div className="divide-y divide-slate-100 max-h-[600px] overflow-y-auto">
+                    <div className="divide-y divide-slate-100 flex-1 overflow-y-auto min-h-0">
                       {reviewActions.filter(a => a.isError).map(ra => (
                         <div key={ra.id} className="px-5 py-2.5 bg-rose-50 border-b border-rose-100 text-[11px] font-bold text-rose-600 flex items-center gap-1.5">
                           <AlertCircle size={11} className="text-rose-500 flex-shrink-0" />
@@ -7539,7 +7733,7 @@ export default function App() {
                         );
                       })()}
                       {(() => {
-                        const newActions = [...reviewActions].filter(ra => !ra.added && !ra.isError && !ra.isUnverified);
+                        const newActions = [...reviewActions].filter(ra => !ra.added && !ra.isError && !ra.isUnverified && !skippedReview.has(ra.id));
                         const docGroups = Array.from(new Map(newActions.map(ra => [ra.docFileId, { docName: ra.docName, docFileId: ra.docFileId }])).values());
                         return docGroups.map(({ docName, docFileId }) => (
                           <div key={docFileId}>
@@ -7550,7 +7744,12 @@ export default function App() {
                                 <span className="text-[11px] font-black text-slate-600 truncate">{docName}</span>
                               </button>
                               {docGroupExpanded[docFileId] !== false && (
-                                <button onClick={() => { setDocResolveExpanded(prev => ({ ...prev, [docFileId]: !prev[docFileId] })); if (!docResolveDates[docFileId]) setDocResolveDates(prev => ({ ...prev, [docFileId]: new Date().toISOString().slice(0, 10) })); }} className={`border rounded-lg text-[10px] font-black px-2.5 py-1 transition-colors flex-shrink-0 mr-3 ${docResolveExpanded[docFileId] ? 'bg-slate-200 border-slate-300 text-slate-700' : 'border-slate-300 text-slate-500 hover:bg-slate-200/60'}`}>Mark all resolved</button>
+                                <div className="flex items-center gap-1.5 flex-shrink-0 mr-3">
+                                  <button onClick={() => { const ids = newActions.filter(ra => ra.docFileId === docFileId).map(ra => ra.id); ids.forEach(id => handleAddReviewAction(id)); }} title="Accept all actions in this document" className="border border-slate-300 rounded-lg text-[10px] font-black px-2.5 py-1 text-slate-500 hover:bg-slate-200/60 transition-colors">Accept all</button>
+                                  <button onClick={() => { setDocResolveExpanded(prev => ({ ...prev, [docFileId]: !prev[docFileId] })); if (!docResolveDates[docFileId]) setDocResolveDates(prev => ({ ...prev, [docFileId]: new Date().toISOString().slice(0, 10) })); }} title="Mark all actions in this document as already resolved (doc unaffected)" className={`border rounded-lg text-[10px] font-black px-2.5 py-1 transition-colors ${docResolveExpanded[docFileId] ? 'bg-slate-200 border-slate-300 text-slate-700' : 'border-slate-300 text-slate-500 hover:bg-slate-200/60'}`}>Resolve all</button>
+                                  <button onClick={() => skipAllReviewDoc(docFileId)} title="Hide all actions in this document for this session (doc unaffected)" className="border border-slate-300 rounded-lg text-[10px] font-black px-2.5 py-1 text-slate-500 hover:bg-slate-200/60 transition-colors">Skip all</button>
+                                  <button onClick={() => rejectAllReviewDoc(docFileId)} title="Permanently discard all actions in this document (doc unaffected)" className="border border-rose-200 rounded-lg text-[10px] font-black px-2.5 py-1 text-rose-500 hover:bg-rose-50 transition-colors">Reject all</button>
+                                </div>
                               )}
                               <span className="text-[10px] font-bold text-slate-400 flex-shrink-0 pr-5">{newActions.filter(ra => ra.docFileId === docFileId).length} action{newActions.filter(ra => ra.docFileId === docFileId).length !== 1 ? 's' : ''}</span>
                             </div>
@@ -7592,28 +7791,25 @@ export default function App() {
                           <div className="flex gap-4 items-start">
                           <input type="checkbox" checked={ra.selected} onChange={e => setReviewActions(prev => prev.map(a => a.id === ra.id ? { ...a, selected: e.target.checked } : a))} disabled={ra.added} className="mt-1 w-4 h-4 accent-violet-600 flex-shrink-0" />
                           <div className="flex-1 min-w-0 space-y-2">
-                            {/* Document meta */}
-                            <div className="space-y-1">
-                              {ra.hazardRef && <p className="text-[11px] font-black text-violet-500">Hazard No: {ra.hazardRef}</p>}
-                              {ra.documentMeta && (
-                                <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-[10px] font-bold text-slate-400">
-                                  {ra.documentMeta.assessmentDate && <span>Assessment date: {ra.documentMeta.assessmentDate}</span>}
-                                  {ra.documentMeta.reviewDate && <span>· Reviewed: {ra.documentMeta.reviewDate}</span>}
-                                </div>
-                              )}
+                            {/* Breadcrumb strip */}
+                            <div className="flex items-center flex-wrap gap-x-2 gap-y-0.5 pb-2 border-b border-slate-100">
+                              <span className="text-[11px] font-black text-slate-600">{ra.docName}</span>
+                              {ra.hazardRef && <><span className="text-slate-300 text-[10px]">|</span><span className="text-[10px] font-bold text-slate-500">Hazard No. {ra.hazardRef}</span></>}
+                              {ra.documentMeta?.assessmentDate && <><span className="text-slate-300 text-[10px]">|</span><span className="text-[10px] font-bold text-slate-400">Issued: {fmtDate(ra.documentMeta.assessmentDate)}</span></>}
+                              {ra.dueDate && <><span className="text-slate-300 text-[10px]">|</span><span className="text-[10px] font-bold text-slate-400">Due: {fmtDate(ra.dueDate)}</span></>}
                             </div>
                             {/* Hazard & existing measures */}
                             {(ra.hazard || ra.existingControls) && (
                               <div className="space-y-2 pl-1">
                                 {ra.hazard && (
                                   <div>
-                                    <p className="text-[10px] font-black uppercase tracking-wider text-slate-400 mb-0.5">{ra.hazardRef ? `Hazard No. ${ra.hazardRef}` : 'Hazard'}</p>
+                                    <p className="text-[10px] font-black uppercase tracking-wider text-slate-700 mb-0.5">Hazard</p>
                                     {formatExtractedText(ra.hazard)}
                                   </div>
                                 )}
                                 {ra.existingControls && (
                                   <div>
-                                    <p className="text-[10px] font-black uppercase tracking-wider text-slate-600 mb-0.5">Existing Measures</p>
+                                    <p className="text-[10px] font-black uppercase tracking-wider text-slate-700 mb-0.5">Existing Measures</p>
                                     {formatExtractedText(ra.existingControls)}
                                   </div>
                                 )}
@@ -7621,13 +7817,14 @@ export default function App() {
                             )}
                             {/* Action description */}
                             <div className="flex flex-col gap-1">
-                              <span className="text-[10px] font-black text-slate-500 pl-1">Action Required{!ra.added && <span className="font-normal text-slate-400"> — editable</span>}</span>
+                              <span className="text-[10px] font-black uppercase tracking-wider text-slate-700 pl-1">Action Required{!ra.added && <span className="font-normal normal-case text-slate-400"> — editable</span>}</span>
                               <textarea
-                                value={ra.description}
-                                onChange={e => setReviewActions(prev => prev.map(a => a.id === ra.id ? { ...a, description: e.target.value } : a))}
+                                ref={el => { if (el) { reviewDescRefs.current[ra.id] = el; el.style.height = 'auto'; el.style.height = el.scrollHeight + 'px'; } }}
+                                defaultValue={ra.description}
+                                onInput={e => { const t = e.currentTarget; t.style.height = 'auto'; t.style.height = t.scrollHeight + 'px'; }}
                                 disabled={ra.added}
-                                rows={2}
-                                className="w-full text-xs font-bold text-slate-800 border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-violet-300 resize-none bg-white disabled:bg-slate-50 disabled:text-slate-500"
+                                rows={1}
+                                className="w-full text-xs font-bold text-slate-800 border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-violet-300 resize-none overflow-hidden bg-white disabled:bg-slate-50 disabled:text-slate-500"
                               />
                             </div>
                             {/* Controls row — labelled */}
@@ -7711,10 +7908,24 @@ export default function App() {
                               <span className="flex items-center gap-1.5 text-[11px] font-black text-emerald-600 bg-emerald-50 border border-emerald-200 px-3 py-1.5 rounded-xl"><CheckCircle size={12} />Added</span>
                             ) : (
                               <>
-                                <button onClick={() => handleAddReviewAction(ra.id)} className="px-4 py-1.5 bg-violet-600 text-white rounded-xl text-[11px] font-black hover:bg-violet-700">Add</button>
-                                <button onClick={() => { setResolveExpanded(prev => ({ ...prev, [ra.id]: !prev[ra.id] })); if (!resolveDates[ra.id]) setResolveDates(prev => ({ ...prev, [ra.id]: new Date().toISOString().slice(0, 10) })); }} className={`border rounded-xl text-[11px] font-black px-3 py-1.5 transition-colors ${resolveExpanded[ra.id] ? 'bg-slate-100 border-slate-300 text-slate-600' : 'border-slate-200 text-slate-500 hover:bg-slate-50 hover:border-slate-300'}`}>Already Resolved</button>
+                                <button onClick={() => handleAddReviewAction(ra.id)} title="Accept this action and add it to the portal" className="px-4 py-1.5 bg-violet-600 text-white rounded-xl text-[11px] font-black hover:bg-violet-700">Accept</button>
+                                <button onClick={() => { setResolveExpanded(prev => ({ ...prev, [ra.id]: !prev[ra.id] })); if (!resolveDates[ra.id]) setResolveDates(prev => ({ ...prev, [ra.id]: new Date().toISOString().slice(0, 10) })); }} title="Mark this action as already resolved (doc unaffected)" className={`border rounded-xl text-[11px] font-black px-3 py-1.5 transition-colors ${resolveExpanded[ra.id] ? 'bg-slate-100 border-slate-300 text-slate-600' : 'border-slate-200 text-slate-500 hover:bg-slate-50 hover:border-slate-300'}`}>Already Resolved</button>
+                                <button onClick={() => skipReviewAction(ra.id)} title="Hide this action for this session (doc unaffected)" className="px-3 py-1.5 border border-slate-300 text-slate-600 rounded-xl text-[11px] font-black hover:bg-slate-50 hover:border-slate-400">&rsaquo; Skip</button>
+                                <button onClick={() => rejectReviewAction(ra.id)} title="Permanently discard this action (doc unaffected)" className="px-3 py-1.5 border border-rose-200 text-rose-600 rounded-xl text-[11px] font-black hover:bg-rose-50 hover:border-rose-300 flex items-center gap-1"><Trash2 size={10} />Reject</button>
                               </>
                             )}
+                            {(() => {
+                              const basePath = typeof window !== 'undefined' ? (localStorage.getItem('dattoBasePath') || 'W:/Customer Documents') : 'W:/Customer Documents';
+                              const uri = ra.docFolderPath ? buildOfficeUri(basePath, ra.docFolderPath, ra.docName) : null;
+                              const href = uri ?? `/api/datto/file?fileId=${ra.docFileId}&fileName=${encodeURIComponent(ra.docName)}&forceDownload=true`;
+                              return (
+                                <a href={href} target={uri ? '_self' : '_blank'} rel="noopener noreferrer"
+                                  className="px-3 py-1.5 border border-indigo-200 text-indigo-500 rounded-xl text-[11px] font-black hover:bg-indigo-50 hover:border-indigo-300 flex items-center gap-1 justify-center"
+                                  title="Open source document locally">
+                                  <ExternalLink size={10} />Open doc
+                                </a>
+                              );
+                            })()}
                           </div>
                           </div>
                           {resolveExpanded[ra.id] && (
@@ -7753,6 +7964,42 @@ export default function App() {
                       })()}
                     </div>
                   )}
+                  {/* Session log footer */}
+                  {reviewLog.length > 0 && (() => {
+                    const added = reviewLog.filter(e => e.action === 'added').length;
+                    const resolved = reviewLog.filter(e => e.action === 'resolved').length;
+                    const skipped = reviewLog.filter(e => e.action === 'skipped').length;
+                    const rejected = reviewLog.filter(e => e.action === 'rejected').length;
+                    return (
+                      <div className="border-t border-slate-100 bg-slate-50 px-6 py-4 flex-shrink-0 rounded-b-xl space-y-3">
+                        <div>
+                          <button onClick={() => setReviewLogExpanded(v => !v)} className="flex items-center gap-2 flex-wrap mb-2">
+                            <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">Session summary</span>
+                            {added > 0 && <span className="text-[10px] font-black px-2 py-0.5 rounded-md border text-emerald-700 bg-emerald-50 border-emerald-200">{added} accepted</span>}
+                            {resolved > 0 && <span className="text-[10px] font-black px-2 py-0.5 rounded-md border text-blue-700 bg-blue-50 border-blue-200">{resolved} resolved</span>}
+                            {skipped > 0 && <span className="text-[10px] font-black px-2 py-0.5 rounded-md border text-slate-600 bg-slate-100 border-slate-200">{skipped} skipped</span>}
+                            {rejected > 0 && <span className="text-[10px] font-black px-2 py-0.5 rounded-md border text-rose-700 bg-rose-50 border-rose-200">{rejected} rejected</span>}
+                            <ChevronDown size={11} className={`text-slate-400 transition-transform ${reviewLogExpanded ? '' : '-rotate-90'}`} />
+                          </button>
+                          {reviewLogExpanded && (
+                            <div className="space-y-0.5 max-h-36 overflow-y-auto pr-1">
+                              {reviewLog.map((e, i) => (
+                                <div key={i} className="flex items-start gap-2 text-[11px]">
+                                  <span className={`flex-shrink-0 font-black w-16 ${e.action === 'added' ? 'text-emerald-600' : e.action === 'resolved' ? 'text-blue-600' : e.action === 'skipped' ? 'text-slate-400' : 'text-rose-600'}`}>{e.action === 'added' ? 'accepted' : e.action}</span>
+                                  <span className="text-slate-600 truncate flex-1" title={e.title}>{e.title}</span>
+                                  <span className="text-slate-400 text-[10px] flex-shrink-0 truncate max-w-[160px]" title={e.docName}>{e.docName}</span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                        <div className="flex justify-end">
+                          <button onClick={() => setShowAiPanel(false)} className="px-4 py-2 bg-white border border-slate-200 text-slate-500 rounded-xl text-[11px] font-black uppercase tracking-wider hover:bg-slate-50">Close</button>
+                        </div>
+                      </div>
+                    );
+                  })()}
+                </div>
                 </div>
               )}
 
