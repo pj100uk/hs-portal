@@ -32,20 +32,45 @@ export async function POST(req: NextRequest) {
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   if (!sites?.length) return NextResponse.json({ sites: [], errors: [] });
 
+  const trigger = token === process.env.CRON_SECRET ? 'cron' : 'manual';
+  const startedAt = Date.now();
+
+  const { data: logRow } = await supabase.from('sync_log').insert({
+    trigger, sites_attempted: sites.length, started_at: new Date(startedAt).toISOString(),
+  }).select('id').single();
+  const logId = logRow?.id;
+
   const results: { name: string; processed: number; newPending: number; updated: number; errors: string[] }[] = [];
 
-  // Sequential — one site at a time to avoid Gemini rate limits
-  for (const site of sites) {
-    console.log(`[sync/all] Starting sync for: ${site.name}`);
-    try {
-      const summary = await runSyncForSite(site.id, false, baseUrl, undefined, 'ai_suggested');
-      results.push({ name: site.name, ...summary });
-    } catch (err: any) {
-      console.error(`[sync/all] ${site.name} failed:`, err.message);
-      results.push({ name: site.name, processed: 0, newPending: 0, updated: 0, errors: [err.message] });
+  const CONCURRENCY = 5;
+  for (let i = 0; i < sites.length; i += CONCURRENCY) {
+    const batch = sites.slice(i, i + CONCURRENCY);
+    console.log(`[sync/all] Batch ${Math.floor(i / CONCURRENCY) + 1}: ${batch.map(s => s.name).join(', ')}`);
+    const settled = await Promise.allSettled(
+      batch.map(site => runSyncForSite(site.id, false, baseUrl, undefined, 'ai_suggested')
+        .then(summary => ({ name: site.name, ...summary }))
+        .catch((err: any) => ({ name: site.name, processed: 0, newPending: 0, updated: 0, errors: [err.message] }))
+      )
+    );
+    for (const r of settled) {
+      if (r.status === 'fulfilled') results.push(r.value);
     }
   }
 
   const totalErrors = results.flatMap(r => r.errors);
+  const duration = Math.round((Date.now() - startedAt) / 1000);
+
+  if (logId) {
+    await supabase.from('sync_log').update({
+      completed_at: new Date().toISOString(),
+      sites_processed: results.filter(r => r.errors.length === 0).length,
+      new_suggestions: results.reduce((s, r) => s + r.newPending, 0),
+      updated: results.reduce((s, r) => s + r.updated, 0),
+      duration_seconds: duration,
+      errors: totalErrors,
+      site_results: results,
+    }).eq('id', logId);
+  }
+
   return NextResponse.json({ sites: results, errors: totalErrors });
 }

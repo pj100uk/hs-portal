@@ -10,7 +10,7 @@ import {
   Folder, FolderOpen, File, Pencil, GraduationCap, Heart,
   Warehouse, ShoppingBag, Home, Sparkles, AlertCircle,
   Upload, FileCheck, Trash2, Users, Search, KeyRound, Download,
-  Archive, Copy, RotateCcw
+  Archive, Copy, RotateCcw, Minus
 } from 'lucide-react';
 import mammoth from 'mammoth';
 import * as XLSX from 'xlsx';
@@ -21,7 +21,7 @@ import { CURRENT_EXTRACTION_VERSION } from '../lib/extraction-version';
 type Priority = 'red' | 'amber' | 'green';
 type ActionStatus = 'open' | 'resolved' | 'pending_review' | 'archived' | 'ai_suggested';
 type AppView = 'portfolio' | 'site' | 'admin';
-type AdminTab = 'organisations' | 'sites' | 'users' | 'requirements' | 'usage' | 'data-health';
+type AdminTab = 'organisations' | 'sites' | 'users' | 'requirements' | 'usage' | 'data-health' | 'sync-logs';
 
 interface Action {
   id: string; action: string; description: string; date: string; site: string;
@@ -2534,6 +2534,109 @@ const DocHealthTab = ({ siteId, onComplianceUpdate, onJumpToActions, role, onArc
   );
 };
 
+const SyncLogsTab = () => {
+  const [syncLogs, setSyncLogs] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [expandedLog, setExpandedLog] = useState<string | null>(null);
+
+  useEffect(() => {
+    supabase.from('sync_log').select('*').order('started_at', { ascending: false }).limit(50)
+      .then(({ data }) => { setSyncLogs(data ?? []); setLoading(false); });
+  }, []);
+
+  const fmt = (iso: string | null) => iso ? new Date(iso).toLocaleString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—';
+  const dur = (s: number | null) => s == null ? '—' : s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${s % 60}s`;
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <h3 className="text-sm font-black text-slate-800">Sync Run History</h3>
+        <span className="text-[10px] text-slate-400 font-bold">Last 50 runs</span>
+      </div>
+      {loading ? (
+        <div className="text-xs text-slate-400 font-bold animate-pulse">Loading…</div>
+      ) : syncLogs.length === 0 ? (
+        <div className="text-xs text-slate-400 font-bold">No sync runs recorded yet. The next cron run or manual sync will appear here.</div>
+      ) : (
+        <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="border-b border-slate-100 bg-slate-50">
+                <th className="text-left px-4 py-2.5 font-black text-slate-500 text-[10px] uppercase tracking-wider">Started</th>
+                <th className="text-left px-4 py-2.5 font-black text-slate-500 text-[10px] uppercase tracking-wider">Trigger</th>
+                <th className="text-left px-4 py-2.5 font-black text-slate-500 text-[10px] uppercase tracking-wider">Sites</th>
+                <th className="text-left px-4 py-2.5 font-black text-slate-500 text-[10px] uppercase tracking-wider">New Actions</th>
+                <th className="text-left px-4 py-2.5 font-black text-slate-500 text-[10px] uppercase tracking-wider">Updated</th>
+                <th className="text-left px-4 py-2.5 font-black text-slate-500 text-[10px] uppercase tracking-wider">Duration</th>
+                <th className="text-left px-4 py-2.5 font-black text-slate-500 text-[10px] uppercase tracking-wider">Status</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-50">
+              {syncLogs.map(log => {
+                const hasErrors = Array.isArray(log.errors) && log.errors.length > 0;
+                const inProgress = !log.completed_at;
+                const expanded = expandedLog === log.id;
+                return (
+                  <React.Fragment key={log.id}>
+                    <tr className="hover:bg-slate-50 cursor-pointer" onClick={() => setExpandedLog(expanded ? null : log.id)}>
+                      <td className="px-4 py-3 text-slate-700 font-bold">{fmt(log.started_at)}</td>
+                      <td className="px-4 py-3">
+                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider ${log.trigger === 'cron' ? 'bg-indigo-100 text-indigo-700' : 'bg-slate-100 text-slate-600'}`}>
+                          {log.trigger}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-slate-600">{log.sites_processed ?? 0} / {log.sites_attempted ?? 0}</td>
+                      <td className="px-4 py-3 text-violet-700 font-bold">{log.new_suggestions ?? 0}</td>
+                      <td className="px-4 py-3 text-slate-500">{log.updated ?? 0}</td>
+                      <td className="px-4 py-3 text-slate-500">{dur(log.duration_seconds)}</td>
+                      <td className="px-4 py-3">
+                        {inProgress ? (
+                          <span className="flex items-center gap-1 text-violet-600 font-bold text-[10px]"><RefreshCw size={10} className="animate-spin" />Running</span>
+                        ) : hasErrors ? (
+                          <span className="text-rose-600 font-black text-[10px] uppercase tracking-wider">Errors</span>
+                        ) : (
+                          <span className="text-emerald-600 font-black text-[10px] uppercase tracking-wider">Done</span>
+                        )}
+                      </td>
+                    </tr>
+                    {expanded && (
+                      <tr>
+                        <td colSpan={7} className="px-4 pb-4 bg-slate-50">
+                          {Array.isArray(log.site_results) && log.site_results.length > 0 && (
+                            <div className="mt-2 space-y-1">
+                              {(log.site_results as any[]).map((r: any, i: number) => (
+                                <div key={i} className="flex items-center gap-3 text-[11px]">
+                                  <span className={r.errors?.length ? 'text-rose-500' : 'text-emerald-500'}>{r.errors?.length ? '✗' : '✓'}</span>
+                                  <span className="font-bold text-slate-700 w-48 truncate">{r.name}</span>
+                                  <span className="text-slate-500">{r.processed} doc{r.processed !== 1 ? 's' : ''}</span>
+                                  {r.newPending > 0 && <span className="text-violet-600 font-bold">+{r.newPending} new</span>}
+                                  {r.updated > 0 && <span className="text-slate-400">{r.updated} updated</span>}
+                                  {r.errors?.map((e: string, j: number) => <span key={j} className="text-rose-500 truncate max-w-xs">{e}</span>)}
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                          {hasErrors && (
+                            <div className="mt-2 space-y-1">
+                              {(log.errors as string[]).map((e: string, i: number) => (
+                                <div key={i} className="text-[11px] text-rose-600 font-bold">{e}</div>
+                              ))}
+                            </div>
+                          )}
+                        </td>
+                      </tr>
+                    )}
+                  </React.Fragment>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+};
+
 // ─── Superadmin Panel ─────────────────────────────────────────────────────────
 const SuperadminPanel = ({ onViewSite, onViewOrg, onSyncSite }: { onViewSite: (site: any, role: 'advisor' | 'client', tab?: 'actions' | 'documents' | 'dochealth' | 'iag' | 'files') => void; onViewOrg: (orgSites: any[], orgId: string, role: 'advisor' | 'client') => void; onSyncSite?: (site: any) => Promise<void> }) => {
   const [activeTab, setActiveTab] = useState<AdminTab>('organisations');
@@ -2644,6 +2747,7 @@ const SuperadminPanel = ({ onViewSite, onViewOrg, onSyncSite }: { onViewSite: (s
   const [bgSyncStatus, setBgSyncStatus] = useState('');
   const [bgSyncStats, setBgSyncStats] = useState<{ processed: number; newPending: number; updated: number } | null>(null);
   const [quickSyncModalSites, setQuickSyncModalSites] = useState<{ id: string; name: string }[] | null>(null);
+  const [syncModalMinimised, setSyncModalMinimised] = useState(false);
 
   // Requirements tab state
   const [reqSiteType, setReqSiteType] = useState('OFFICE');
@@ -2989,6 +3093,7 @@ const SuperadminPanel = ({ onViewSite, onViewOrg, onSyncSite }: { onViewSite: (s
     { key: 'requirements', label: 'Industry Standards', icon: <Shield size={14} /> },
     { key: 'usage', label: 'Usage & Costs', icon: <BarChart3 size={14} /> },
     { key: 'data-health', label: 'Data Health', icon: <Database size={14} /> },
+    { key: 'sync-logs', label: 'Sync Logs', icon: <RefreshCw size={14} /> },
   ];
 
   // Reusable folder picker field
@@ -4156,6 +4261,8 @@ const SuperadminPanel = ({ onViewSite, onViewOrg, onSyncSite }: { onViewSite: (s
         );
       })()}
 
+      {activeTab === 'sync-logs' && <SyncLogsTab />}
+
       {syncConfigSite && (
         <SyncConfigModal
           site={syncConfigSite}
@@ -4168,11 +4275,23 @@ const SuperadminPanel = ({ onViewSite, onViewOrg, onSyncSite }: { onViewSite: (s
       )}
 
       {quickSyncModalSites && (
-        <SyncProgressModal
-          sites={quickSyncModalSites}
-          onClose={() => setQuickSyncModalSites(null)}
-          onViewSite={siteId => { onViewSite(sites.find(s => s.id === siteId) ?? sites[0], 'advisor'); setQuickSyncModalSites(null); }}
-        />
+        <div className={syncModalMinimised ? 'hidden' : ''}>
+          <SyncProgressModal
+            sites={quickSyncModalSites}
+            onClose={() => { setQuickSyncModalSites(null); setSyncModalMinimised(false); }}
+            onMinimise={() => setSyncModalMinimised(true)}
+            onViewSite={siteId => { onViewSite(sites.find(s => s.id === siteId) ?? sites[0], 'advisor'); setQuickSyncModalSites(null); setSyncModalMinimised(false); }}
+          />
+        </div>
+      )}
+      {quickSyncModalSites && syncModalMinimised && (
+        <button
+          onClick={() => setSyncModalMinimised(false)}
+          className="fixed bottom-4 right-4 z-50 flex items-center gap-2 bg-violet-700 text-white px-4 py-2.5 rounded-xl shadow-2xl text-[11px] font-black uppercase tracking-widest hover:bg-violet-800 transition-colors"
+          title="Show sync progress"
+        >
+          <RefreshCw size={12} className="animate-spin" />AI Sync running…
+        </button>
       )}
 
       {/* Admin set password modal */}
@@ -4356,6 +4475,7 @@ const AiSuggestionsPanel = ({ siteId, siteName, onClose, onCountChange, onAction
   const [itemEdits, setItemEdits] = useState<Record<string, ItemEdits>>({});
   const [working, setWorking] = useState<Set<string>>(new Set());
   const [skipped, setSkipped] = useState<Set<string>>(new Set());
+  const [allSkipped, setAllSkipped] = useState(false);
   const [resolveExpanded, setResolveExpanded] = useState<Record<string, boolean>>({});
   const [resolveDates, setResolveDates] = useState<Record<string, string>>({});
   const titleRefs = useRef<Record<string, HTMLTextAreaElement>>({});
@@ -4363,7 +4483,9 @@ const AiSuggestionsPanel = ({ siteId, siteName, onClose, onCountChange, onAction
   const [sessionLog, setSessionLog] = useState<LogEntry[]>([]);
   const [logExpanded, setLogExpanded] = useState(false);
 
-  const totalRemaining = groups.reduce((s, g) => s + g.items.filter(i => !skipped.has(i.id)).length, 0);
+  const totalRemaining = allSkipped ? 0 : groups.reduce((s, g) => s + g.items.filter(i => !skipped.has(i.id)).length, 0);
+
+  useEffect(() => { onCountChange(totalRemaining); }, [totalRemaining]);
 
   const load = async () => {
     setLoading(true);
@@ -4389,7 +4511,6 @@ const AiSuggestionsPanel = ({ siteId, siteName, onClose, onCountChange, onAction
   const remove = (id: string) => {
     setGroups(prev => {
       const next = prev.map(g => ({ ...g, items: g.items.filter(i => i.id !== id) })).filter(g => g.items.length > 0);
-      onCountChange(next.reduce((s, g) => s + g.items.length, 0));
       return next;
     });
   };
@@ -4501,7 +4622,17 @@ const AiSuggestionsPanel = ({ siteId, siteName, onClose, onCountChange, onAction
           </h2>
           <p className="text-violet-200 text-[11px] mt-0.5">{siteName} — review and accept, resolve, skip or reject each suggestion</p>
         </div>
-        <button onClick={onClose} title="Close panel" className="text-violet-200 hover:text-white"><X size={18} /></button>
+        <div className="flex items-center gap-2">
+          {!loading && totalRemaining > 0 && (
+            <button
+              onClick={() => setAllSkipped(true)}
+              title="Hide all suggestions for this session — no portal changes saved"
+              className="px-3 py-1.5 border border-violet-400 text-violet-100 rounded-lg text-[11px] font-black hover:bg-violet-500 transition-colors">
+              Skip all
+            </button>
+          )}
+          <button onClick={onClose} title="Close panel" className="text-violet-200 hover:text-white"><X size={18} /></button>
+        </div>
       </div>
 
       {/* Body */}
@@ -4515,7 +4646,7 @@ const AiSuggestionsPanel = ({ siteId, siteName, onClose, onCountChange, onAction
           </div>
         )}
         {!loading && groups.map(group => {
-          const visibleItems = group.items.filter(i => !skipped.has(i.id));
+          const visibleItems = allSkipped ? [] : group.items.filter(i => !skipped.has(i.id));
           if (!visibleItems.length) return null;
           return (
             <div key={group.docName} className="border-b border-slate-100 last:border-b-0">
@@ -4701,7 +4832,7 @@ const AiSuggestionsPanel = ({ siteId, siteName, onClose, onCountChange, onAction
           })()}
           <div className="flex items-center justify-between">
             {groups.length > 0
-              ? <span className="text-[11px] font-bold text-slate-400">{totalRemaining} remaining{skipped.size > 0 ? ` · ${skipped.size} skipped` : ''}</span>
+              ? <span className="text-[11px] font-bold text-slate-400">{totalRemaining} remaining{(() => { const n = allSkipped ? groups.reduce((s, g) => s + g.items.length, 0) : skipped.size; return n > 0 ? ` · ${n} skipped` : ''; })()}</span>
               : <span className="text-[11px] font-bold text-slate-400">All suggestions reviewed</span>
             }
             <button onClick={onClose} className="px-4 py-2 bg-white border border-slate-200 text-slate-500 rounded-xl text-[11px] font-black uppercase tracking-wider hover:bg-slate-50">Close</button>
@@ -4713,9 +4844,10 @@ const AiSuggestionsPanel = ({ siteId, siteName, onClose, onCountChange, onAction
   );
 };
 
-const SyncProgressModal = ({ sites, onClose, onViewSite }: {
+const SyncProgressModal = ({ sites, onClose, onMinimise, onViewSite }: {
   sites: { id: string; name: string }[];
   onClose: () => void;
+  onMinimise?: () => void;
   onViewSite: (siteId: string) => void;
 }) => {
   type DocLine = { siteName: string; docName: string; status: 'processing' | 'done' | 'error' | 'skipped'; newSuggestions: number; error?: string; skipped?: string };
@@ -4808,7 +4940,10 @@ const SyncProgressModal = ({ sites, onClose, onViewSite }: {
             </h2>
             <p className="text-violet-200 text-[11px] mt-0.5">{isMultiSite ? sites.map(s => s.name).join(', ').slice(0, 60) + (sites.map(s => s.name).join(', ').length > 60 ? '…' : '') : sites[0]?.name}</p>
           </div>
-          {phase !== 'running' && <button onClick={onClose} className="text-violet-200 hover:text-white" title="Close"><X size={18} /></button>}
+          {phase === 'running'
+            ? <button onClick={onMinimise} className="text-violet-200 hover:text-white" title="Minimise — sync continues in background"><Minus size={18} /></button>
+            : <button onClick={onClose} className="text-violet-200 hover:text-white" title="Close"><X size={18} /></button>
+          }
         </div>
 
         {/* Mode picker */}
@@ -5810,8 +5945,9 @@ export default function App() {
   };
 
   const skipAllReviewDoc = (docFileId: string) => {
-    const ids = reviewActions.filter(ra => ra.docFileId === docFileId && !ra.added && !ra.isError && !ra.isUnverified).map(ra => ra.id);
-    for (const id of ids) skipReviewAction(id);
+    const items = reviewActions.filter(ra => ra.docFileId === docFileId && !ra.added && !ra.isError && !ra.isUnverified && !skippedReview.has(ra.id));
+    setSkippedReview(prev => { const next = new Set(prev); for (const ra of items) next.add(ra.id); return next; });
+    setReviewLog(prev => [...prev, ...items.map(ra => ({ action: 'skipped' as const, docName: ra.docName, title: reviewDescRefs.current[ra.id]?.value || ra.description }))]);
   };
 
   const rejectAllReviewDoc = (docFileId: string) => {
@@ -7192,7 +7328,7 @@ export default function App() {
               <div className="bg-white border border-slate-200 p-4 md:p-8 rounded-lg shadow-sm relative overflow-hidden border-l-[12px] border-l-indigo-700">
                 <div className="absolute inset-0 bg-gradient-to-r from-indigo-50/40 to-transparent pointer-events-none" />
                 <div className="absolute inset-0 bg-gradient-to-r from-indigo-50/40 to-transparent pointer-events-none" />
-                <div className="relative flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
+                <div className="relative flex items-start justify-between gap-6">
                   <div>
                     <h2 className="text-lg md:text-2xl font-black text-slate-900 tracking-tight">{selectedSite.name}</h2>
                     <p className="text-slate-500 text-xs md:text-sm mt-1 flex items-center gap-1.5">
@@ -7211,59 +7347,23 @@ export default function App() {
                       </div>
                     )}
                   </div>
-                  <div className="flex gap-3 flex-wrap items-start">
+                  <div className="flex flex-col items-end gap-2 shrink-0">
                     {siteOrg?.logo_url && (
-                      <div className="bg-white border border-slate-200 rounded-lg px-4 py-2 flex items-center justify-center h-20 max-w-[200px] shrink-0">
-                        <img src={siteOrg.logo_url} alt={siteOrg.name} className="max-h-16 max-w-[160px] object-contain" />
+                      <div className="bg-white border border-slate-200 rounded-lg px-4 py-2 flex items-center justify-center max-w-[200px]">
+                        <img src={siteOrg.logo_url} alt={siteOrg.name} className="max-h-20 max-w-[170px] object-contain" />
                       </div>
                     )}
                     {profile?.role === 'superadmin' && selectedSite.datto_folder_id && (
                       <button
                         onClick={() => setShowSyncConfig(true)}
-                        className="flex items-center gap-2 bg-white border border-violet-200 text-violet-700 px-4 py-2.5 rounded-xl text-[11px] font-black uppercase tracking-widest hover:bg-violet-50"
+                        className="flex items-center gap-1.5 bg-white border border-violet-200 text-violet-700 px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest hover:bg-violet-50"
                         title="Choose which folders to include in AI Sync"
                       >
-                        <Settings size={13} />Configure Sync
+                        <Settings size={11} />Configure Sync
                         {(selectedSite.excluded_datto_folder_ids?.length ?? 0) > 0 && (
                           <span className="bg-violet-100 text-violet-700 text-[10px] font-black px-1.5 py-0.5 rounded-full">{selectedSite.excluded_datto_folder_ids.length}</span>
                         )}
                       </button>
-                    )}
-                    {effectiveRole === 'advisor' && (
-                      <div className="flex flex-col items-end gap-1.5">
-                        {aiSuggestionsCount > 0 && (
-                          <button
-                            onClick={() => setShowAiReviewPanel(true)}
-                            className="w-full flex items-center justify-center gap-2 bg-amber-500 text-white px-4 py-2 rounded-xl text-[11px] font-black uppercase tracking-widest shadow hover:bg-amber-600 animate-pulse"
-                          >
-                            <Sparkles className="w-3.5 h-3.5" />
-                            Review Actions ({aiSuggestionsCount})
-                          </button>
-                        )}
-                        <div className="flex items-center gap-2">
-                          <button
-                            onClick={() => handleAiSync(selectedSite)}
-                            disabled={aiSyncing || !selectedSite.datto_folder_id}
-                            title={!selectedSite.datto_folder_id ? 'No Datto folder configured' : 'Sync new/modified documents only'}
-                            className="flex items-center gap-2 bg-violet-600 text-white px-5 py-2.5 rounded-xl text-[11px] font-black uppercase tracking-widest shadow-lg hover:bg-violet-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                          >
-                            <Sparkles className="w-4 h-4" />
-                            {aiSyncing ? 'Syncing…' : 'AI Sync'}
-                          </button>
-                          <button
-                            onClick={() => handleForceAiSync(selectedSite)}
-                            disabled={aiSyncing || !selectedSite.datto_folder_id}
-                            title={!selectedSite.datto_folder_id ? 'No Datto folder configured' : 'Reprocess all documents regardless of date'}
-                            className="flex items-center gap-2 bg-violet-500 text-white px-4 py-2.5 rounded-xl text-[11px] font-black uppercase tracking-widest shadow-lg hover:bg-violet-600 disabled:opacity-50 disabled:cursor-not-allowed"
-                          >
-                            Sync All
-                          </button>
-                        </div>
-                        <p className="text-[10px] text-slate-400 text-right leading-snug">
-                          <span className="font-black text-slate-500">AI Sync</span> — new &amp; modified docs only.&nbsp;
-                          <span className="font-black text-slate-500">Sync All</span> — reprocess everything (slower).
-                        </p>
-                      </div>
                     )}
                   </div>
                 </div>
@@ -7282,6 +7382,37 @@ export default function App() {
                       <span className="text-slate-200 text-[11px]">|</span>
                       <a href={`/report?type=org&orgId=${selectedSite.organisation_id}`} target="_blank" rel="noopener noreferrer" className="text-[11px] font-bold text-indigo-600 hover:text-indigo-800 hover:underline flex items-center gap-1"><ExternalLink size={11} />Org H&amp;S Report</a>
                     </>
+                  )}
+                  {effectiveRole === 'advisor' && (
+                    <div className="ml-auto flex items-center gap-1.5">
+                      {aiSuggestionsCount > 0 && (
+                        <button
+                          onClick={() => setShowAiReviewPanel(true)}
+                          title={`${aiSuggestionsCount} AI-extracted actions awaiting your review`}
+                          className="flex items-center gap-1.5 bg-amber-500 text-white px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest shadow hover:bg-amber-600 animate-pulse"
+                        >
+                          <Sparkles className="w-3 h-3" />
+                          Review Actions ({aiSuggestionsCount})
+                        </button>
+                      )}
+                      <button
+                        onClick={() => handleAiSync(selectedSite)}
+                        disabled={aiSyncing || !selectedSite.datto_folder_id}
+                        title={!selectedSite.datto_folder_id ? 'No Datto folder configured' : 'Sync new and modified documents only'}
+                        className="flex items-center gap-1.5 bg-violet-600 text-white px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest shadow hover:bg-violet-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        <Sparkles className="w-3 h-3" />
+                        {aiSyncing ? 'Syncing…' : 'AI Sync'}
+                      </button>
+                      <button
+                        onClick={() => handleForceAiSync(selectedSite)}
+                        disabled={aiSyncing || !selectedSite.datto_folder_id}
+                        title={!selectedSite.datto_folder_id ? 'No Datto folder configured' : 'Reprocess all documents regardless of date (slower)'}
+                        className="flex items-center gap-1.5 bg-violet-500 text-white px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest shadow hover:bg-violet-600 disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        Sync All
+                      </button>
+                    </div>
                   )}
                 </div>
               )}
@@ -7745,7 +7876,7 @@ export default function App() {
                               </button>
                               {docGroupExpanded[docFileId] !== false && (
                                 <div className="flex items-center gap-1.5 flex-shrink-0 mr-3">
-                                  <button onClick={() => { const ids = newActions.filter(ra => ra.docFileId === docFileId).map(ra => ra.id); ids.forEach(id => handleAddReviewAction(id)); }} title="Accept all actions in this document" className="border border-slate-300 rounded-lg text-[10px] font-black px-2.5 py-1 text-slate-500 hover:bg-slate-200/60 transition-colors">Accept all</button>
+                                  <button onClick={async () => { const ids = newActions.filter(ra => ra.docFileId === docFileId).map(ra => ra.id); for (const id of ids) await handleAddReviewAction(id); }} title="Accept all actions in this document" className="border border-slate-300 rounded-lg text-[10px] font-black px-2.5 py-1 text-slate-500 hover:bg-slate-200/60 transition-colors">Accept all</button>
                                   <button onClick={() => { setDocResolveExpanded(prev => ({ ...prev, [docFileId]: !prev[docFileId] })); if (!docResolveDates[docFileId]) setDocResolveDates(prev => ({ ...prev, [docFileId]: new Date().toISOString().slice(0, 10) })); }} title="Mark all actions in this document as already resolved (doc unaffected)" className={`border rounded-lg text-[10px] font-black px-2.5 py-1 transition-colors ${docResolveExpanded[docFileId] ? 'bg-slate-200 border-slate-300 text-slate-700' : 'border-slate-300 text-slate-500 hover:bg-slate-200/60'}`}>Resolve all</button>
                                   <button onClick={() => skipAllReviewDoc(docFileId)} title="Hide all actions in this document for this session (doc unaffected)" className="border border-slate-300 rounded-lg text-[10px] font-black px-2.5 py-1 text-slate-500 hover:bg-slate-200/60 transition-colors">Skip all</button>
                                   <button onClick={() => rejectAllReviewDoc(docFileId)} title="Permanently discard all actions in this document (doc unaffected)" className="border border-rose-200 rounded-lg text-[10px] font-black px-2.5 py-1 text-rose-500 hover:bg-rose-50 transition-colors">Reject all</button>
@@ -8442,7 +8573,11 @@ export default function App() {
           onClose={() => setShowAiReviewPanel(false)}
           onCountChange={(n) => setAiSuggestionsCount(n)}
           onActionAccepted={(action) => {
-            setAllActions(prev => [...prev, action]);
+            setAllActions(prev => prev.map(a =>
+              a.id === action.id
+                ? { ...a, status: action.status as ActionStatus, isSuggested: action.is_suggested ?? false, action: action.title ?? a.action, date: action.due_date ?? a.date, who: action.responsible_person ?? a.who, riskLevel: action.risk_level ?? a.riskLevel }
+                : a
+            ));
           }}
         />
       )}

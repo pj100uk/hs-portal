@@ -522,6 +522,7 @@ export async function runSyncForSite(siteId: string, forceAll: boolean, baseUrl:
           });
           if (!insertErr) {
             newPending++; docNewPending.count++;
+            (currentActions as any[]).push({ id: `inserted-${newPending}`, title: a.description, site_id: siteId, source_document_id: doc.id, source_document_name: doc.name, hazard_ref: a.hazardRef ?? null });
             if (documentMeta?.assessmentDate && doc.name) {
               const d = new Date(documentMeta.assessmentDate + 'T00:00:00');
               d.setFullYear(d.getFullYear() + 1);
