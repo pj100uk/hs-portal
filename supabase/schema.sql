@@ -1,4 +1,4 @@
--- Schema dumped at 2026-05-14T18:02:19.496Z
+-- Schema dumped at 2026-05-26T19:12:06.806Z
 
 TABLE: action_evidence
   id uuid NOT NULL DEFAULT gen_random_uuid()
@@ -71,6 +71,22 @@ TABLE: client_site_assignments
   client_user_id uuid NOT NULL
   site_id uuid NOT NULL
   created_at timestamptz DEFAULT now()
+
+TABLE: client_uploads
+  id uuid NOT NULL DEFAULT gen_random_uuid()
+  site_id uuid NOT NULL
+  uploaded_by uuid
+  uploaded_at timestamptz NOT NULL DEFAULT now()
+  file_name text NOT NULL
+  storage_path text NOT NULL
+  file_size_bytes int4
+  notes text
+  status text NOT NULL DEFAULT 'pending_review'::text
+  action_id uuid
+  action_evidence_id uuid
+  reviewed_by uuid
+  reviewed_at timestamptz
+  review_note text
 
 TABLE: document_health
   id uuid NOT NULL DEFAULT gen_random_uuid()
@@ -163,5 +179,18 @@ TABLE: sites
   vault_folder_id text
   iag_weighted_score int4
   action_progress int4
+
+TABLE: sync_log
+  id uuid NOT NULL DEFAULT gen_random_uuid()
+  started_at timestamptz NOT NULL DEFAULT now()
+  completed_at timestamptz
+  trigger text NOT NULL DEFAULT 'manual'::text
+  sites_attempted int4 DEFAULT 0
+  sites_processed int4 DEFAULT 0
+  new_suggestions int4 DEFAULT 0
+  updated int4 DEFAULT 0
+  duration_seconds int4
+  errors jsonb DEFAULT '[]'::jsonb
+  site_results jsonb DEFAULT '[]'::jsonb
 
 
