@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { GoogleGenerativeAI } from '@google/generative-ai'
+import { GoogleAIFileManager } from '@google/generative-ai/server'
 import { createClient } from '@supabase/supabase-js'
+import { BASE_URL, AUTH_HEADER } from '../datto/folder-utils'
+import * as fs from 'fs'
+import * as os from 'os'
+import * as nodePath from 'path'
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!)
 const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!)
@@ -79,13 +84,46 @@ export async function POST(request: NextRequest) {
   const body = await request.json().catch(() => null)
   if (!body) return NextResponse.json({ error: 'Invalid request body' }, { status: 400 })
 
-  const { text, html, fileBase64, mimeType, docName, siteId, organisationId } = body
+  const { text, html, fileBase64, fileUri, dattoFileId, mimeType, docName, siteId, organisationId } = body
   const syncId = Date.now()
 
   try {
     let result
 
-    if (fileBase64 && mimeType) {
+    if (dattoFileId && mimeType) {
+      // Server-side: download from Datto, upload to Gemini File API — no browser payload limit
+      const fileManager = new GoogleAIFileManager(process.env.GEMINI_API_KEY!)
+      let dattoRes: Response | undefined
+      for (let attempt = 0; attempt < 4; attempt++) {
+        dattoRes = await fetch(`${BASE_URL}/file/${dattoFileId}/data`, { headers: { Authorization: AUTH_HEADER } })
+        if (dattoRes.status !== 429) break
+        const wait = parseInt(dattoRes.headers.get('Retry-After') || '15', 10) * 1000
+        await new Promise(r => setTimeout(r, wait))
+      }
+      if (!dattoRes!.ok) throw new Error(`Failed to download file from Datto: ${dattoRes!.status}`)
+      const arrayBuf = await dattoRes.arrayBuffer()
+      const safeName = (docName ?? 'doc').replace(/[^a-z0-9.]/gi, '_')
+      const tmpPath = nodePath.join(os.tmpdir(), `${syncId}-${safeName}`)
+      fs.writeFileSync(tmpPath, Buffer.from(arrayBuf))
+      let geminiFileName: string | undefined
+      try {
+        const uploadRes = await fileManager.uploadFile(tmpPath, { mimeType, displayName: docName })
+        geminiFileName = uploadRes.file.name
+        result = await generateWithRetry([
+          { fileData: { mimeType, fileUri: uploadRes.file.uri } },
+          `${PROMPT_SUFFIX}\n\nDocument name: ${docName}\nSync-ID: ${syncId}`,
+        ])
+      } finally {
+        fs.unlinkSync(tmpPath)
+        if (geminiFileName) fileManager.deleteFile(geminiFileName).catch(() => {})
+      }
+    } else if (fileUri && mimeType) {
+      // Pre-uploaded file URI (server-to-server use)
+      result = await generateWithRetry([
+        { fileData: { mimeType, fileUri } },
+        `${PROMPT_SUFFIX}\n\nDocument name: ${docName}\nSync-ID: ${syncId}`,
+      ])
+    } else if (fileBase64 && mimeType) {
       // PDF or other binary — send as inline data to Gemini
       result = await generateWithRetry([
         { inlineData: { data: fileBase64, mimeType } },

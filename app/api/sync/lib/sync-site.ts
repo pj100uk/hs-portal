@@ -1,7 +1,11 @@
 import mammoth from 'mammoth';
 import { createClient } from '@supabase/supabase-js';
+import { GoogleAIFileManager } from '@google/generative-ai/server';
 import { BASE_URL, AUTH_HEADER } from '../../datto/folder-utils';
 import { CURRENT_EXTRACTION_VERSION } from '../../../../lib/extraction-version';
+import * as fs from 'fs';
+import * as os from 'os';
+import * as nodePath from 'path';
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -265,12 +269,19 @@ export async function runSyncForSite(siteId: string, forceAll: boolean, baseUrl:
     try {
       const ext = doc.name.split('.').pop()?.toLowerCase() ?? '';
 
-      const fileRes = await fetch(`${BASE_URL}/file/${doc.id}/data`, { headers: { Authorization: AUTH_HEADER } });
-      if (!fileRes.ok) throw new Error(`Failed to download ${doc.name}: ${fileRes.status}`);
-      const buffer = await fileRes.arrayBuffer();
+      let fileRes: Response | undefined;
+      for (let attempt = 0; attempt < 4; attempt++) {
+        fileRes = await fetch(`${BASE_URL}/file/${doc.id}/data`, { headers: { Authorization: AUTH_HEADER } });
+        if (fileRes.status !== 429) break;
+        const wait = parseInt(fileRes.headers.get('Retry-After') || '15', 10) * 1000;
+        await new Promise(r => setTimeout(r, wait));
+      }
+      if (!fileRes!.ok) throw new Error(`Failed to download ${doc.name}: ${fileRes!.status}`);
+      const buffer = await fileRes!.arrayBuffer();
       if (buffer.byteLength < 100) throw new Error(`${doc.name} appears corrupted (${buffer.byteLength} bytes)`);
 
       let aiBody: Record<string, string>;
+      let geminiFileName: string | undefined;
       if (ext === 'docx') {
         const magic = new Uint8Array(buffer.slice(0, 4));
         if (magic[0] !== 0x50 || magic[1] !== 0x4B || magic[2] !== 0x03 || magic[3] !== 0x04)
@@ -290,11 +301,17 @@ export async function runSyncForSite(siteId: string, forceAll: boolean, baseUrl:
         const text = workbook.SheetNames.map((name: string) => `Sheet: ${name}\n${XLSX.utils.sheet_to_csv(workbook.Sheets[name])}`).join('\n\n');
         aiBody = { text, docName: doc.name };
       } else if (ext === 'pdf') {
-        const bytes = new Uint8Array(buffer);
-        let binary = ''; for (let b = 0; b < bytes.byteLength; b++) binary += String.fromCharCode(bytes[b]);
-        const base64 = btoa(binary);
-        if (base64.length > 5_000_000) throw new Error('PDF exceeds size limit');
-        aiBody = { fileBase64: base64, mimeType: 'application/pdf', docName: doc.name };
+        const fileManager = new GoogleAIFileManager(process.env.GEMINI_API_KEY!);
+        const safeName = doc.name.replace(/[^a-z0-9.]/gi, '_');
+        const tmpPath = nodePath.join(os.tmpdir(), `${Date.now()}-${safeName}`);
+        fs.writeFileSync(tmpPath, Buffer.from(buffer));
+        try {
+          const uploadRes = await fileManager.uploadFile(tmpPath, { mimeType: 'application/pdf', displayName: doc.name });
+          geminiFileName = uploadRes.file.name;
+          aiBody = { fileUri: uploadRes.file.uri, mimeType: 'application/pdf', docName: doc.name };
+        } finally {
+          fs.unlinkSync(tmpPath);
+        }
       } else {
         throw new Error(`Unsupported file type: .${ext}`);
       }
@@ -315,6 +332,7 @@ export async function runSyncForSite(siteId: string, forceAll: boolean, baseUrl:
           if (!aiRes.ok) { const e = await aiRes.json().catch(() => ({})) as any; throw new Error(`AI failed: ${e.error ?? aiRes.statusText}`); }
         } else throw new Error(`AI extraction failed for ${doc.name}: ${errMsg}`);
       }
+      if (geminiFileName) new GoogleAIFileManager(process.env.GEMINI_API_KEY!).deleteFile(geminiFileName).catch(() => {});
       const { actions: _rawActions, documentMeta } = await aiRes.json() as any;
 
       const actions: any[] = (_rawActions ?? [])
@@ -602,9 +620,10 @@ export async function runSyncForSite(siteId: string, forceAll: boolean, baseUrl:
     }
   };
 
-  const CONCURRENCY = 2;
+  const CONCURRENCY = 1;
   for (let i = 0; i < docFiles.length; i += CONCURRENCY) {
     await Promise.all(docFiles.slice(i, i + CONCURRENCY).map((doc, offset) => processDoc(doc, i + offset)));
+    if (i + CONCURRENCY < docFiles.length) await new Promise(r => setTimeout(r, 1500));
   }
 
   await supabase.from('sites').update({ last_ai_sync: new Date().toISOString() }).eq('id', siteId);

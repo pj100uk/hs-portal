@@ -3076,6 +3076,16 @@ const SuperadminPanel = ({ onViewSite, onViewOrg, onSyncSite }: { onViewSite: (s
   // ── Delete handlers ──
   const handleDeleteOrg = async (id: string) => { if (!confirm('Delete this organisation? All its sites and actions will also be deleted.')) return; await supabase.from('organisations').delete().eq('id', id); flash('Organisation deleted'); loadOrgs(); loadSites(); };
   const handleDeleteSite = async (id: string) => { if (!confirm('Delete this site? All its actions will also be deleted.')) return; await supabase.from('sites').delete().eq('id', id); flash('Site deleted'); loadSites(); };
+  const handleClearSiteActions = async (id: string, name: string) => {
+    if (!confirm(`Clear ALL actions and evidence for "${name}"?\n\nThe site, its documents, and settings will be kept. This cannot be undone.`)) return;
+    const { data: { session } } = await supabase.auth.getSession();
+    const userId = session?.user?.id;
+    if (!userId) { flash('Not authenticated', true); return; }
+    const res = await fetch(`/api/admin/sites/${id}/actions?userId=${userId}`, { method: 'DELETE' });
+    const json = await res.json();
+    if (!res.ok) { flash(json.error ?? 'Failed to clear actions', true); return; }
+    flash(`Cleared ${json.deleted.actions} action${json.deleted.actions !== 1 ? 's' : ''} and ${json.deleted.evidence} evidence record${json.deleted.evidence !== 1 ? 's' : ''}`);
+  };
   const handleDeleteUser = async (id: string) => { if (!confirm('Delete this user?')) return; await fetch('/api/admin/users', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userId: id }) }); flash('User deleted'); loadUsers(); };
   const handleDeleteAssignment = async (id: string) => { if (!confirm('Remove this assignment?')) return; await supabase.from('advisor_organisations').delete().eq('id', id); flash('Assignment removed'); loadAssignments(); };
 
@@ -3543,6 +3553,7 @@ const SuperadminPanel = ({ onViewSite, onViewOrg, onSyncSite }: { onViewSite: (s
                                   ><Settings size={14} /></button>
                                 </>
                               )}
+                              <button onClick={e => { e.stopPropagation(); handleClearSiteActions(site.id, site.name); }} className="text-amber-400 hover:text-amber-600 p-1.5 rounded-lg hover:bg-amber-50" title="Clear all actions and evidence for this site (keeps site, documents and settings)"><Trash2 size={14} /></button>
                               <button onClick={e => { e.stopPropagation(); handleDeleteSite(site.id); }} className="text-rose-400 hover:text-rose-600 p-1.5 rounded-lg hover:bg-rose-50" title="Permanently delete this site from the portal"><X size={14} /></button>
                             </div>
                           </td>
@@ -4267,8 +4278,8 @@ const SuperadminPanel = ({ onViewSite, onViewOrg, onSyncSite }: { onViewSite: (s
         <SyncConfigModal
           site={syncConfigSite}
           onClose={() => setSyncConfigSite(null)}
-          onSave={(siteId, excludedIds) => {
-            setSites(prev => prev.map(s => s.id === siteId ? { ...s, excluded_datto_folder_ids: excludedIds } : s));
+          onSave={(siteId, includedIds) => {
+            setSites(prev => prev.map(s => s.id === siteId ? { ...s, included_datto_folder_ids: includedIds, excluded_datto_folder_ids: [] } : s));
             setSyncConfigSite(null);
           }}
         />
@@ -4482,6 +4493,8 @@ const AiSuggestionsPanel = ({ siteId, siteName, onClose, onCountChange, onAction
   type LogEntry = { action: 'accepted' | 'resolved' | 'skipped' | 'rejected'; docName: string; title: string };
   const [sessionLog, setSessionLog] = useState<LogEntry[]>([]);
   const [logExpanded, setLogExpanded] = useState(false);
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+  const [existingCounts, setExistingCounts] = useState<Record<string, number>>({});
 
   const totalRemaining = allSkipped ? 0 : groups.reduce((s, g) => s + g.items.filter(i => !skipped.has(i.id)).length, 0);
 
@@ -4489,9 +4502,14 @@ const AiSuggestionsPanel = ({ siteId, siteName, onClose, onCountChange, onAction
 
   const load = async () => {
     setLoading(true);
-    const { data } = await supabase.from('actions')
-      .select('id, title, hazard_ref, hazard, existing_controls, risk_level, risk_rating, source_document_name, source_document_id, source_folder_path, due_date, responsible_person, issue_date, regulation')
-      .eq('site_id', siteId).eq('status', 'ai_suggested').order('source_document_name').order('hazard_ref');
+    const [{ data }, { data: existingData }] = await Promise.all([
+      supabase.from('actions')
+        .select('id, title, hazard_ref, hazard, existing_controls, risk_level, risk_rating, source_document_name, source_document_id, source_folder_path, due_date, responsible_person, issue_date, regulation')
+        .eq('site_id', siteId).eq('status', 'ai_suggested').order('source_document_name').order('hazard_ref'),
+      supabase.from('actions')
+        .select('source_document_name')
+        .eq('site_id', siteId).neq('status', 'ai_suggested').neq('status', 'rejected'),
+    ]);
     const map = new Map<string, Suggestion[]>();
     const edits: Record<string, ItemEdits> = {};
     for (const a of (data ?? [])) {
@@ -4500,8 +4518,16 @@ const AiSuggestionsPanel = ({ siteId, siteName, onClose, onCountChange, onAction
       map.get(doc)!.push(a as Suggestion);
       edits[a.id] = { title: a.title, risk_level: a.risk_level ?? '', due_date: a.due_date ?? '', responsible_person: a.responsible_person ?? '' };
     }
-    setGroups(Array.from(map.entries()).map(([docName, items]) => ({ docName, items })));
+    const counts: Record<string, number> = {};
+    for (const a of (existingData ?? [])) {
+      const doc = a.source_document_name ?? 'Unknown document';
+      counts[doc] = (counts[doc] ?? 0) + 1;
+    }
+    const newGroups = Array.from(map.entries()).map(([docName, items]) => ({ docName, items }));
+    setGroups(newGroups);
     setItemEdits(edits);
+    setExistingCounts(counts);
+    setCollapsed(Object.fromEntries(newGroups.map(g => [g.docName, true])));
     onCountChange(data?.length ?? 0);
     setLoading(false);
   };
@@ -4623,6 +4649,12 @@ const AiSuggestionsPanel = ({ siteId, siteName, onClose, onCountChange, onAction
           <p className="text-violet-200 text-[11px] mt-0.5">{siteName} — review and accept, resolve, skip or reject each suggestion</p>
         </div>
         <div className="flex items-center gap-2">
+          {!loading && groups.length > 1 && (
+            <>
+              <button onClick={() => setCollapsed(Object.fromEntries(groups.map(g => [g.docName, true])))} className="px-3 py-1.5 border border-violet-400 text-violet-100 rounded-lg text-[11px] font-black hover:bg-violet-500 transition-colors">Collapse all</button>
+              <button onClick={() => setCollapsed({})} className="px-3 py-1.5 border border-violet-400 text-violet-100 rounded-lg text-[11px] font-black hover:bg-violet-500 transition-colors">Expand all</button>
+            </>
+          )}
           {!loading && totalRemaining > 0 && (
             <button
               onClick={() => setAllSkipped(true)}
@@ -4649,24 +4681,32 @@ const AiSuggestionsPanel = ({ siteId, siteName, onClose, onCountChange, onAction
           const visibleItems = allSkipped ? [] : group.items.filter(i => !skipped.has(i.id));
           if (!visibleItems.length) return null;
           return (
-            <div key={group.docName} className="border-b border-slate-100 last:border-b-0">
+            <div key={group.docName} className="border-b border-slate-200 last:border-b-0">
               {/* Doc group header */}
-              <div className="bg-slate-100/80 border-b border-slate-200 flex items-center">
-                <div className="flex items-center gap-2 flex-1 px-5 py-2 min-w-0">
-                  <FileText size={11} className="text-violet-400 flex-shrink-0" />
-                  <span className="text-[11px] font-black text-slate-600 truncate">{group.docName}</span>
+              <div
+                className="bg-slate-200 border-b border-slate-300 flex items-center cursor-pointer select-none hover:bg-slate-250 transition-colors"
+                onClick={() => setCollapsed(prev => ({ ...prev, [group.docName]: !prev[group.docName] }))}>
+                <div className="flex items-center gap-2 flex-1 px-5 py-2.5 min-w-0">
+                  {collapsed[group.docName] ? <ChevronRight size={12} className="text-slate-400 flex-shrink-0" /> : <ChevronDown size={12} className="text-slate-400 flex-shrink-0" />}
+                  <FileText size={11} className="text-violet-500 flex-shrink-0" />
+                  <span className="text-[11px] font-black text-slate-700 truncate">{group.docName}</span>
+                  <span className="text-[10px] font-bold text-slate-500 flex-shrink-0">{visibleItems.length} to review</span>
+                  {existingCounts[group.docName] > 0 && (
+                    <span className="text-[10px] font-bold text-emerald-600 flex-shrink-0">{existingCounts[group.docName]} already added</span>
+                  )}
                 </div>
-                <div className="flex items-center gap-2 pr-5 flex-shrink-0">
-                  <button onClick={() => acceptAll(group.docName)} title="Add all actions to the portal" className="border border-slate-300 rounded-lg text-[10px] font-black px-2.5 py-1 text-slate-500 hover:bg-emerald-50 hover:border-emerald-300 hover:text-emerald-700 transition-colors">Accept all</button>
-                  <button onClick={() => resolveAll(group.docName)} title="Mark all actions as resolved in the portal (docs unaffected)" className="border border-slate-300 rounded-lg text-[10px] font-black px-2.5 py-1 text-slate-500 hover:bg-slate-100 hover:border-slate-400 hover:text-slate-700 transition-colors">Resolve all</button>
-                  <button onClick={() => skipAll(group.docName)} title="Hide all for this session — no portal changes saved" className="border border-slate-300 rounded-lg text-[10px] font-black px-2.5 py-1 text-slate-500 hover:bg-slate-100 hover:border-slate-400 hover:text-slate-700 transition-colors">Skip all</button>
-                  <button onClick={() => rejectAll(group.docName)} title="Permanently delete all actions from the portal (docs unaffected)" className="border border-slate-300 rounded-lg text-[10px] font-black px-2.5 py-1 text-slate-500 hover:bg-rose-50 hover:border-rose-300 hover:text-rose-600 transition-colors">Reject all</button>
-                  <span className="text-[10px] font-bold text-slate-400">{visibleItems.length} action{visibleItems.length !== 1 ? 's' : ''}</span>
-                </div>
+                {!collapsed[group.docName] && (
+                  <div className="flex items-center gap-2 pr-5 flex-shrink-0" onClick={e => e.stopPropagation()}>
+                    <button onClick={() => acceptAll(group.docName)} title="Add all actions to the portal" className="border border-slate-300 rounded-lg text-[10px] font-black px-2.5 py-1 text-slate-500 hover:bg-emerald-50 hover:border-emerald-300 hover:text-emerald-700 transition-colors">Accept all</button>
+                    <button onClick={() => resolveAll(group.docName)} title="Mark all actions as resolved in the portal (docs unaffected)" className="border border-slate-300 rounded-lg text-[10px] font-black px-2.5 py-1 text-slate-500 hover:bg-slate-100 hover:border-slate-400 hover:text-slate-700 transition-colors">Resolve all</button>
+                    <button onClick={() => skipAll(group.docName)} title="Hide all for this session — no portal changes saved" className="border border-slate-300 rounded-lg text-[10px] font-black px-2.5 py-1 text-slate-500 hover:bg-slate-100 hover:border-slate-400 hover:text-slate-700 transition-colors">Skip all</button>
+                    <button onClick={() => rejectAll(group.docName)} title="Permanently delete all actions from the portal (docs unaffected)" className="border border-slate-300 rounded-lg text-[10px] font-black px-2.5 py-1 text-slate-500 hover:bg-rose-50 hover:border-rose-300 hover:text-rose-600 transition-colors">Reject all</button>
+                  </div>
+                )}
               </div>
 
               {/* Items */}
-              {visibleItems.map(item => {
+              {!collapsed[group.docName] && visibleItems.map(item => {
                 const edits = itemEdits[item.id] ?? { title: item.title, risk_level: item.risk_level ?? '', due_date: item.due_date ?? '', responsible_person: item.responsible_person ?? '' };
                 return (
                   <div key={item.id} className={`p-5 transition-colors hover:bg-slate-50 border-b border-slate-300 last:border-b-0 ${working.has(item.id) ? 'opacity-40 pointer-events-none' : ''}`}>
@@ -5091,6 +5131,19 @@ const SyncConfigModal = ({ site, onClose, onSave }: {
     });
   };
 
+  const handleSelectAll = () => {
+    setIncludedFolders(prev => {
+      const next = new Map(prev);
+      // Include the root folder itself
+      next.set(site.datto_folder_id, site.name);
+      // Include all loaded subfolders
+      for (const [id, { name }] of folderTree.entries()) next.set(id, name);
+      return next;
+    });
+  };
+
+  const handleClearAll = () => setIncludedFolders(new Map());
+
   const handleSave = async () => {
     setSaving(true); setSaveError('');
     const includedArr = Array.from(includedFolders.keys());
@@ -5118,8 +5171,13 @@ const SyncConfigModal = ({ site, onClose, onSave }: {
           </div>
           <button onClick={onClose} className="text-violet-200 hover:text-white" title="Close without saving"><X size={18} /></button>
         </div>
-        <div className="bg-violet-50 border-b border-violet-100 px-6 py-3">
-          <p className="text-[11px] text-violet-700 font-bold">Tick folders to include in AI Sync. Leave all unticked to scan everything.</p>
+        <div className="bg-violet-50 border-b border-violet-100 px-6 py-3 flex items-center justify-between gap-4">
+          <p className="text-[11px] text-violet-700 font-bold">Tick folders to include in AI sync. Leave all unticked to sync everything. Use Select All then untick folders to exclude specific ones.</p>
+          <div className="flex gap-2 flex-shrink-0">
+            <button onClick={handleSelectAll} className="text-[10px] font-black uppercase tracking-wider text-violet-600 hover:text-violet-800 whitespace-nowrap">Select All</button>
+            <span className="text-violet-300">|</span>
+            <button onClick={handleClearAll} className="text-[10px] font-black uppercase tracking-wider text-slate-400 hover:text-slate-600 whitespace-nowrap">Clear All</button>
+          </div>
         </div>
         {/* Checkbox folder tree */}
         <div className="px-4 py-3 max-h-80 overflow-y-auto">
@@ -5134,7 +5192,7 @@ const SyncConfigModal = ({ site, onClose, onSave }: {
         </div>
         <div className="bg-slate-50 border-t border-slate-100 px-6 py-4 flex items-center justify-between">
           <div>
-            {includedFolders.size > 0 ? <span className="text-[11px] font-bold text-violet-600">{includedFolders.size} folder{includedFolders.size !== 1 ? 's' : ''} selected</span> : <span className="text-[11px] font-bold text-slate-400">No folders selected — will scan all</span>}
+            {includedFolders.size > 0 ? <span className="text-[11px] font-bold text-violet-600">{includedFolders.size} folder{includedFolders.size !== 1 ? 's' : ''} selected</span> : <span className="text-[11px] font-bold text-slate-400">No folders selected — will sync all</span>}
             {saveError && <p className="text-[11px] font-bold text-rose-600 mt-1">{saveError}</p>}
           </div>
           <div className="flex gap-3">
@@ -5831,8 +5889,8 @@ export default function App() {
   };
   const handleSiteClick = (site: Site) => { setSelectedSite(site); setView('site'); if (isViewOnly) setSiteTab(site.datto_folder_id ? 'files' : 'iag'); recalcActionProgress(site.id); refreshComplianceScore(site.id); };
   const handleSaveSyncConfig = (siteId: string, includedIds: string[]) => {
-    setSites(prev => prev.map(s => s.id === siteId ? { ...s, included_datto_folder_ids: includedIds } : s));
-    setSelectedSite(prev => prev?.id === siteId ? { ...prev, included_datto_folder_ids: includedIds } : prev);
+    setSites(prev => prev.map(s => s.id === siteId ? { ...s, included_datto_folder_ids: includedIds, excluded_datto_folder_ids: [] } : s));
+    setSelectedSite(prev => prev?.id === siteId ? { ...prev, included_datto_folder_ids: includedIds, excluded_datto_folder_ids: [] } : prev);
   };
   const handleActionSaved = (action: Action) => {
     setAllActions(prev => [...prev, action]);
@@ -6416,10 +6474,14 @@ export default function App() {
         const doc = docxFiles[i];
         setAiSyncProgress(`Processing ${i + 1}/${docxFiles.length}: ${doc.name}`);
         try {
-          const fileRes = await fetch(`/api/datto/file?fileId=${doc.id}&fileName=${encodeURIComponent(doc.name)}`);
-          if (!fileRes.ok) throw new Error(`Failed to fetch ${doc.name}`);
-          const buffer = await fileRes.arrayBuffer();
           const ext = doc.name.split('.').pop()?.toLowerCase() || '';
+          // PDFs are fetched server-side in ai-extract via Gemini File API — skip browser download
+          let buffer: ArrayBuffer = new ArrayBuffer(0);
+          if (ext !== 'pdf' && ext !== 'doc') {
+            const fileRes = await fetch(`/api/datto/file?fileId=${doc.id}&fileName=${encodeURIComponent(doc.name)}`);
+            if (!fileRes.ok) throw new Error(`Failed to fetch ${doc.name}`);
+            buffer = await fileRes.arrayBuffer();
+          }
 
           let aiBody: Record<string, string>;
           if (ext === 'docx') {
@@ -6468,14 +6530,8 @@ export default function App() {
             ).join('\n\n');
             aiBody = { text, docName: doc.name };
           } else if (ext === 'pdf') {
-            const bytes = new Uint8Array(buffer);
-            let binary = '';
-            for (let b = 0; b < bytes.byteLength; b++) binary += String.fromCharCode(bytes[b]);
-            const base64 = btoa(binary);
-            if (base64.length > 5_000_000) {
-              throw new Error('Document too large for AI extraction (PDF exceeds size limit) — consider splitting it or converting to DOCX');
-            }
-            aiBody = { fileBase64: base64, mimeType: 'application/pdf', docName: doc.name };
+            // Server downloads from Datto and uploads to Gemini File API — handles any size
+            aiBody = { dattoFileId: String(doc.id), mimeType: 'application/pdf', docName: doc.name };
           } else {
             throw new Error(`Unsupported file type: .${ext}`);
           }
