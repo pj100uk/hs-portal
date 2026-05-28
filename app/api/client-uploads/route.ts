@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import Busboy from 'busboy';
+import { BASE_URL, AUTH_HEADER, resolveClientDocsFolderId } from '../datto/folder-utils';
 
 export const runtime = 'nodejs';
 
@@ -17,11 +18,13 @@ export async function GET(req: NextRequest) {
 
   if (!siteId) return NextResponse.json({ error: 'siteId required' }, { status: 400 });
 
+  const includeHidden = new URL(req.url).searchParams.get('includeHidden') === 'true';
   let query = supabase
     .from('client_uploads')
-    .select('id, site_id, uploaded_by, uploaded_at, file_name, file_size_bytes, notes, status, action_id, action_evidence_id, reviewed_by, reviewed_at, review_note')
+    .select('id, site_id, uploaded_by, uploaded_at, file_name, file_size_bytes, notes, status, action_id, action_evidence_id, reviewed_by, reviewed_at, review_note, hidden, datto_file_id')
     .eq('site_id', siteId)
     .order('uploaded_at', { ascending: false });
+  if (!includeHidden) query = query.eq('hidden', false);
 
   if (role === 'client' && userId) {
     query = query.eq('uploaded_by', userId);
@@ -29,7 +32,15 @@ export async function GET(req: NextRequest) {
 
   const { data, error } = await query;
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  return NextResponse.json({ uploads: data ?? [] });
+
+  // Always include count of hidden items so UI can show "X hidden"
+  const { count: hiddenCount } = await supabase
+    .from('client_uploads')
+    .select('id', { count: 'exact', head: true })
+    .eq('site_id', siteId)
+    .eq('hidden', true);
+
+  return NextResponse.json({ uploads: data ?? [], hiddenCount: hiddenCount ?? 0 });
 }
 
 export async function POST(request: NextRequest) {
@@ -50,6 +61,34 @@ export async function POST(request: NextRequest) {
 
     if (storageErr) return NextResponse.json({ error: `Storage upload failed: ${storageErr.message}` }, { status: 500 });
 
+    // Upload to Datto "Client Provided Documents"
+    let dattoFileId: string | null = null;
+    try {
+      const { data: site } = await supabase.from('sites').select('datto_folder_id, datto_folder_path').eq('id', siteId).single();
+      if (site?.datto_folder_id) {
+        const targetFolderId = await resolveClientDocsFolderId(site.datto_folder_id);
+        const form = new FormData();
+        form.append('partData', new Blob([new Uint8Array(fileBuffer)], { type: mimeType }), fileName);
+        form.append('fileName', fileName);
+        form.append('makeUnique', 'true');
+        const dattoRes = await fetch(`${BASE_URL}/file/${targetFolderId}/files`, {
+          method: 'POST', headers: { Authorization: AUTH_HEADER }, body: form,
+        });
+        if (dattoRes.ok) {
+          const body = await dattoRes.json().catch(() => ({}));
+          const d = body.value ?? body;
+          dattoFileId = String(d.fileID ?? d.fileId ?? d.id ?? '') || null;
+          console.log('[client-upload] Datto API upload ok, fileId:', dattoFileId);
+        } else {
+          console.error('[client-upload] Datto API upload failed:', dattoRes.status, await dattoRes.text());
+        }
+      } else {
+        console.warn('[client-upload] site has no datto_folder_id — skipping Datto upload');
+      }
+    } catch (dattoErr: any) {
+      console.error('[client-upload] Datto upload exception:', dattoErr.message);
+    }
+
     const { data: row, error: insertErr } = await supabase
       .from('client_uploads')
       .insert({
@@ -61,6 +100,7 @@ export async function POST(request: NextRequest) {
         storage_path: storagePath,
         notes: notes || null,
         status: 'pending_review',
+        datto_file_id: dattoFileId,
       })
       .select()
       .single();

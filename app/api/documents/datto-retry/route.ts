@@ -35,28 +35,51 @@ export async function POST(req: NextRequest) {
   const targetFolderId = await resolveClientDocsFolderId(site.datto_folder_id);
 
   try {
+    // 1. Check if the file already exists in Datto (e.g. uploaded but ID not saved)
     const listRes = await fetch(`${BASE_URL}/file/${targetFolderId}/files`, {
       headers: { Authorization: AUTH_HEADER },
       cache: 'no-store',
     });
+    if (listRes.ok) {
+      const json = await listRes.json();
+      const arr: any[] = Array.isArray(json) ? json : (json.result ?? json.files ?? json.items ?? []);
+      const match = arr.find((f: any) => (f.name ?? f.fileName) === doc.file_name);
+      if (match) {
+        const dattoFileId = String(match.id ?? match.fileId ?? match.fileID ?? '');
+        if (dattoFileId) {
+          await supabase.from('site_documents').update({ datto_file_id: dattoFileId, datto_folder_id: targetFolderId }).eq('id', documentId);
+          return NextResponse.json({ found: true, dattoFileId });
+        }
+      }
+    }
 
-    if (!listRes.ok) return NextResponse.json({ found: false, reason: 'datto_error' });
+    // 2. File not in Datto — re-upload from Supabase Storage
+    const storagePath = `${doc.id}/${doc.file_name}`;
+    const { data: fileBlob, error: dlErr } = await supabase.storage.from('client-uploads').download(storagePath);
+    if (dlErr || !fileBlob) return NextResponse.json({ found: false, reason: 'storage_missing' });
 
-    const json = await listRes.json();
-    const arr: any[] = Array.isArray(json) ? json : (json.result ?? json.files ?? json.items ?? []);
-    const match = arr.find((f: any) => (f.name ?? f.fileName) === doc.file_name);
+    const fileBuffer = Buffer.from(await fileBlob.arrayBuffer());
+    const mimeType = fileBlob.type || 'application/octet-stream';
 
-    if (!match) return NextResponse.json({ found: false, reason: 'not_in_folder' });
+    const form = new FormData();
+    form.append('partData', new Blob([fileBuffer], { type: mimeType }), doc.file_name);
+    form.append('fileName', doc.file_name);
+    form.append('makeUnique', 'false');
+    const uploadRes = await fetch(`${BASE_URL}/file/${targetFolderId}/files`, {
+      method: 'POST', headers: { Authorization: AUTH_HEADER }, body: form,
+    });
+    if (!uploadRes.ok) {
+      console.error('[datto-retry] API upload failed:', uploadRes.status, await uploadRes.text());
+      return NextResponse.json({ found: false, reason: 'upload_failed' });
+    }
+    const uploadBody = await uploadRes.json().catch(() => ({}));
+    const ud = uploadBody.value ?? uploadBody;
+    const dattoFileId = String(ud.fileID ?? ud.fileId ?? ud.id ?? '') || null;
 
-    const dattoFileId = String(match.id ?? match.fileId ?? match.fileID ?? '');
-    if (!dattoFileId) return NextResponse.json({ found: false, reason: 'no_id' });
+    if (!dattoFileId) return NextResponse.json({ found: false, reason: 'no_id_after_upload' });
 
-    await supabase
-      .from('site_documents')
-      .update({ datto_file_id: dattoFileId, datto_folder_id: targetFolderId })
-      .eq('id', documentId);
-
-    return NextResponse.json({ found: true, dattoFileId });
+    await supabase.from('site_documents').update({ datto_file_id: dattoFileId, datto_folder_id: targetFolderId }).eq('id', documentId);
+    return NextResponse.json({ found: true, dattoFileId, reuploaded: true });
   } catch (err: any) {
     console.error('[datto-retry]', err);
     return NextResponse.json({ found: false, reason: 'exception' });

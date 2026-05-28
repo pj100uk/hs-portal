@@ -87,14 +87,13 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
       .from('action_evidence')
       .select('id', { count: 'exact', head: true })
       .eq('action_id', actionId);
-    const seqSuffix = existingCount && existingCount > 0 ? `${existingCount + 1}` : '';
-
     // Build canonical filename used for DB, storage and Datto
     const ext = fileName.includes('.') ? fileName.slice(fileName.lastIndexOf('.')) : '';
     const docBase = sourceDocumentName ? sourceDocumentName.replace(/\.[^.]+$/, '') : null;
+    const evNum = (existingCount ?? 0) + 1;
     const now = new Date();
     const ukDate = `${String(now.getDate()).padStart(2, '0')}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getFullYear()).slice(2)}`;
-    const parts = [docBase, hazardRef ? `Ref ${hazardRef}` : null, `Evidence${seqSuffix} ${ukDate}`].filter(Boolean);
+    const parts = [docBase, hazardRef ? `Ref ${hazardRef}` : null, `EV${evNum} ${ukDate}`].filter(Boolean);
     const canonicalName = parts.length > 0 ? parts.join('-') + ext : fileName;
 
     // Insert DB row first to get the id for the storage path
@@ -139,7 +138,8 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
     const wdriveAccessible = sourceFolderPath && fs.existsSync(DATTO_DRIVE_ROOT);
     if (wdriveAccessible) {
       try {
-        const evidenceDir = path.join(DATTO_DRIVE_ROOT, ...sourceFolderPath.split('/').filter(Boolean), 'Evidence');
+        const pathParts = sourceFolderPath.split('/').filter(Boolean);
+        const evidenceDir = path.join(DATTO_DRIVE_ROOT, ...pathParts.slice(0, -1), 'Evidence');
         fs.mkdirSync(evidenceDir, { recursive: true });
         const targetFile = path.join(evidenceDir, canonicalName);
         fs.writeFileSync(targetFile, fileBuffer!);

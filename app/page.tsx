@@ -10,7 +10,7 @@ import {
   Folder, FolderOpen, File, Pencil, GraduationCap, Heart,
   Warehouse, ShoppingBag, Home, Sparkles, AlertCircle,
   Upload, FileCheck, Trash2, Users, Search, KeyRound, Download,
-  Archive, Copy, RotateCcw, Minus
+  Archive, Copy, RotateCcw, Minus, EyeOff
 } from 'lucide-react';
 import mammoth from 'mammoth';
 import * as XLSX from 'xlsx';
@@ -533,6 +533,7 @@ const ActionCard = ({ action, isResolved, onToggleResolve, onAddNote, onDelete, 
   const [evidence, setEvidence] = useState<ActionEvidence[]>([]);
   const [evidenceLoading, setEvidenceLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [draggingEvidence, setDraggingEvidence] = useState(false);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
   const today = new Date().toLocaleDateString('en-CA');
 
@@ -608,28 +609,29 @@ const ActionCard = ({ action, isResolved, onToggleResolve, onAddNote, onDelete, 
     }
   };
 
+  const uploadEvidenceFile = async (file: File) => {
+    if (!siteId) return;
+    const fd = new FormData();
+    fd.append('file', file);
+    fd.append('siteId', siteId);
+    if (userId) fd.append('userId', userId);
+    if (action.sourceFolderId) fd.append('sourceFolderId', action.sourceFolderId);
+    if (action.sourceFolderPath) fd.append('sourceFolderPath', action.sourceFolderPath);
+    if (action.hazardRef) fd.append('hazardRef', action.hazardRef);
+    if (action.source_document_id) fd.append('sourceDocumentId', action.source_document_id);
+    if (action.source) fd.append('sourceDocumentName', action.source);
+    const res = await fetch(`/api/actions/${action.id}/evidence`, { method: 'POST', body: fd });
+    const data = await res.json();
+    if (!res.ok) { onFlash?.(apiErr(data, 'Upload failed')); return; }
+    setEvidence(prev => [...prev, data.evidence]);
+  };
+
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file || !siteId) return;
+    const files = e.target.files;
+    if (!files?.length || !siteId) return;
     setUploading(true);
-    try {
-      const fd = new FormData();
-      fd.append('file', file);
-      fd.append('siteId', siteId);
-      if (userId) fd.append('userId', userId);
-      if (action.sourceFolderId) fd.append('sourceFolderId', action.sourceFolderId);
-      if (action.sourceFolderPath) fd.append('sourceFolderPath', action.sourceFolderPath);
-      if (action.hazardRef) fd.append('hazardRef', action.hazardRef);
-      if (action.source_document_id) fd.append('sourceDocumentId', action.source_document_id);
-      if (action.source) fd.append('sourceDocumentName', action.source);
-      const res = await fetch(`/api/actions/${action.id}/evidence`, { method: 'POST', body: fd });
-      const data = await res.json();
-      if (!res.ok) { onFlash?.(apiErr(data, 'Upload failed')); return; }
-      setEvidence(prev => [...prev, data.evidence]);
-    } finally {
-      setUploading(false);
-      e.target.value = '';
-    }
+    try { for (const file of Array.from(files)) await uploadEvidenceFile(file); }
+    finally { setUploading(false); e.target.value = ''; }
   };
 
   const handleDeleteEvidence = async (ev: ActionEvidence) => {
@@ -644,7 +646,7 @@ const ActionCard = ({ action, isResolved, onToggleResolve, onAddNote, onDelete, 
     if ((role === 'advisor' || role === 'superadmin') && ev.dattoFileId && action.sourceFolderPath) {
       const href = getFileHref(
         { id: ev.dattoFileId, name: ev.fileName, type: 'file' },
-        `${action.sourceFolderPath}/Evidence`,
+        `${action.sourceFolderPath ? action.sourceFolderPath.split('/').slice(0, -1).join('/') : ''}/Evidence`,
         role
       );
       if (href) { window.location.href = href; return; }
@@ -753,7 +755,7 @@ const ActionCard = ({ action, isResolved, onToggleResolve, onAddNote, onDelete, 
         </div>
       </div>
       {expanded && (
-        <div className="border-t border-white/60 bg-white/60 backdrop-blur-sm px-6 py-5 space-y-5">
+        <div className="border-t border-white/60 bg-white/60 backdrop-blur-sm px-6 py-4 space-y-3">
           {/* Top row: issue date + due date + responsible person left, view doc link right */}
           <div className="flex items-start justify-between gap-4">
             <div className="flex items-center gap-4 flex-wrap text-[12px] font-medium text-slate-600">
@@ -844,10 +846,17 @@ const ActionCard = ({ action, isResolved, onToggleResolve, onAddNote, onDelete, 
                   </a>
                 )}
               </p>
-              <div onClick={() => fileInputRef.current?.click()} className="bg-white rounded-xl border border-dashed border-slate-200 px-4 py-3 flex items-center justify-center gap-2 cursor-pointer hover:border-indigo-300 group">
-                {uploading ? <span className="text-xs text-slate-400">Uploading…</span> : <><Plus size={14} className="text-slate-300 group-hover:text-indigo-400" /><span className="text-xs font-bold text-slate-300 group-hover:text-indigo-400">Upload Evidence</span></>}
+              <div
+                onClick={() => !uploading && fileInputRef.current?.click()}
+                onDragOver={e => { e.preventDefault(); setDraggingEvidence(true); }}
+                onDragEnter={e => { e.preventDefault(); setDraggingEvidence(true); }}
+                onDragLeave={() => setDraggingEvidence(false)}
+                onDrop={async e => { e.preventDefault(); setDraggingEvidence(false); const files = e.dataTransfer.files; if (!files?.length || uploading) return; setUploading(true); try { for (const file of Array.from(files)) await uploadEvidenceFile(file); } finally { setUploading(false); } }}
+                className={`rounded-xl border border-dashed px-4 py-3 flex items-center justify-center gap-2 cursor-pointer transition-colors ${draggingEvidence ? 'border-indigo-400 bg-indigo-50' : 'bg-white border-slate-200 hover:border-indigo-300 group'}`}
+              >
+                {uploading ? <span className="text-xs text-slate-400">Uploading…</span> : draggingEvidence ? <><Plus size={14} className="text-indigo-400" /><span className="text-xs font-bold text-indigo-600">Drop to upload</span></> : <><Plus size={14} className="text-slate-300 group-hover:text-indigo-400" /><span className="text-xs font-bold text-slate-300 group-hover:text-indigo-400">Upload Evidence</span></>}
               </div>
-              <input ref={fileInputRef} type="file" accept=".pdf,.docx,.doc,.jpg,.jpeg,.png" className="hidden" onChange={handleFileSelect} />
+              <input ref={fileInputRef} type="file" accept=".pdf,.docx,.doc,.jpg,.jpeg,.png" multiple className="hidden" onChange={handleFileSelect} />
               {evidenceLoading && <p className="text-[11px] text-slate-400 mt-2 text-center">Loading…</p>}
               {evidence.length > 0 && (
                 <div className="mt-2 space-y-1">
@@ -1440,14 +1449,69 @@ const AddActionForm = ({ site, onSave, onCancel }: { site: Site; onSave: (action
 };
 
 // ─── Document Card ────────────────────────────────────────────────────────────
-const DocumentCard = ({ doc, role, userId, actions, onDelete, onRename, onToggleAction, expanded, onExpand }: {
+const DocumentCard = ({ doc, role, userId, actions, onDelete, onRename, onToggleAction, expanded, onExpand, onDattoRetry }: {
   doc: SiteDocument; role: string; userId: string | null; actions: Action[];
   onDelete: (id: string) => void;
   onRename: (id: string, newName: string) => void;
   onToggleAction: (id: string, resolved: boolean) => void;
   expanded: boolean; onExpand: () => void;
+  onDattoRetry?: (docId: string, newFileId: string) => void;
 }) => {
   const [editingName, setEditingName] = useState(false);
+  const [dattoRetrying, setDattoRetrying] = useState(false);
+  const [dattoRetryError, setDattoRetryError] = useState(false);
+  const [dattoRetryMsg, setDattoRetryMsg] = useState<string | null>(null);
+  const [dattoReuploading, setDattoReuploading] = useState(false);
+  const [dattoReuploadError, setDattoReuploadError] = useState(false);
+  const reuploadInputRef = React.useRef<HTMLInputElement>(null);
+
+  const handleReuploadFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = '';
+    setDattoReuploading(true);
+    setDattoReuploadError(false);
+    try {
+      const form = new FormData();
+      form.append('documentId', doc.id);
+      form.append('file', file, file.name);
+      const res = await fetch('/api/documents/datto-reupload', { method: 'POST', body: form });
+      const data = await res.json();
+      if (res.ok && data.dattoFileId) {
+        onDattoRetry?.(doc.id, data.dattoFileId);
+        setDattoRetryError(false);
+        setDattoRetryMsg(null);
+      } else {
+        setDattoReuploadError(true);
+      }
+    } catch {
+      setDattoReuploadError(true);
+    } finally {
+      setDattoReuploading(false);
+    }
+  };
+
+  const handleDattoRetry = async () => {
+    setDattoRetrying(true);
+    setDattoRetryError(false);
+    setDattoRetryMsg(null);
+    try {
+      const res = await fetch('/api/documents/datto-retry', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ documentId: doc.id }) });
+      const data = await res.json();
+      if (data.found && data.dattoFileId) {
+        onDattoRetry?.(doc.id, data.dattoFileId);
+      } else {
+        setDattoRetryError(true);
+        const needsReupload = data.reason === 'storage_missing' || data.reason === 'upload_failed' || data.reason === 'no_id_after_upload' || data.reason === 'not_in_folder';
+        setDattoRetryMsg(needsReupload ? 'reupload' : 'error');
+      }
+    } catch {
+      setDattoRetryError(true);
+      setDattoRetryMsg('error');
+    } finally {
+      setDattoRetrying(false);
+    }
+  };
   const [nameInput, setNameInput] = useState(doc.document_name || doc.file_name || '');
   const today = new Date().toLocaleDateString('en-CA');
   const soon = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
@@ -1461,22 +1525,27 @@ const DocumentCard = ({ doc, role, userId, actions, onDelete, onRename, onToggle
     ? `/viewer?docId=${doc.id}&fileName=${encodeURIComponent(doc.file_name ?? '')}&role=${role}`
     : null;
 
-  // Card colours: expiry status takes precedence; client-provided defaults to indigo
+  // Card colours: expiry status takes precedence; client-provided defaults to amber
   const cardCls = expStatus === 'expired'  ? 'bg-rose-50/60 border-rose-200'
                 : expStatus === 'expiring' ? 'bg-amber-50/60 border-amber-200'
                 : expStatus === 'valid'    ? 'bg-emerald-50/40 border-emerald-200'
-                : doc.client_provided     ? 'bg-indigo-50/60 border-indigo-200'
+                : doc.client_provided     ? 'bg-amber-50/60 border-amber-200'
                 : 'bg-white border-slate-200';
+  const headerCls = expStatus === 'expired'  ? 'bg-rose-100/70'
+                  : expStatus === 'expiring' ? 'bg-amber-100/70'
+                  : expStatus === 'valid'    ? 'bg-emerald-100/50'
+                  : doc.client_provided     ? 'bg-amber-100/70'
+                  : 'bg-slate-50';
   const barCls  = expStatus === 'expired'  ? 'bg-rose-400'
                 : expStatus === 'expiring' ? 'bg-amber-400'
                 : expStatus === 'valid'    ? 'bg-emerald-400'
-                : doc.client_provided     ? 'bg-indigo-400'
+                : doc.client_provided     ? 'bg-amber-400'
                 : 'bg-slate-300';
 
   return (
     <div className={`rounded-lg border transition-all duration-300 overflow-hidden ${cardCls}`}>
       {/* ── Header row ── */}
-      <div className="px-4 py-3 flex flex-col md:flex-row md:items-center gap-3 cursor-pointer" onClick={() => { if (!editingName) onExpand(); }}>
+      <div className={`px-4 py-3 flex flex-col md:flex-row md:items-center gap-3 cursor-pointer ${headerCls}`} onClick={() => { if (!editingName) onExpand(); }}>
         <div className={`w-1.5 rounded-full self-stretch hidden md:block flex-shrink-0 ${barCls}`} />
 
         {/* Name + inline meta */}
@@ -1495,14 +1564,43 @@ const DocumentCard = ({ doc, role, userId, actions, onDelete, onRename, onToggle
           ) : (
             <div className="flex items-start justify-between gap-3 flex-wrap">
               <div className="flex items-center gap-1.5 flex-wrap min-w-0">
-                {doc.client_provided && <span title="Client provided"><Upload size={12} className="text-indigo-400 flex-shrink-0" /></span>}
-                {doc.client_provided && !doc.datto_file_id && <span title="Linking to Datto — this may take a minute" className="flex items-center gap-1 text-[10px] font-black text-amber-600 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded-md flex-shrink-0"><RefreshCw size={9} className="animate-spin" />Datto sync…</span>}
+                {doc.client_provided && <span title="Client provided"><Upload size={12} className="text-amber-500 flex-shrink-0" /></span>}
+                <input ref={reuploadInputRef} type="file" className="hidden" onChange={handleReuploadFileChange} />
+                {doc.client_provided && !doc.datto_file_id && (() => {
+                  const fresh = (Date.now() - new Date(doc.uploaded_at).getTime()) < 3 * 60 * 1000;
+                  if (fresh) return <span title="Linking to Datto — this may take a minute" className="flex items-center gap-1 text-[10px] font-black text-amber-600 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded-md flex-shrink-0"><RefreshCw size={9} className="animate-spin" />Datto sync…</span>;
+                  if (dattoRetryError && dattoRetryMsg === 'reupload') {
+                    return (
+                      <button
+                        onClick={e => { e.stopPropagation(); if (!dattoReuploading) reuploadInputRef.current?.click(); }}
+                        disabled={dattoReuploading}
+                        title={dattoReuploadError ? 'Upload failed — try again' : 'File missing from Datto — click to select and re-upload'}
+                        className={`flex items-center gap-1 text-[10px] font-black px-1.5 py-0.5 rounded-md flex-shrink-0 border transition-colors ${dattoReuploadError ? 'bg-rose-50 border-rose-200 text-rose-600 hover:bg-rose-100' : 'bg-amber-50 border-amber-200 text-amber-700 hover:bg-amber-100'}`}
+                      >
+                        {dattoReuploading ? <><RefreshCw size={9} className="animate-spin" />Uploading…</> : dattoReuploadError ? <><AlertCircle size={9} />Upload failed — retry</> : <><Upload size={9} />Re-upload needed</>}
+                      </button>
+                    );
+                  }
+                  return (
+                    <button
+                      onClick={e => { e.stopPropagation(); handleDattoRetry(); }}
+                      disabled={dattoRetrying}
+                      title={dattoRetryError ? 'Could not sync to Datto — check connection and try again' : 'File not synced to Datto — click to retry'}
+                      className={`flex items-center gap-1 text-[10px] font-black px-1.5 py-0.5 rounded-md flex-shrink-0 border transition-colors ${dattoRetryError ? 'bg-rose-50 border-rose-200 text-rose-500' : 'bg-slate-50 border-slate-200 text-slate-400 hover:bg-amber-50 hover:border-amber-300 hover:text-amber-600'}`}
+                    >
+                      <RefreshCw size={9} className={dattoRetrying ? 'animate-spin' : ''} />
+                      {dattoRetrying ? 'Syncing…' : dattoRetryError ? 'Sync failed' : 'Not in Datto'}
+                    </button>
+                  );
+                })()}
                 <span className="font-bold text-[12px] leading-snug text-slate-900">{doc.document_name || doc.file_name}</span>
+                <span className="text-slate-300 text-[11px]">|</span>
+                <span className="text-[11px] font-medium text-slate-400 flex-shrink-0">Uploaded {new Date(doc.uploaded_at).toLocaleDateString('en-GB')}</span>
                 {doc.document_type && <><span className="text-slate-300 text-[11px]">|</span><span className="text-[11px] font-bold text-slate-500">{doc.document_type}</span></>}
                 {doc.issue_date && <><span className="text-slate-300 text-[11px]">|</span><span className="text-[12px] font-medium text-slate-500 flex-shrink-0"><span className="text-slate-400 font-normal">Issued: </span>{fmt(doc.issue_date)}</span></>}
                 {doc.expiry_date && <><span className="text-slate-300 text-[11px]">|</span><span className="text-[12px] font-medium text-slate-500 flex-shrink-0"><span className="text-slate-400 font-normal">Expires: </span>{fmt(doc.expiry_date)}</span></>}
                 {role === 'client' && (
-                  <button onClick={e => { e.stopPropagation(); setEditingName(true); }} className="p-0.5 text-slate-300 hover:text-indigo-500 rounded flex-shrink-0" title="Rename">
+                  <button onClick={e => { e.stopPropagation(); setEditingName(true); }} className="p-0.5 text-slate-300 hover:text-amber-500 rounded flex-shrink-0" title="Rename">
                     <Pencil size={10} />
                   </button>
                 )}
@@ -1511,6 +1609,16 @@ const DocumentCard = ({ doc, role, userId, actions, onDelete, onRename, onToggle
                 {expStatus === 'expired'  && <span className="text-[10px] font-black uppercase px-2.5 py-1 rounded-lg border bg-rose-50 border-rose-200 text-rose-700">Expired</span>}
                 {expStatus === 'expiring' && <span className="text-[10px] font-black uppercase px-2.5 py-1 rounded-lg border bg-amber-50 border-amber-200 text-amber-700">Expiring Soon</span>}
                 {expStatus === 'valid'    && <span className="text-[10px] font-black uppercase px-2.5 py-1 rounded-lg border bg-emerald-50 border-emerald-200 text-emerald-700">Valid</span>}
+                {viewHref && (
+                  <a href={viewHref} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} className="flex items-center gap-1 text-[11px] font-bold text-indigo-600 hover:text-indigo-800 hover:underline" title="Open document">
+                    <ExternalLink size={12} className="text-indigo-500 flex-shrink-0" />Open
+                  </a>
+                )}
+                {role === 'client' && (
+                  <button onClick={e => { e.stopPropagation(); if (window.confirm('Delete this document? This cannot be undone.')) onDelete(doc.id); }} className="p-1.5 rounded-lg border border-rose-200 text-rose-400 hover:text-rose-600 hover:border-rose-400 hover:bg-rose-50 transition-colors" title="Delete">
+                    <Trash2 size={14} />
+                  </button>
+                )}
                 {openActions.length > 0 && <span className="text-[10px] font-black px-2.5 py-1 rounded-lg bg-indigo-50 text-indigo-600 border border-indigo-200">{openActions.length} action{openActions.length !== 1 ? 's' : ''}</span>}
                 {resolvedActions.length > 0 && openActions.length === 0 && <span className="text-[10px] font-black px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-600 border border-emerald-200">{resolvedActions.length} resolved</span>}
               </div>
@@ -1521,9 +1629,9 @@ const DocumentCard = ({ doc, role, userId, actions, onDelete, onRename, onToggle
 
       {/* ── Expanded detail panel ── */}
       {expanded && (
-        <div className="border-t border-white/60 bg-white/60 backdrop-blur-sm px-6 py-5 space-y-5">
-          {/* Top row: dates + people + open doc link + delete */}
-          <div className="flex items-start justify-between gap-4 flex-wrap">
+        <div className="border-t border-white/60 bg-white/60 backdrop-blur-sm px-6 py-4 space-y-3">
+          {/* Dates + people */}
+          {(doc.issue_date || doc.expiry_date || (doc.people_mentioned && doc.people_mentioned.length > 0)) && (
             <div className="flex items-center gap-4 flex-wrap text-[12px] font-medium text-slate-600">
               {doc.issue_date && <span><span className="text-slate-500 font-normal text-[11px] uppercase tracking-wider">Issued: </span>{fmt(doc.issue_date)}</span>}
               {doc.expiry_date && <><span className="text-slate-300">|</span><span><span className="text-slate-500 font-normal text-[11px] uppercase tracking-wider">Expires: </span>{fmt(doc.expiry_date)}</span></>}
@@ -1531,19 +1639,7 @@ const DocumentCard = ({ doc, role, userId, actions, onDelete, onRename, onToggle
                 <><span className="text-slate-300">|</span><span className="flex items-center gap-1"><Users size={11} className="text-slate-400" />{doc.people_mentioned.join(', ')}</span></>
               )}
             </div>
-            <div className="flex items-center gap-2 flex-shrink-0">
-              {viewHref && (
-                <a href={viewHref} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 text-[11px] font-bold text-indigo-600 hover:text-indigo-800 hover:underline" title="Open document">
-                  <ExternalLink size={12} className="text-indigo-500 flex-shrink-0" /><span className="font-normal text-slate-400 flex-shrink-0">Open:</span>{doc.file_name}
-                </a>
-              )}
-              {role === 'client' && (
-                <button onClick={() => { if (window.confirm('Delete this document? This cannot be undone.')) onDelete(doc.id); }} className="p-1.5 rounded-lg border border-rose-200 text-rose-400 hover:text-rose-600 hover:border-rose-400 hover:bg-rose-50 transition-colors" title="Delete">
-                  <Trash2 size={14} />
-                </button>
-              )}
-            </div>
-          </div>
+          )}
 
           {/* Notes */}
           {doc.notes && (
@@ -1553,15 +1649,12 @@ const DocumentCard = ({ doc, role, userId, actions, onDelete, onRename, onToggle
             </div>
           )}
 
-          {/* Upload meta */}
-          <p className="text-[10px] text-slate-300">{doc.file_name} · Uploaded {new Date(doc.uploaded_at).toLocaleDateString('en-GB')}</p>
-
           {/* Actions */}
           {actions.length === 0 ? (
             <p className="text-[11px] text-slate-400 font-bold">No actions identified from this document.</p>
           ) : (
             <div className="space-y-2">
-              <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Actions from this document</p>
+              <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">{actions.length} action{actions.length !== 1 ? 's' : ''} from this document</p>
               {actions.map(a => {
                 const cfg = priorityConfig[a.priority as Priority] ?? priorityConfig.green;
                 const isResolved = a.status === 'resolved';
@@ -1589,6 +1682,7 @@ const DocumentCard = ({ doc, role, userId, actions, onDelete, onRename, onToggle
               })}
             </div>
           )}
+
         </div>
       )}
     </div>
@@ -1606,9 +1700,10 @@ const smartTitleCase = (filename: string): string => {
   }).join(' ');
 };
 
-const UploadModal = ({ site, userId, onClose, onSaved }: {
+const UploadModal = ({ site, userId, onClose, onSaved, initialFiles }: {
   site: Site; userId: string | null;
   onClose: () => void; onSaved: (doc: SiteDocument, newCompliance: number | null, replacedId?: string, dattoPending?: boolean) => void;
+  initialFiles?: File[];
 }) => {
   type FileStatus = 'pending' | 'uploading' | 'extracting' | 'done' | 'error';
   type FileItem = {
@@ -1705,6 +1800,8 @@ const UploadModal = ({ site, userId, onClose, onSaved }: {
     if (files.length === 0) return;
     processFiles(files);
   };
+
+  useEffect(() => { if (initialFiles?.length) processFiles(initialFiles); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleSave = async () => {
     setSaving(true);
@@ -1914,19 +2011,30 @@ const UploadModal = ({ site, userId, onClose, onSaved }: {
 };
 
 // ─── General Evidence Upload Modal ───────────────────────────────────────────
-const GeneralUploadModal = ({ siteId, userId, onClose, onUploaded }: {
+const GeneralUploadModal = ({ siteId, userId, onClose, onUploaded, initialFiles }: {
   siteId: string; userId: string | null; onClose: () => void; onUploaded: (upload: any) => void;
+  initialFiles?: File[];
 }) => {
   type FileItem = { file: File; status: 'pending' | 'uploading' | 'done' | 'error'; error?: string };
   const [items, setItems] = useState<FileItem[]>([]);
   const [notes, setNotes] = useState('');
   const [notesError, setNotesError] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [dragging, setDragging] = useState(false);
+  const uploadInputRef = React.useRef<HTMLInputElement>(null);
+  const initialFilesApplied = React.useRef(false);
 
-  const handleFiles = (files: FileList | null) => {
+  const handleFiles = (files: FileList | File[] | null) => {
     if (!files) return;
-    setItems(Array.from(files).map(file => ({ file, status: 'pending' })));
+    setItems(prev => [...prev, ...Array.from(files).map(file => ({ file, status: 'pending' as const }))]);
   };
+
+  useEffect(() => {
+    if (initialFiles?.length && !initialFilesApplied.current) {
+      initialFilesApplied.current = true;
+      handleFiles(initialFiles);
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleUpload = async () => {
     if (!items.length) return;
@@ -1966,21 +2074,37 @@ const GeneralUploadModal = ({ siteId, userId, onClose, onUploaded }: {
         </div>
         <div className="px-6 py-5 space-y-4">
           <p className="text-xs text-slate-500">Upload files to be reviewed by your advisor.</p>
-          {items.length === 0 ? (
-            <label className="flex flex-col items-center justify-center gap-3 border-2 border-dashed border-slate-200 rounded-lg py-12 cursor-pointer hover:border-indigo-300 hover:bg-indigo-50 transition-colors">
-              <Paperclip size={24} className="text-slate-300" />
-              <span className="text-sm font-black text-slate-500">Click to select files</span>
-              <span className="text-[11px] text-slate-400">PDF, DOCX, JPG, PNG — multiple files supported</span>
-              <input type="file" accept=".pdf,.docx,.doc,.jpg,.jpeg,.png" multiple className="hidden" onChange={e => handleFiles(e.target.files)} />
-            </label>
-          ) : (
+          <div
+            onClick={() => uploadInputRef.current?.click()}
+            onDragOver={e => { e.preventDefault(); setDragging(true); }}
+            onDragEnter={e => { e.preventDefault(); setDragging(true); }}
+            onDragLeave={() => setDragging(false)}
+            onDrop={e => { e.preventDefault(); setDragging(false); handleFiles(e.dataTransfer.files); }}
+            className={`border-2 border-dashed rounded-lg cursor-pointer transition-colors select-none ${dragging ? 'border-indigo-400 bg-indigo-50' : 'border-slate-200 hover:border-indigo-300 hover:bg-indigo-50'} ${items.length === 0 ? 'py-12 flex flex-col items-center justify-center gap-3' : 'py-3 px-4 flex items-center justify-center gap-2'}`}
+          >
+            {items.length === 0 ? (
+              <>
+                <Paperclip size={24} className={dragging ? 'text-indigo-400' : 'text-slate-300'} />
+                <span className="text-sm font-black text-slate-500">{dragging ? 'Drop files to upload' : 'Click or drag files here'}</span>
+                <span className="text-[11px] text-slate-400">PDF, DOCX, JPG, PNG — multiple files supported</span>
+              </>
+            ) : (
+              <>
+                <Plus size={14} className={dragging ? 'text-indigo-400' : 'text-slate-400'} />
+                <span className="text-xs font-bold text-slate-400">{dragging ? 'Drop to add' : 'Add more files'}</span>
+              </>
+            )}
+            <input ref={uploadInputRef} type="file" accept=".pdf,.docx,.doc,.jpg,.jpeg,.png" multiple className="hidden" onChange={e => handleFiles(e.target.files)} />
+          </div>
+          {items.length > 0 && (
             <div className="space-y-1">
               {items.map((it, i) => (
                 <div key={i} className="flex items-center gap-3 bg-slate-50 rounded-lg px-3 py-2">
                   <FileText size={13} className="text-indigo-400 flex-shrink-0" />
                   <span className="text-xs font-bold text-slate-700 flex-1 truncate">{it.file.name}</span>
+                  {it.status === 'pending' && !uploading && <button onClick={e => { e.stopPropagation(); setItems(prev => prev.filter((_, idx) => idx !== i)); }} className="text-slate-300 hover:text-rose-400 p-0.5 flex-shrink-0"><X size={12} /></button>}
                   {it.status === 'uploading' && <span className="text-[10px] text-slate-400 animate-pulse">Uploading…</span>}
-                  {it.status === 'done' && <CheckCircle size={13} className="text-emerald-500" />}
+                  {it.status === 'done' && <CheckCircle size={13} className="text-emerald-500 flex-shrink-0" />}
                   {it.status === 'error' && <span className="text-[10px] text-rose-600">{it.error}</span>}
                 </div>
               ))}
@@ -2007,14 +2131,23 @@ const GeneralUploadModal = ({ siteId, userId, onClose, onUploaded }: {
 const SiteDocumentsTab = ({ site, profile, userId, onComplianceUpdate, onActionsAdded, onDocumentDeleted }: {
   site: Site; profile: Profile; userId: string | null; onComplianceUpdate: (score: number) => void; onActionsAdded?: (actions: Action[]) => void; onDocumentDeleted?: (docId: string) => void;
 }) => {
-  type ClientUploadRow = { id: string; file_name: string; file_size_bytes: number | null; notes: string | null; status: string; uploaded_at: string; review_note: string | null; action_id: string | null };
+  type ClientUploadRow = { id: string; file_name: string; file_size_bytes: number | null; notes: string | null; status: string; uploaded_at: string; review_note: string | null; action_id: string | null; hidden?: boolean };
   const [documents, setDocuments] = useState<SiteDocument[]>([]);
   const [docActions, setDocActions] = useState<Action[]>([]);
   const [loading, setLoading] = useState(true);
   const [showUpload, setShowUpload] = useState(false);
   const [showGeneralUpload, setShowGeneralUpload] = useState(false);
   const [generalUploads, setGeneralUploads] = useState<ClientUploadRow[]>([]);
+  const [uploadWorking, setUploadWorking] = useState<Set<string>>(new Set());
+  const [selectedUploadIds, setSelectedUploadIds] = useState<Set<string>>(new Set());
   const [expandedDocId, setExpandedDocId] = useState<string | null>(null);
+  const [activeSection, setActiveSection] = useState<'docs' | 'evidence' | null>(null);
+  const [dragOverDocs, setDragOverDocs] = useState(false);
+  const [dragOverEvidence, setDragOverEvidence] = useState(false);
+  const [droppedDocsFiles, setDroppedDocsFiles] = useState<File[]>([]);
+  const [droppedEvidenceFiles, setDroppedEvidenceFiles] = useState<File[]>([]);
+  const [docsSearch, setDocsSearch] = useState('');
+  const [evidenceSearch, setEvidenceSearch] = useState('');
   const retryTimers = React.useRef<ReturnType<typeof setTimeout>[]>([]);
 
   useEffect(() => () => { retryTimers.current.forEach(clearTimeout); }, []);
@@ -2037,14 +2170,16 @@ const SiteDocumentsTab = ({ site, profile, userId, onComplianceUpdate, onActions
     retryTimers.current.push(t);
   };
 
-  useEffect(() => {
+  const refreshUploads = () => {
     const params = new URLSearchParams({ siteId: site.id, role: profile.role });
     if (userId) params.set('userId', userId);
     fetch(`/api/client-uploads?${params}`)
       .then(r => r.json())
-      .then(d => setGeneralUploads(d.uploads ?? []))
+      .then(d => { setGeneralUploads(d.uploads ?? []); })
       .catch(() => {});
-  }, [site.id, userId]);
+  };
+
+  useEffect(() => { refreshUploads(); }, [site.id, userId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     setLoading(true);
@@ -2099,6 +2234,7 @@ const SiteDocumentsTab = ({ site, profile, userId, onComplianceUpdate, onActions
   };
 
   const handleSaved = async (doc: SiteDocument, newCompliance: number | null, replacedId?: string, dattoPending?: boolean) => {
+    setActiveSection('docs');
     if (dattoPending) scheduleDattoRetry(doc.id);
     setDocuments(prev => {
       const filtered = replacedId ? prev.filter(d => d.id !== replacedId) : prev;
@@ -2128,63 +2264,166 @@ const SiteDocumentsTab = ({ site, profile, userId, onComplianceUpdate, onActions
     }
   };
 
+  const deleteUpload = async (id: string) => {
+    setUploadWorking(prev => new Set(prev).add(id));
+    const res = await fetch(`/api/client-uploads/${id}`, { method: 'DELETE' });
+    if (res.ok) {
+      setGeneralUploads(prev => prev.filter(u => u.id !== id));
+      setSelectedUploadIds(prev => { const s = new Set(prev); s.delete(id); return s; });
+    }
+    setUploadWorking(prev => { const s = new Set(prev); s.delete(id); return s; });
+  };
+  const bulkDelete = async () => {
+    const targets = selectedUploadIds.size > 0
+      ? generalUploads.filter(u => selectedUploadIds.has(u.id))
+      : generalUploads;
+    const results = await Promise.all(targets.map(u => fetch(`/api/client-uploads/${u.id}`, { method: 'DELETE' }).then(r => ({ id: u.id, ok: r.ok }))));
+    const deletedIds = new Set(results.filter(r => r.ok).map(r => r.id));
+    setGeneralUploads(prev => prev.filter(u => !deletedIds.has(u.id)));
+    setSelectedUploadIds(new Set());
+  };
+
   return (
-    <div className="space-y-4">
-      <div className="bg-amber-50 border border-amber-200 rounded-lg px-5 py-4">
-        <div className="flex items-start justify-between gap-4 mb-1.5">
-          <p className="text-[10px] font-black uppercase tracking-widest text-amber-600">Client Managed Documents</p>
-          <button onClick={() => setShowUpload(true)} className="flex items-center gap-1.5 bg-amber-500 text-white px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest hover:bg-amber-600 shadow-sm flex-shrink-0"><Upload size={11} />Upload Client Docs</button>
-        </div>
-        <div className="space-y-1">
-          <p className="text-xs text-amber-800">Upload your compliance documents here — certificates, inspection reports, training records, insurance, and any other evidence relevant to your site. Uploaded documents are stored securely and our AI will automatically identify key dates and any actions required.</p>
-          <p className="text-xs text-amber-800">These documents are supplied and monitored by the client and remain their sole responsibility to keep current and accurate.</p>
-          <p className="text-xs text-amber-800">Due to varying document formats, actions identified below are generated automatically and <span className="font-black">may not be fully accurate</span> — always read the original document to verify.</p>
-          <p className="text-xs text-amber-800">Any concerns should be discussed with your advisor. Issues identified may require a review of your contract and could result in an increase in contract price.</p>
-        </div>
-      </div>
-      <div className="bg-indigo-50 border border-indigo-200 rounded-lg px-5 py-4">
-        <div className="flex items-start justify-between gap-4 mb-1.5">
-          <p className="text-[10px] font-black uppercase tracking-widest text-indigo-600">Upload Evidence</p>
-          <button onClick={() => setShowGeneralUpload(true)} className="flex items-center gap-1.5 bg-indigo-600 text-white px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest hover:bg-indigo-700 shadow-sm flex-shrink-0"><Paperclip size={11} />Upload Evidence</button>
-        </div>
-        <div className="space-y-1">
-          <p className="text-xs text-indigo-800">Use <span className="font-black">Upload Evidence</span> to send files directly to your advisor — for example, photos of completed work, signed inspection records, training certificates, or any other confirmation that a task has been carried out.</p>
-          <p className="text-xs text-indigo-800">Unlike document uploads, evidence files are <span className="font-black">not</span> scanned for actions by AI. Your advisor will review each file and either acknowledge it or link it to an existing action as supporting evidence. You will be able to see the outcome below once reviewed.</p>
-          <p className="text-xs text-indigo-800">Please include a brief note with each upload describing what the file relates to so your advisor can process it quickly.</p>
-        </div>
-      </div>
-      {loading ? (
-        <div className="text-center py-12 text-slate-400 text-sm font-bold animate-pulse">Loading documents…</div>
-      ) : documents.length === 0 ? (
-        <div className="bg-white rounded-lg border border-slate-200 p-12 text-center"><FileCheck size={32} className="text-slate-300 mx-auto mb-3" /><p className="font-black text-slate-700">No documents uploaded yet</p><p className="text-sm text-slate-400 mt-1">Upload certificates, training records, and compliance evidence.</p></div>
-      ) : (
-        <div className="space-y-2">{documents.map(doc => <DocumentCard key={doc.id} doc={doc} role={profile.role} userId={userId} actions={docActions.filter(a => (a as any)._siteDocumentId === doc.id)} onDelete={handleDelete} onRename={handleRename} onToggleAction={handleToggleAction} expanded={expandedDocId === doc.id} onExpand={() => setExpandedDocId(prev => prev === doc.id ? null : doc.id)} />)}</div>
-      )}
-      {generalUploads.length > 0 && (
-        <div className="space-y-2">
-          <p className="text-[10px] font-black uppercase tracking-widest text-indigo-600">My Uploads</p>
-          {generalUploads.map(u => {
-            const statusColour = u.status === 'pending_review' ? 'bg-amber-100 text-amber-700' : u.status === 'acknowledged' ? 'bg-slate-100 text-slate-600' : 'bg-violet-100 text-violet-700';
-            const statusLabel = u.status === 'pending_review' ? 'Pending review' : u.status === 'acknowledged' ? 'Acknowledged' : 'Linked to action';
-            return (
-              <div key={u.id} className="bg-white border border-slate-200 rounded-lg px-4 py-3 flex items-start gap-3">
-                <Paperclip size={13} className="text-indigo-400 flex-shrink-0 mt-0.5" />
-                <div className="flex-1 min-w-0">
-                  <p className="text-xs font-bold text-slate-700 truncate">{u.file_name}</p>
-                  {u.notes && <p className="text-[11px] text-slate-500 mt-0.5">{u.notes}</p>}
-                  {u.review_note && <p className="text-[11px] text-indigo-600 mt-0.5 font-bold">Advisor: {u.review_note}</p>}
-                </div>
-                <div className="flex items-center gap-2 flex-shrink-0">
-                  <span className="text-[10px] text-slate-400">{new Date(u.uploaded_at).toLocaleDateString('en-GB')}</span>
-                  <span className={`text-[10px] font-black px-2 py-0.5 rounded-full ${statusColour}`}>{statusLabel}</span>
-                </div>
+    <div className="space-y-3">
+      {/* Client Managed Documents */}
+      <div
+        onDragOver={e => { e.preventDefault(); setDragOverDocs(true); }}
+        onDragEnter={e => { e.preventDefault(); setDragOverDocs(true); }}
+        onDragLeave={e => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setDragOverDocs(false); }}
+        onDrop={e => { e.preventDefault(); setDragOverDocs(false); const files = Array.from(e.dataTransfer.files); if (files.length) { setDroppedDocsFiles(files); setShowUpload(true); } }}
+        className={`border rounded-lg overflow-hidden transition-all ${dragOverDocs ? 'border-amber-400 ring-2 ring-amber-200' : 'border-amber-200'}`}
+      >
+        <button
+          onClick={() => setActiveSection(p => p === 'docs' ? null : 'docs')}
+          className="w-full bg-amber-100 hover:bg-amber-200/60 px-5 py-3.5 flex items-center gap-3 transition-colors"
+        >
+          <ChevronDown size={14} className={`text-amber-500 flex-shrink-0 transition-transform ${activeSection === 'docs' ? 'rotate-180' : ''}`} />
+          <div className="flex-1 text-left min-w-0">
+            <p className="text-[10px] font-black uppercase tracking-widest text-amber-600">Client Managed Documents</p>
+            <p className="text-[11px] text-amber-700/70 mt-0.5">Documents owned and managed by the client</p>
+          </div>
+          <span className="text-[10px] font-bold text-slate-400 mr-1 flex-shrink-0">{documents.length > 0 ? `${documents.length} file${documents.length !== 1 ? 's' : ''}` : 'No files'}</span>
+          <button
+            onClick={e => { e.stopPropagation(); setShowUpload(true); }}
+            className="flex items-center gap-1.5 bg-amber-500 text-white px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest hover:bg-amber-600 shadow-sm flex-shrink-0"
+          >
+            <Upload size={11} />Upload Client Docs
+          </button>
+        </button>
+        {activeSection === 'docs' && (
+          <div className="bg-amber-50 border-t border-amber-200 px-5 pb-4 pt-3 space-y-3">
+            <div className="space-y-1">
+              <p className="text-xs text-amber-800">Upload your compliance documents here — certificates, inspection reports, training records, insurance, and any other evidence relevant to your site. Uploaded documents are stored securely and our AI will automatically identify key dates and any actions required.</p>
+              <p className="text-xs text-amber-800">These documents are owned and managed by the client and remain their sole responsibility to keep current and accurate.</p>
+              <p className="text-xs text-amber-800">Due to varying document formats, actions identified below are generated automatically and <span className="font-black">may not be fully accurate</span> — always read the original document to verify.</p>
+              <p className="text-xs text-amber-800">Any concerns should be discussed with your advisor. Issues identified may require a review of your contract and could result in an increase in contract price.</p>
+            </div>
+            {!loading && documents.length > 0 && (
+              <div className="relative">
+                <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-amber-400 pointer-events-none" />
+                <input value={docsSearch} onChange={e => setDocsSearch(e.target.value)} placeholder="Filter by document name…" className="w-full pl-8 pr-8 py-2 border border-amber-200 rounded-lg text-xs text-slate-700 bg-white focus:outline-none focus:ring-2 focus:ring-amber-300 placeholder:text-slate-400" />
+                {docsSearch && <button onClick={() => setDocsSearch('')} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"><X size={13} /></button>}
               </div>
-            );
-          })}
-        </div>
-      )}
-      {showUpload && <UploadModal site={site} userId={userId} onClose={() => setShowUpload(false)} onSaved={handleSaved} />}
-      {showGeneralUpload && <GeneralUploadModal siteId={site.id} userId={userId} onClose={() => setShowGeneralUpload(false)} onUploaded={u => setGeneralUploads(prev => [u, ...prev])} />}
+            )}
+            {loading ? (
+              <div className="text-center py-8 text-slate-400 text-sm font-bold animate-pulse">Loading documents…</div>
+            ) : documents.length === 0 ? (
+              <div className="bg-white rounded-lg border border-amber-100 p-8 text-center"><FileCheck size={28} className="text-amber-200 mx-auto mb-2" /><p className="font-black text-slate-600 text-sm">No documents uploaded yet</p><p className="text-xs text-slate-400 mt-1">Upload certificates, training records, and compliance evidence.</p></div>
+            ) : (() => {
+              const filtered = docsSearch.trim() ? documents.filter(d => (d.document_name || d.file_name).toLowerCase().includes(docsSearch.toLowerCase())) : documents;
+              return filtered.length === 0
+                ? <p className="text-xs text-amber-700 text-center py-4">No documents match "{docsSearch}"</p>
+                : <div className="space-y-2">{filtered.map(doc => <DocumentCard key={doc.id} doc={doc} role={profile.role} userId={userId} actions={docActions.filter(a => (a as any)._siteDocumentId === doc.id)} onDelete={handleDelete} onRename={handleRename} onToggleAction={handleToggleAction} expanded={expandedDocId === doc.id} onExpand={() => setExpandedDocId(prev => prev === doc.id ? null : doc.id)} onDattoRetry={(id, fileId) => setDocuments(prev => prev.map(d => d.id === id ? { ...d, datto_file_id: fileId } : d))} />)}</div>;
+            })()}
+          </div>
+        )}
+      </div>
+
+      {/* Uploaded Evidence */}
+      <div
+        onDragOver={e => { e.preventDefault(); setDragOverEvidence(true); }}
+        onDragEnter={e => { e.preventDefault(); setDragOverEvidence(true); }}
+        onDragLeave={e => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setDragOverEvidence(false); }}
+        onDrop={e => { e.preventDefault(); setDragOverEvidence(false); const files = Array.from(e.dataTransfer.files); if (files.length) { setDroppedEvidenceFiles(files); setShowGeneralUpload(true); } }}
+        className={`border rounded-lg overflow-hidden transition-all ${dragOverEvidence ? 'border-indigo-400 ring-2 ring-indigo-200' : 'border-indigo-200'}`}
+      >
+        <button
+          onClick={() => setActiveSection(p => p === 'evidence' ? null : 'evidence')}
+          className="w-full bg-indigo-100 hover:bg-indigo-200/60 px-5 py-3.5 flex items-center gap-3 transition-colors"
+        >
+          <ChevronDown size={14} className={`text-indigo-500 flex-shrink-0 transition-transform ${activeSection === 'evidence' ? 'rotate-180' : ''}`} />
+          <div className="flex-1 text-left min-w-0">
+            <p className="text-[10px] font-black uppercase tracking-widest text-indigo-600">Uploaded Evidence</p>
+            <p className="text-[11px] text-indigo-700/70 mt-0.5">Evidence uploaded to support completion of actions</p>
+          </div>
+          <span className="text-[10px] font-bold text-slate-400 mr-1 flex-shrink-0">{generalUploads.length > 0 ? `${generalUploads.length} file${generalUploads.length !== 1 ? 's' : ''}` : 'No files'}</span>
+          {activeSection === 'evidence' && generalUploads.length > 0 && (
+            <button
+              onClick={e => { e.stopPropagation(); bulkDelete(); }}
+              className="flex items-center gap-1.5 bg-rose-500 text-white px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest hover:bg-rose-600 shadow-sm flex-shrink-0"
+            >
+              <Trash2 size={11} />{selectedUploadIds.size > 0 ? `Delete (${selectedUploadIds.size})` : 'Delete All'}
+            </button>
+          )}
+          <button
+            onClick={e => { e.stopPropagation(); setShowGeneralUpload(true); }}
+            className="flex items-center gap-1.5 bg-indigo-600 text-white px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest hover:bg-indigo-700 shadow-sm flex-shrink-0"
+          >
+            <Paperclip size={11} />Upload Evidence
+          </button>
+        </button>
+        {activeSection === 'evidence' && (
+          <div className="bg-indigo-50 border-t border-indigo-200 px-5 pb-4 pt-3 space-y-3">
+            <div className="space-y-1">
+              <p className="text-xs text-indigo-800">Use <span className="font-black">Upload</span> to send files directly to your advisor — for example, photos of completed work, signed inspection records, training certificates, or any other confirmation that a task has been carried out.</p>
+              <p className="text-xs text-indigo-800">Unlike document uploads, evidence files are not scanned for actions by AI. Your advisor will review each file and either acknowledge it or link it to an existing action to support completion of the action. You will be able to see the outcome below once reviewed.</p>
+              <p className="text-xs text-indigo-800">Please include a brief note with each upload describing what the file relates to so your advisor can process it quickly.</p>
+            </div>
+            {generalUploads.length > 0 && (
+              <div className="relative">
+                <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-indigo-400 pointer-events-none" />
+                <input value={evidenceSearch} onChange={e => setEvidenceSearch(e.target.value)} placeholder="Filter by file name…" className="w-full pl-8 pr-8 py-2 border border-indigo-200 rounded-lg text-xs text-slate-700 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-300 placeholder:text-slate-400" />
+                {evidenceSearch && <button onClick={() => setEvidenceSearch('')} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"><X size={13} /></button>}
+              </div>
+            )}
+            {generalUploads.length === 0 ? (
+              <div className="bg-white rounded-lg border border-indigo-100 p-8 text-center"><Paperclip size={28} className="text-indigo-200 mx-auto mb-2" /><p className="font-black text-slate-600 text-sm">No evidence uploaded yet</p><p className="text-xs text-slate-400 mt-1">Upload photos, certificates, or records for your advisor to review.</p></div>
+            ) : (() => {
+              const filtered = evidenceSearch.trim() ? generalUploads.filter(u => u.file_name.toLowerCase().includes(evidenceSearch.toLowerCase())) : generalUploads;
+              return filtered.length === 0
+                ? <p className="text-xs text-indigo-700 text-center py-4">No files match "{evidenceSearch}"</p>
+                : <div className="space-y-1.5">
+                {filtered.map(u => {
+                  const statusColour = u.status === 'pending_review' ? 'bg-amber-100 text-amber-700' : u.status === 'acknowledged' ? 'bg-slate-100 text-slate-600' : 'bg-violet-100 text-violet-700';
+                  const statusLabel = u.status === 'pending_review' ? 'Pending review' : u.status === 'acknowledged' ? 'Acknowledged' : 'Linked to action';
+                  const busy = uploadWorking.has(u.id);
+                  return (
+                    <div key={u.id} className={`bg-indigo-50/40 border border-indigo-100 rounded-lg overflow-hidden ${busy ? 'opacity-40 pointer-events-none' : ''}`}>
+                      <div className="bg-indigo-100/60 px-4 py-3 flex items-start gap-3">
+                      <input type="checkbox" checked={selectedUploadIds.has(u.id)} onChange={() => setSelectedUploadIds(prev => { const s = new Set(prev); s.has(u.id) ? s.delete(u.id) : s.add(u.id); return s; })} className="mt-0.5 flex-shrink-0" />
+                      <Paperclip size={13} className="text-indigo-400 flex-shrink-0 mt-0.5" />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-bold text-slate-700 truncate">{u.file_name}</p>
+                        {u.notes && <p className="text-[11px] text-slate-500 mt-0.5">{u.notes}</p>}
+                        {u.review_note && <p className="text-[11px] text-indigo-600 mt-0.5 font-bold">Advisor: {u.review_note}</p>}
+                      </div>
+                      <div className="flex items-center gap-2 flex-shrink-0">
+                        <span className="text-[10px] text-slate-400">{new Date(u.uploaded_at).toLocaleDateString('en-GB')}</span>
+                        <span className={`text-[10px] font-black px-2 py-0.5 rounded-full ${statusColour}`}>{statusLabel}</span>
+                        <button onClick={() => deleteUpload(u.id)} title="Delete" className="text-slate-300 hover:text-rose-500 transition-colors"><Trash2 size={12} /></button>
+                      </div>
+                    </div>
+                    </div>
+                  );
+                })}
+              </div>;
+            })()}
+          </div>
+        )}
+      </div>
+
+      {showUpload && <UploadModal site={site} userId={userId} onClose={() => { setShowUpload(false); setDroppedDocsFiles([]); }} onSaved={handleSaved} initialFiles={droppedDocsFiles.length ? droppedDocsFiles : undefined} />}
+      {showGeneralUpload && <GeneralUploadModal siteId={site.id} userId={userId} onClose={() => { setShowGeneralUpload(false); setDroppedEvidenceFiles([]); }} onUploaded={() => { refreshUploads(); setActiveSection('evidence'); }} initialFiles={droppedEvidenceFiles.length ? droppedEvidenceFiles : undefined} />}
     </div>
   );
 };
@@ -2846,6 +3085,7 @@ const SuperadminPanel = ({ onViewSite, onViewOrg, onSyncSite }: { onViewSite: (s
   // Create form — user
   const [userEmail, setUserEmail] = useState('');
   const [userPassword, setUserPassword] = useState('');
+  const [userFullName, setUserFullName] = useState('');
   const [userRole, setUserRole] = useState<'advisor' | 'client'>('advisor');
   const [userOrgId, setUserOrgId] = useState('');
   const [userSiteIds, setUserSiteIds] = useState<string[]>([]);
@@ -2875,6 +3115,8 @@ const SuperadminPanel = ({ onViewSite, onViewOrg, onSyncSite }: { onViewSite: (s
   const [adminSetPwUser, setAdminSetPwUser] = useState<{ id: string; email: string } | null>(null);
   const [adminSetPwValue, setAdminSetPwValue] = useState('');
   const [adminSetPwLoading, setAdminSetPwLoading] = useState(false);
+  const [adminRenameUser, setAdminRenameUser] = useState<{ id: string; email: string; currentName: string } | null>(null);
+  const [adminRenameValue, setAdminRenameValue] = useState('');
   const [userSiteSearch, setUserSiteSearch] = useState('');
 
   // Assignment data
@@ -3090,10 +3332,10 @@ const SuperadminPanel = ({ onViewSite, onViewOrg, onSyncSite }: { onViewSite: (s
     if (!userEmail.trim()) { flash('Email is required', true); return; }
     if (!userPassword.trim()) { flash('Password is required', true); return; }
     if (userRole === 'client' && !userOrgId) { flash('Organisation is required for client users', true); return; }
-    const res = await fetch('/api/admin/users', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: userEmail.trim(), password: userPassword, role: userRole, organisation_id: userOrgId || null, site_ids: userSiteIds }) });
+    const res = await fetch('/api/admin/users', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: userEmail.trim(), password: userPassword, role: userRole, organisation_id: userOrgId || null, site_ids: userSiteIds, full_name: userFullName.trim() || null }) });
     const data = await res.json();
     if (!res.ok) { flash(apiErr(data, 'Create user failed'), true); return; }
-    flash('User created!'); setUserEmail(''); setUserPassword(''); setUserRole('advisor'); setUserOrgId(''); setUserSiteIds([]); setShowUserForm(false); loadUsers(); loadClientSiteAssignments();
+    flash('User created!'); setUserEmail(''); setUserPassword(''); setUserFullName(''); setUserRole('advisor'); setUserOrgId(''); setUserSiteIds([]); setShowUserForm(false); loadUsers(); loadClientSiteAssignments();
   };
 
   const handleCreateAssignment = async () => {
@@ -3852,6 +4094,7 @@ const SuperadminPanel = ({ onViewSite, onViewOrg, onSyncSite }: { onViewSite: (s
                 <div><label className={labelClass}>Email *</label><input type="email" value={userEmail} onChange={e => setUserEmail(e.target.value)} placeholder="user@company.com" className={inputClass} /></div>
                 <div><label className={labelClass}>Password *</label><input type="password" value={userPassword} onChange={e => setUserPassword(e.target.value)} placeholder="Min 8 characters" className={inputClass} /></div>
               </div>
+              <div><label className={labelClass}>Full Name</label><input type="text" value={userFullName} onChange={e => setUserFullName(e.target.value)} placeholder="e.g. Jane Smith" className={inputClass} /></div>
               <div>
                 <label className={labelClass}>Role *</label>
                 <div className="flex gap-2">
@@ -3903,7 +4146,10 @@ const SuperadminPanel = ({ onViewSite, onViewOrg, onSyncSite }: { onViewSite: (s
                     return (
                       <React.Fragment key={user.id}>
                         <tr className={`${isClient ? 'cursor-pointer select-none' : ''} ${isExpanded ? 'bg-indigo-50/60' : 'hover:bg-slate-50'}`} onClick={isClient ? () => { setExpandingUserId(isExpanded ? null : user.id); setUserSiteSearch(''); } : undefined}>
-                          <td className="px-6 py-4 font-bold text-slate-800">{user.email}</td>
+                          <td className="px-6 py-4">
+                            <span className="font-bold text-slate-800">{user.profile?.full_name || user.email}</span>
+                            {user.profile?.full_name && <span className="block text-xs text-slate-400">{user.email}</span>}
+                          </td>
                           <td className="px-6 py-4"><span className={`text-[10px] font-black uppercase tracking-wider px-2 py-1 rounded-lg border ${user.profile?.role === 'superadmin' ? 'bg-indigo-100 text-indigo-700 border-indigo-200' : user.profile?.role === 'advisor' ? 'bg-amber-100 text-amber-700 border-amber-200' : 'bg-emerald-100 text-emerald-700 border-emerald-200'}`}>{user.profile?.role || 'unknown'}</span></td>
                           <td className="px-6 py-4 text-sm text-slate-500">{user.profile?.organisation_id ? organisations.find(o => o.id === user.profile.organisation_id)?.name || '—' : '—'}</td>
                           <td className="px-6 py-4 text-sm text-slate-500">
@@ -3915,6 +4161,7 @@ const SuperadminPanel = ({ onViewSite, onViewOrg, onSyncSite }: { onViewSite: (s
                           </td>
                           <td className="px-6 py-4 text-right">
                             <div className="flex items-center justify-end gap-1">
+                              {user.profile?.role !== 'superadmin' && <button onClick={e => { e.stopPropagation(); setAdminRenameUser({ id: user.id, email: user.email, currentName: user.profile?.full_name || '' }); setAdminRenameValue(user.profile?.full_name || ''); }} className="text-slate-400 hover:text-indigo-600 p-1.5 rounded-lg hover:bg-indigo-50" title="Set display name"><Pencil size={14} /></button>}
                               {user.profile?.role !== 'superadmin' && <button onClick={e => { e.stopPropagation(); setAdminSetPwUser({ id: user.id, email: user.email }); setAdminSetPwValue(''); }} className="text-slate-400 hover:text-indigo-600 p-1.5 rounded-lg hover:bg-indigo-50" title="Set password"><KeyRound size={14} /></button>}
                               {user.profile?.role !== 'superadmin' && <button onClick={e => { e.stopPropagation(); handleDeleteUser(user.id); }} className="text-rose-400 hover:text-rose-600 p-1.5 rounded-lg hover:bg-rose-50" title="Permanently delete this user account"><X size={14} /></button>}
                             </div>
@@ -4444,6 +4691,25 @@ const SuperadminPanel = ({ onViewSite, onViewOrg, onSyncSite }: { onViewSite: (s
         </button>
       )}
 
+      {/* Admin rename user modal */}
+      {adminRenameUser && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-lg shadow-2xl w-full max-w-sm p-6">
+            <h3 className="font-black text-slate-900 text-base mb-1">Set display name</h3>
+            <p className="text-xs text-slate-400 mb-4">{adminRenameUser.email}</p>
+            <div><label className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1 block">Full Name</label><input type="text" value={adminRenameValue} onChange={e => setAdminRenameValue(e.target.value)} placeholder="e.g. Jane Smith" className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300" /></div>
+            <div className="flex gap-2 mt-5">
+              <button onClick={() => { setAdminRenameUser(null); setAdminRenameValue(''); }} className="flex-1 py-2.5 border border-slate-200 rounded-xl text-[11px] font-black uppercase tracking-wider text-slate-500 hover:bg-slate-50" title="Cancel without saving">Cancel</button>
+              <button onClick={async () => {
+                const res = await fetch('/api/admin/users', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userId: adminRenameUser.id, full_name: adminRenameValue.trim() || null }) });
+                if (!res.ok) { const d = await res.json().catch(() => ({})); flash(apiErr(d, 'Failed to update name'), true); return; }
+                setAdminRenameUser(null); setAdminRenameValue(''); flash('Name updated'); loadUsers();
+              }} className="flex-1 py-2.5 bg-indigo-600 text-white rounded-xl text-[11px] font-black uppercase tracking-wider hover:bg-indigo-700" title="Save display name">Save</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Admin set password modal */}
       {adminSetPwUser && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
@@ -4605,11 +4871,12 @@ const fmtDate = (d: string | null) => {
 };
 
 // ─── Client Uploads Panel (advisor review) ───────────────────────────────────
-const ClientUploadsPanel = ({ siteId, siteName, userId, onClose, onCountChange }: {
-  siteId: string; siteName: string; userId: string; onClose: () => void; onCountChange: (n: number) => void;
+const ClientUploadsPanel = ({ siteId, siteName, siteFolderPath, userId, onClose, onCountChange }: {
+  siteId: string; siteName: string; siteFolderPath?: string | null; userId: string; onClose: () => void; onCountChange: (n: number) => void;
 }) => {
-  type Upload = { id: string; file_name: string; file_size_bytes: number | null; notes: string | null; uploaded_at: string; uploaded_by: string | null; uploaderName: string; status: string; review_note: string | null; action_id: string | null };
-  type SiteAction = { id: string; title: string; hazard_ref: string | null; due_date: string | null };
+  type Upload = { id: string; file_name: string; file_size_bytes: number | null; notes: string | null; uploaded_at: string; uploaded_by: string | null; uploaderName: string; status: string; review_note: string | null; action_id: string | null; datto_file_id: string | null };
+  type SiteAction = { id: string; title: string; hazard_ref: string | null; due_date: string | null; source_document_name: string | null };
+  type ClientDoc = { id: string; document_name: string | null; file_name: string; file_size_bytes: number | null; created_at: string; uploaderName: string };
 
   const [uploads, setUploads] = useState<Upload[]>([]);
   const [loading, setLoading] = useState(true);
@@ -4617,11 +4884,14 @@ const ClientUploadsPanel = ({ siteId, siteName, userId, onClose, onCountChange }
   const [noteExpanded, setNoteExpanded] = useState<Record<string, boolean>>({});
   const [noteText, setNoteText] = useState<Record<string, string>>({});
   const [linkExpanded, setLinkExpanded] = useState<Record<string, boolean>>({});
+  const [actionSearch, setActionSearch] = useState<Record<string, string>>({});
   const [siteActions, setSiteActions] = useState<SiteAction[]>([]);
   const [actionsLoading, setActionsLoading] = useState(false);
   const [dbCount, setDbCount] = useState(0);
   const [pendingActions, setPendingActions] = useState<Record<string, string>>({});
   const [acknowledgedSet, setAcknowledgedSet] = useState<Set<string>>(new Set());
+  const [clientDocs, setClientDocs] = useState<ClientDoc[]>([]);
+  const [dismissedDocs, setDismissedDocs] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     setLoading(true);
@@ -4629,17 +4899,35 @@ const ClientUploadsPanel = ({ siteId, siteName, userId, onClose, onCountChange }
       .then(r => r.json())
       .then(async d => {
         const pending = (d.uploads ?? []).filter((u: any) => u.status === 'pending_review');
-        // Enrich with uploader display names
         const uploaderIds = [...new Set(pending.map((u: any) => u.uploaded_by).filter(Boolean))] as string[];
         let nameMap: Record<string, string> = {};
         if (uploaderIds.length > 0) {
-          const { data: profiles } = await supabase.from('profiles').select('id, full_name, email').in('id', uploaderIds);
-          for (const p of (profiles ?? [])) nameMap[p.id] = p.full_name || p.email || p.id;
+          const res = await fetch(`/api/user-names?ids=${uploaderIds.join(',')}`);
+          if (res.ok) nameMap = await res.json();
         }
         const enriched: Upload[] = pending.map((u: any) => ({ ...u, uploaderName: (u.uploaded_by ? nameMap[u.uploaded_by] : null) ?? 'Unknown' }));
         setUploads(enriched);
         setDbCount(enriched.length);
         onCountChange(enriched.length);
+
+        // Load client-managed documents (client_provided = true) for info display
+        const { data: docsData } = await supabase
+          .from('site_documents')
+          .select('id, document_name, file_name, file_size_bytes, created_at, uploaded_by')
+          .eq('site_id', siteId)
+          .eq('client_provided', true)
+          .order('created_at', { ascending: false });
+        const docRows = docsData ?? [];
+        const missingIds = [...new Set(docRows.map((dd: any) => dd.uploaded_by).filter(Boolean) as string[])].filter((id: string) => !nameMap[id]);
+        if (missingIds.length) {
+          const r = await fetch(`/api/user-names?ids=${missingIds.join(',')}`);
+          if (r.ok) Object.assign(nameMap, await r.json());
+        }
+        setClientDocs(docRows.map((dd: any) => ({
+          id: dd.id, document_name: dd.document_name ?? null, file_name: dd.file_name,
+          file_size_bytes: dd.file_size_bytes ?? null, created_at: dd.created_at,
+          uploaderName: (dd.uploaded_by ? nameMap[dd.uploaded_by] : null) ?? 'Client',
+        })));
       })
       .catch(() => {})
       .finally(() => setLoading(false));
@@ -4650,9 +4938,9 @@ const ClientUploadsPanel = ({ siteId, siteName, userId, onClose, onCountChange }
   const fetchActions = async () => {
     if (siteActions.length > 0) return;
     setActionsLoading(true);
-    const { data } = await supabase.from('actions').select('id, title, hazard_ref, due_date')
-      .eq('site_id', siteId).in('status', ['open', 'pending_review']).order('title');
-    setSiteActions((data ?? []).map(a => ({ id: a.id, title: a.title, hazard_ref: a.hazard_ref ?? null, due_date: a.due_date ?? null })));
+    const { data } = await supabase.from('actions').select('id, title, hazard_ref, due_date, source_document_name')
+      .eq('site_id', siteId).in('status', ['open', 'pending_review']).order('source_document_name, title');
+    setSiteActions((data ?? []).map(a => ({ id: a.id, title: a.title, hazard_ref: a.hazard_ref ?? null, due_date: a.due_date ?? null, source_document_name: a.source_document_name ?? null })));
     setActionsLoading(false);
   };
 
@@ -4694,15 +4982,21 @@ const ClientUploadsPanel = ({ siteId, siteName, userId, onClose, onCountChange }
     }
   };
 
-  const handleDownload = async (uploadId: string) => {
-    const res = await fetch(`/api/client-uploads/${uploadId}`);
-    const data = await res.json();
-    if (data.url) window.open(data.url, '_blank');
+  const handleOpen = (upload: Upload) => {
+    if (upload.datto_file_id && siteFolderPath) {
+      const folderPath = `${siteFolderPath}/Client Provided Documents`;
+      const href = getFileHref({ id: upload.datto_file_id, name: upload.file_name, type: 'file' }, folderPath, 'advisor');
+      if (href.startsWith('ms-')) { window.location.href = href; return; }
+      window.open(href, '_blank');
+      return;
+    }
+    // Fallback: Supabase signed URL
+    fetch(`/api/client-uploads/${upload.id}`).then(r => r.json()).then(d => { if (d.url) window.open(d.url, '_blank'); });
   };
 
   return (
     <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
-      <div className="bg-white rounded-xl shadow-2xl w-[90vw] max-w-2xl flex flex-col max-h-[92vh]">
+      <div className="bg-white rounded-xl shadow-2xl w-[75vw] max-w-5xl flex flex-col max-h-[75vh]">
         <div className="bg-indigo-600 px-6 py-4 flex items-center justify-between flex-shrink-0 rounded-t-xl">
           <div>
             <h2 className="font-black text-white text-sm uppercase tracking-widest flex items-center gap-2">
@@ -4716,84 +5010,184 @@ const ClientUploadsPanel = ({ siteId, siteName, userId, onClose, onCountChange }
 
         <div className="flex-1 overflow-y-auto min-h-0">
           {loading && <div className="p-8 text-center text-sm font-bold text-slate-400 animate-pulse">Loading uploads…</div>}
+
+          {/* ── Section 1: Evidence Uploads (pending review) ── */}
+          {!loading && (
+            <div className="px-5 py-2.5 bg-indigo-50 border-b border-indigo-100 flex items-center gap-2 sticky top-0 z-10">
+              <Paperclip size={12} className="text-indigo-500 flex-shrink-0" />
+              <span className="text-[10px] font-black text-indigo-700 uppercase tracking-widest">Evidence Uploads</span>
+              <span className="text-[10px] text-indigo-500">— files submitted by client, awaiting review</span>
+              {uploads.length > 0 && <span className="ml-auto text-[10px] font-black bg-indigo-200 text-indigo-800 px-2 py-0.5 rounded-full">{uploads.length} to review</span>}
+            </div>
+          )}
           {!loading && uploads.length === 0 && (
-            <div className="p-12 text-center">
-              <CheckCircle size={32} className="text-emerald-400 mx-auto mb-3" />
-              <p className="font-black text-slate-700 text-sm">All uploads reviewed</p>
+            <div className="px-5 py-4 flex items-center gap-2 text-[11px] text-slate-400">
+              <CheckCircle size={14} className="text-emerald-400 flex-shrink-0" />
+              All reviewed — nothing awaiting action
             </div>
           )}
           {!loading && uploads.map(upload => (
-            <div key={upload.id} className={`p-5 border-b border-slate-100 last:border-b-0 transition-colors hover:bg-slate-50 ${working.has(upload.id) ? 'opacity-40 pointer-events-none' : ''}`}>
-              <div className="flex items-start gap-4">
-                <div className="flex-1 min-w-0 space-y-1.5">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <Paperclip size={12} className="text-indigo-400 flex-shrink-0" />
-                    <span className="text-xs font-black text-slate-700 truncate">{upload.file_name}</span>
-                    {upload.file_size_bytes && <span className="text-[10px] text-slate-400">{(upload.file_size_bytes / 1024).toFixed(0)} KB</span>}
-                    <span className="text-[10px] text-slate-400">{new Date(upload.uploaded_at).toLocaleDateString('en-GB')}</span>
+            <div key={upload.id} className={`border-b border-slate-100 last:border-b-0 transition-colors hover:bg-slate-50/60 ${working.has(upload.id) ? 'opacity-40 pointer-events-none' : ''}`}>
+              {/* File info */}
+              <div className="px-5 pt-4 pb-3 space-y-1.5">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <Paperclip size={12} className="text-indigo-400 flex-shrink-0" />
+                  <span className="text-xs font-black text-slate-700">{upload.file_name}</span>
+                  {upload.file_size_bytes && <span className="text-[10px] text-slate-400">{(upload.file_size_bytes / 1024).toFixed(0)} KB</span>}
+                  <span className="text-[10px] text-slate-400">{new Date(upload.uploaded_at).toLocaleDateString('en-GB')}</span>
+                </div>
+                <p className="text-[11px] text-slate-500">From: <span className="font-bold">{upload.uploaderName}</span></p>
+                {upload.notes && <p className="text-[11px] text-slate-600 bg-slate-50 border border-slate-100 rounded px-2 py-1">{upload.notes}</p>}
+
+                {/* Advisor note textarea */}
+                {noteExpanded[upload.id] && (
+                  <textarea
+                    value={noteText[upload.id] ?? ''}
+                    onChange={e => setNoteText(prev => ({ ...prev, [upload.id]: e.target.value }))}
+                    placeholder="Add a note to the client (optional)…"
+                    rows={2}
+                    className="w-full border border-slate-200 rounded px-2 py-1 text-[11px] resize-none focus:outline-none focus:ring-2 focus:ring-indigo-300 mt-1"
+                  />
+                )}
+
+                {/* Link to action picker */}
+                {linkExpanded[upload.id] && (
+                  <div className="mt-1 border border-slate-200 rounded-lg overflow-hidden">
+                    {actionsLoading ? (
+                      <div className="p-3 text-[11px] text-slate-400 animate-pulse">Loading actions…</div>
+                    ) : siteActions.length === 0 ? (
+                      <div className="p-3 text-[11px] text-slate-400">No open actions for this site</div>
+                    ) : (() => {
+                      const query = (actionSearch[upload.id] ?? '').toLowerCase();
+                      const filtered = siteActions.filter(a =>
+                        !query || (a.source_document_name ?? '').toLowerCase().includes(query)
+                      );
+                      const groups: Record<string, SiteAction[]> = {};
+                      for (const a of filtered) {
+                        const doc = a.source_document_name ?? 'No document';
+                        if (!groups[doc]) groups[doc] = [];
+                        groups[doc].push(a);
+                      }
+                      return (
+                        <>
+                          <div className="p-1.5 bg-slate-50 border-b border-slate-200">
+                            <input
+                              type="text"
+                              placeholder="Search by document name…"
+                              value={actionSearch[upload.id] ?? ''}
+                              onChange={e => setActionSearch(prev => ({ ...prev, [upload.id]: e.target.value }))}
+                              className="w-full text-[11px] px-2 py-1 border border-slate-200 rounded focus:outline-none focus:ring-2 focus:ring-indigo-300 bg-white"
+                              autoFocus
+                            />
+                          </div>
+                          <div className="max-h-52 overflow-y-auto">
+                            {filtered.length === 0 ? (
+                              <p className="p-3 text-[11px] text-slate-400 text-center">No actions match</p>
+                            ) : Object.entries(groups).map(([docName, actions]) => (
+                              <div key={docName}>
+                                <div className="px-2.5 py-1 bg-slate-200 text-[10px] font-black text-slate-700 uppercase tracking-wider sticky top-0 truncate" title={docName}>
+                                  📄 {docName}
+                                </div>
+                                {actions.map(a => (
+                                  <button
+                                    key={a.id}
+                                    onClick={() => {
+                                      setPendingActions(prev => ({ ...prev, [upload.id]: a.id }));
+                                      setAcknowledgedSet(prev => new Set(prev).add(upload.id));
+                                      setLinkExpanded(prev => ({ ...prev, [upload.id]: false }));
+                                    }}
+                                    className={`w-full text-left px-3 py-2 flex items-start gap-2 hover:bg-indigo-50 transition-colors border-b border-slate-50 last:border-b-0 ${pendingActions[upload.id] === a.id ? 'bg-violet-50' : ''}`}
+                                  >
+                                    {a.hazard_ref && (
+                                      <span className="bg-slate-200 text-slate-600 text-[9px] font-black px-1.5 py-0.5 rounded flex-shrink-0 mt-0.5">{a.hazard_ref}</span>
+                                    )}
+                                    <span className="flex-1 text-[11px] text-slate-700 leading-snug">{a.title}</span>
+                                    {a.due_date && (
+                                      <span className="text-[10px] text-slate-400 flex-shrink-0 mt-0.5">{a.due_date}</span>
+                                    )}
+                                  </button>
+                                ))}
+                              </div>
+                            ))}
+                          </div>
+                        </>
+                      );
+                    })()}
                   </div>
-                  <p className="text-[11px] text-slate-500">From: <span className="font-bold">{upload.uploaderName}</span></p>
-                  {upload.notes && <p className="text-[11px] text-slate-600 bg-slate-50 rounded px-2 py-1">{upload.notes}</p>}
+                )}
+              </div>
 
-                  {/* Note to client */}
-                  {noteExpanded[upload.id] ? (
-                    <textarea
-                      value={noteText[upload.id] ?? ''}
-                      onChange={e => setNoteText(prev => ({ ...prev, [upload.id]: e.target.value }))}
-                      placeholder="Add a note to the client (optional)…"
-                      rows={2}
-                      className="w-full border border-slate-200 rounded px-2 py-1 text-[11px] resize-none focus:outline-none focus:ring-2 focus:ring-indigo-300 mt-1"
-                    />
-                  ) : (
-                    <button onClick={() => setNoteExpanded(prev => ({ ...prev, [upload.id]: true }))} className="text-[10px] text-slate-400 hover:text-indigo-600 font-bold mt-1">+ Add note to client</button>
-                  )}
-
-                  {/* Link to action */}
-                  {linkExpanded[upload.id] && (
-                    <div className="mt-2">
-                      {actionsLoading ? (
-                        <span className="text-[11px] text-slate-400 animate-pulse">Loading actions…</span>
-                      ) : siteActions.length === 0 ? (
-                        <span className="text-[11px] text-slate-400">No open actions for this site</span>
-                      ) : (
-                        <select
-                          className="w-full border border-slate-200 rounded px-2 py-1.5 text-[11px] text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-300"
-                          value={pendingActions[upload.id] ?? ''}
-                          onChange={e => {
-                            const val = e.target.value;
-                            setPendingActions(prev => ({ ...prev, [upload.id]: val }));
-                            if (val) setAcknowledgedSet(prev => new Set(prev).add(upload.id));
-                          }}
-                        >
-                          <option value="" disabled>Select an action to link…</option>
-                          {siteActions.map(a => (
-                            <option key={a.id} value={a.id}>{a.hazard_ref ? `[${a.hazard_ref}] ` : ''}{a.title}{a.due_date ? ` — ${a.due_date}` : ''}</option>
-                          ))}
-                        </select>
-                      )}
-                    </div>
-                  )}
-                </div>
-
-                <div className="flex flex-col gap-2 flex-shrink-0">
-                  <button onClick={() => handleDownload(upload.id)} className="border border-indigo-200 text-indigo-500 rounded-lg text-[10px] font-black px-2.5 py-1 hover:bg-indigo-50 transition-colors flex items-center gap-1"><ExternalLink size={10} />Download</button>
-                  <button
-                    onClick={() => { setLinkExpanded(prev => ({ ...prev, [upload.id]: !prev[upload.id] })); fetchActions(); }}
-                    className={`border rounded-lg text-[10px] font-black px-2.5 py-1 transition-colors ${pendingActions[upload.id] ? 'bg-violet-50 border-violet-300 text-violet-700' : 'border-slate-300 text-slate-500 hover:bg-violet-50 hover:border-violet-300 hover:text-violet-700'}`}
-                  >{pendingActions[upload.id] ? '✓ Action selected' : 'Link to action'}</button>
-                  <button
-                    onClick={() => setAcknowledgedSet(prev => { const s = new Set(prev); if (s.has(upload.id)) s.delete(upload.id); else s.add(upload.id); return s; })}
-                    className={`border rounded-lg text-[10px] font-black px-2.5 py-1 transition-colors ${acknowledgedSet.has(upload.id) ? 'bg-emerald-50 border-emerald-300 text-emerald-700' : 'border-slate-300 text-slate-500 hover:bg-emerald-50 hover:border-emerald-300 hover:text-emerald-700'}`}
-                  >{acknowledgedSet.has(upload.id) ? '✓ Acknowledged' : 'Acknowledge'}</button>
-                  <button
-                    onClick={() => handleSubmit(upload.id)}
-                    disabled={!acknowledgedSet.has(upload.id)}
-                    className="border rounded-lg text-[10px] font-black px-2.5 py-1 transition-colors bg-emerald-600 border-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-30 disabled:cursor-not-allowed"
-                  >Submit</button>
-                </div>
+              {/* Action button row */}
+              <div className="px-5 py-2.5 border-t border-slate-100 bg-slate-50/40 flex items-center gap-2 flex-wrap">
+                <button
+                  onClick={() => { setLinkExpanded(prev => ({ ...prev, [upload.id]: !prev[upload.id] })); fetchActions(); }}
+                  className={`flex items-center gap-1 border rounded-lg text-[10px] font-black px-2.5 py-1 transition-colors ${pendingActions[upload.id] ? 'bg-violet-50 border-violet-300 text-violet-700' : 'border-indigo-200 text-indigo-600 hover:bg-indigo-50 hover:border-indigo-300'}`}
+                >
+                  {pendingActions[upload.id] ? (() => { const a = siteActions.find(x => x.id === pendingActions[upload.id]); return <>✓ {a ? `${a.hazard_ref ? `[${a.hazard_ref}] ` : ''}${a.title}` : 'Action linked'}</>; })() : 'Link to action'}
+                </button>
+                <button
+                  onClick={() => setAcknowledgedSet(prev => { const s = new Set(prev); if (s.has(upload.id)) s.delete(upload.id); else s.add(upload.id); return s; })}
+                  className={`border rounded-lg text-[10px] font-black px-2.5 py-1 transition-colors ${acknowledgedSet.has(upload.id) ? 'bg-emerald-50 border-emerald-300 text-emerald-700' : 'border-slate-300 text-slate-500 hover:bg-emerald-50 hover:border-emerald-300 hover:text-emerald-700'}`}
+                >{acknowledgedSet.has(upload.id) ? '✓ Acknowledged' : 'Acknowledge'}</button>
+                <button onClick={() => handleOpen(upload)} className="flex items-center gap-1 border border-slate-200 text-slate-500 rounded-lg text-[10px] font-black px-2.5 py-1 hover:bg-slate-100 transition-colors"><ExternalLink size={10} />Open</button>
+                {!noteExpanded[upload.id] && (
+                  <button onClick={() => setNoteExpanded(prev => ({ ...prev, [upload.id]: true }))} className="flex items-center gap-1 border border-slate-200 text-slate-500 rounded-lg text-[10px] font-black px-2.5 py-1 hover:bg-slate-100 transition-colors">+ Note</button>
+                )}
+                <button
+                  onClick={async () => {
+                    await fetch(`/api/client-uploads/${upload.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'hide' }) });
+                    remove(upload.id);
+                  }}
+                  title="Hide from list"
+                  className="flex items-center gap-1 border border-slate-200 rounded-lg text-[10px] font-black px-2.5 py-1 text-slate-400 hover:text-slate-600 hover:bg-white transition-colors"
+                ><EyeOff size={10} />Hide</button>
+                <button
+                  onClick={() => handleSubmit(upload.id)}
+                  disabled={!acknowledgedSet.has(upload.id)}
+                  className="ml-auto border rounded-lg text-[10px] font-black px-2.5 py-1 transition-colors bg-emerald-600 border-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-30 disabled:cursor-not-allowed"
+                >Submit</button>
               </div>
             </div>
           ))}
+
+          {/* ── Section 2: Client Managed Documents (site_documents, informational) ── */}
+          {!loading && (
+            <div className="px-5 py-2.5 bg-amber-50 border-t border-b border-amber-200 flex items-center gap-2 sticky top-0 z-10">
+              <FileText size={12} className="text-amber-500 flex-shrink-0" />
+              <span className="text-[10px] font-black text-amber-700 uppercase tracking-widest">Client Managed Documents</span>
+              <span className="text-[10px] text-amber-600">— client's own uploads, no action required</span>
+              {clientDocs.filter(d => !dismissedDocs.has(d.id)).length > 0 && <span className="ml-auto text-[10px] font-black bg-amber-200 text-amber-800 px-2 py-0.5 rounded-full">{clientDocs.filter(d => !dismissedDocs.has(d.id)).length} file{clientDocs.filter(d => !dismissedDocs.has(d.id)).length !== 1 ? 's' : ''}</span>}
+            </div>
+          )}
+          {!loading && clientDocs.filter(d => !dismissedDocs.has(d.id)).length === 0 && (
+            <div className="px-5 py-4 text-[11px] text-slate-400">No client managed documents</div>
+          )}
+          {!loading && clientDocs.filter(d => !dismissedDocs.has(d.id)).length > 0 && (
+            <>
+              {clientDocs.filter(d => !dismissedDocs.has(d.id)).map(doc => (
+                <div key={doc.id} className="p-5 border-b border-amber-100 last:border-b-0 bg-amber-50/40 hover:bg-amber-50/70 transition-colors">
+                  <div className="flex items-start gap-4">
+                    <div className="flex-1 min-w-0 space-y-1">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <FileText size={12} className="text-amber-400 flex-shrink-0" />
+                        <span className="text-xs font-black text-slate-700 truncate">{doc.document_name || doc.file_name}</span>
+                        {doc.file_size_bytes && <span className="text-[10px] text-slate-400">{(doc.file_size_bytes / 1024).toFixed(0)} KB</span>}
+                        <span className="text-[10px] text-slate-400">{new Date(doc.created_at).toLocaleDateString('en-GB')}</span>
+                        <span className="text-[9px] font-black uppercase tracking-wider bg-amber-100 text-amber-700 border border-amber-200 px-1.5 py-0.5 rounded-full">Client Managed</span>
+                      </div>
+                      <p className="text-[11px] text-slate-500">Uploaded by: <span className="font-bold">{doc.uploaderName}</span></p>
+                      <p className="text-[11px] text-amber-700/80 italic">This document is owned and managed by the client — no advisor action needed.</p>
+                    </div>
+                    <button
+                      onClick={() => setDismissedDocs(prev => new Set(prev).add(doc.id))}
+                      title="Dismiss from this view"
+                      className="border border-slate-200 rounded-lg text-[10px] font-black px-2.5 py-1 text-slate-400 hover:text-slate-600 hover:bg-slate-50 transition-colors flex items-center gap-1 flex-shrink-0"
+                    ><X size={10} />Dismiss</button>
+                  </div>
+                </div>
+              ))}
+            </>
+          )}
         </div>
 
         <div className="bg-slate-50 border-t border-slate-100 px-6 py-4 flex justify-end flex-shrink-0 rounded-b-xl">
@@ -5689,6 +6083,8 @@ export default function App() {
   const [showClientUploadsPanel, setShowClientUploadsPanel] = useState(false);
   const [pendingUploadsCount, setPendingUploadsCount] = useState(0);
   const [portfolioSuggestionCounts, setPortfolioSuggestionCounts] = useState<Record<string, number>>({});
+  const [portfolioUploadCounts, setPortfolioUploadCounts] = useState<Record<string, number>>({});
+  const [portfolioReviewedUploadCounts, setPortfolioReviewedUploadCounts] = useState<Record<string, number>>({});
   // File browser state
   const [folderData, setFolderData] = useState<Map<string, { items: DattoItem[]; path: string }>>(new Map());
   const [loadingFolderIds, setLoadingFolderIds] = useState<Set<string>>(new Set());
@@ -5877,6 +6273,24 @@ export default function App() {
         const counts: Record<string, number> = {};
         for (const a of (data ?? [])) { counts[a.site_id] = (counts[a.site_id] ?? 0) + 1; }
         setPortfolioSuggestionCounts(counts);
+      });
+  }, [user, sites.length]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Load per-site pending client upload counts for the dashboard notification
+  useEffect(() => {
+    if (!user || sites.length === 0) return;
+    const siteIds = sites.map(s => s.id);
+    supabase.from('client_uploads').select('site_id').in('site_id', siteIds).eq('status', 'pending_review')
+      .then(({ data }) => {
+        const counts: Record<string, number> = {};
+        for (const u of (data ?? [])) { counts[u.site_id] = (counts[u.site_id] ?? 0) + 1; }
+        setPortfolioUploadCounts(counts);
+      });
+    supabase.from('client_uploads').select('site_id').in('site_id', siteIds).in('status', ['acknowledged', 'linked'])
+      .then(({ data }) => {
+        const counts: Record<string, number> = {};
+        for (const u of (data ?? [])) { counts[u.site_id] = (counts[u.site_id] ?? 0) + 1; }
+        setPortfolioReviewedUploadCounts(counts);
       });
   }, [user, sites.length]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -7583,35 +7997,122 @@ export default function App() {
                   ))}
                 </div>
               </div>
-              {/* AI Suggestions notification banner */}
-              {Object.keys(portfolioSuggestionCounts).length > 0 && (profile?.role === 'advisor' || profile?.role === 'superadmin') && (() => {
-                const total = Object.values(portfolioSuggestionCounts).reduce((s, n) => s + n, 0);
+              {/* Dashboard notification banners — advisor only */}
+              {(profile?.role === 'advisor' || profile?.role === 'superadmin') && (() => {
+                const hasSuggestions = Object.keys(portfolioSuggestionCounts).length > 0;
+                const hasUploads = Object.keys(portfolioUploadCounts).length > 0;
+                if (!hasSuggestions && !hasUploads) return null;
+                const suggestionsTotal = Object.values(portfolioSuggestionCounts).reduce((s, n) => s + n, 0);
                 const sitesWithSuggestions = viewSites.filter(s => (portfolioSuggestionCounts[s.id] ?? 0) > 0);
+                const uploadsTotal = Object.values(portfolioUploadCounts).reduce((s, n) => s + n, 0);
+                const sitesWithUploads = viewSites.filter(s => (portfolioUploadCounts[s.id] ?? 0) > 0);
                 return (
-                  <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex flex-col sm:flex-row items-start sm:items-center gap-4">
-                    <div className="flex items-center gap-3 flex-1 min-w-0">
-                      <div className="bg-amber-100 rounded-lg p-2 flex-shrink-0"><Sparkles size={16} className="text-amber-600" /></div>
-                      <div>
-                        <p className="text-sm font-black text-amber-800">{total} AI suggestion{total !== 1 ? 's' : ''} awaiting review</p>
-                        <p className="text-[11px] text-amber-600 mt-0.5">
-                          {sitesWithSuggestions.map((s, i) => (
-                            <span key={s.id}>
-                              {i > 0 && ' · '}
-                              <button onClick={() => { setSelectedSite(s); setView('site'); setShowAiReviewPanel(true); }} className="font-black hover:underline">
-                                {s.name} ({portfolioSuggestionCounts[s.id]})
-                              </button>
-                            </span>
-                          ))}
-                        </p>
+                  <div className={`grid gap-4 ${hasSuggestions && hasUploads ? 'grid-cols-1 md:grid-cols-2' : 'grid-cols-1'}`}>
+                    {hasSuggestions && (
+                      <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex flex-col sm:flex-row items-start sm:items-center gap-4">
+                        <div className="flex items-center gap-3 flex-1 min-w-0">
+                          <div className="bg-amber-100 rounded-lg p-2 flex-shrink-0"><Sparkles size={16} className="text-amber-600" /></div>
+                          <div>
+                            <p className="text-sm font-black text-amber-800">{suggestionsTotal} AI suggestion{suggestionsTotal !== 1 ? 's' : ''} awaiting review</p>
+                            <p className="text-[11px] text-amber-600 mt-0.5">
+                              {sitesWithSuggestions.map((s, i) => (
+                                <span key={s.id}>
+                                  {i > 0 && ' · '}
+                                  <button onClick={() => { setSelectedSite(s); setView('site'); setShowAiReviewPanel(true); }} className="font-black hover:underline">
+                                    {s.name} ({portfolioSuggestionCounts[s.id]})
+                                  </button>
+                                </span>
+                              ))}
+                            </p>
+                          </div>
+                        </div>
+                        {sitesWithSuggestions.length === 1 && (
+                          <button onClick={() => { setSelectedSite(sitesWithSuggestions[0]); setView('site'); setShowAiReviewPanel(true); }} className="px-4 py-2 bg-amber-500 text-white rounded-xl text-[11px] font-black uppercase tracking-wider hover:bg-amber-600 flex-shrink-0">Review Now</button>
+                        )}
                       </div>
-                    </div>
-                    {sitesWithSuggestions.length === 1 && (
-                      <button
-                        onClick={() => { setSelectedSite(sitesWithSuggestions[0]); setView('site'); setShowAiReviewPanel(true); }}
-                        className="px-4 py-2 bg-amber-500 text-white rounded-xl text-[11px] font-black uppercase tracking-wider hover:bg-amber-600 flex-shrink-0"
-                      >
-                        Review Now
-                      </button>
+                    )}
+                    {hasUploads && (
+                      <div className="bg-indigo-50 border border-indigo-200 rounded-xl p-4 flex flex-col sm:flex-row items-start sm:items-center gap-4">
+                        <div className="flex items-center gap-3 flex-1 min-w-0">
+                          <div className="bg-indigo-100 rounded-lg p-2 flex-shrink-0"><Paperclip size={16} className="text-indigo-600" /></div>
+                          <div>
+                            <p className="text-sm font-black text-indigo-800">{uploadsTotal} client upload{uploadsTotal !== 1 ? 's' : ''} awaiting review</p>
+                            <p className="text-[11px] text-indigo-600 mt-0.5">
+                              {sitesWithUploads.map((s, i) => (
+                                <span key={s.id}>
+                                  {i > 0 && ' · '}
+                                  <button onClick={() => { setSelectedSite(s); setView('site'); setShowClientUploadsPanel(true); }} className="font-black hover:underline">
+                                    {s.name} ({portfolioUploadCounts[s.id]})
+                                  </button>
+                                </span>
+                              ))}
+                            </p>
+                          </div>
+                        </div>
+                        {sitesWithUploads.length === 1 && (
+                          <button onClick={() => { setSelectedSite(sitesWithUploads[0]); setView('site'); setShowClientUploadsPanel(true); }} className="px-4 py-2 bg-indigo-500 text-white rounded-xl text-[11px] font-black uppercase tracking-wider hover:bg-indigo-600 flex-shrink-0">Review Now</button>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+              {/* Dashboard notification banners — client only */}
+              {profile?.role === 'client' && (() => {
+                const hasPending = Object.keys(portfolioUploadCounts).length > 0;
+                const hasReviewed = Object.keys(portfolioReviewedUploadCounts).length > 0;
+                if (!hasPending && !hasReviewed) return null;
+                const pendingTotal = Object.values(portfolioUploadCounts).reduce((s, n) => s + n, 0);
+                const sitesWithPending = viewSites.filter(s => (portfolioUploadCounts[s.id] ?? 0) > 0);
+                const reviewedTotal = Object.values(portfolioReviewedUploadCounts).reduce((s, n) => s + n, 0);
+                const sitesWithReviewed = viewSites.filter(s => (portfolioReviewedUploadCounts[s.id] ?? 0) > 0);
+                return (
+                  <div className={`grid gap-4 ${hasPending && hasReviewed ? 'grid-cols-1 md:grid-cols-2' : 'grid-cols-1'}`}>
+                    {hasPending && (
+                      <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex flex-col sm:flex-row items-start sm:items-center gap-4">
+                        <div className="flex items-center gap-3 flex-1 min-w-0">
+                          <div className="bg-amber-100 rounded-lg p-2 flex-shrink-0"><Paperclip size={16} className="text-amber-600" /></div>
+                          <div>
+                            <p className="text-sm font-black text-amber-800">{pendingTotal} file{pendingTotal !== 1 ? 's' : ''} awaiting advisor review</p>
+                            <p className="text-[11px] text-amber-600 mt-0.5">
+                              {sitesWithPending.map((s, i) => (
+                                <span key={s.id}>
+                                  {i > 0 && ' · '}
+                                  <button onClick={() => { setSelectedSite(s); setView('site'); setSiteTab('documents'); }} className="font-black hover:underline">
+                                    {s.name} ({portfolioUploadCounts[s.id]})
+                                  </button>
+                                </span>
+                              ))}
+                            </p>
+                          </div>
+                        </div>
+                        {sitesWithPending.length === 1 && (
+                          <button onClick={() => { setSelectedSite(sitesWithPending[0]); setView('site'); setSiteTab('documents'); }} className="px-4 py-2 bg-amber-500 text-white rounded-xl text-[11px] font-black uppercase tracking-wider hover:bg-amber-600 flex-shrink-0">View</button>
+                        )}
+                      </div>
+                    )}
+                    {hasReviewed && (
+                      <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4 flex flex-col sm:flex-row items-start sm:items-center gap-4">
+                        <div className="flex items-center gap-3 flex-1 min-w-0">
+                          <div className="bg-emerald-100 rounded-lg p-2 flex-shrink-0"><CheckCircle size={16} className="text-emerald-600" /></div>
+                          <div>
+                            <p className="text-sm font-black text-emerald-800">{reviewedTotal} upload{reviewedTotal !== 1 ? 's' : ''} reviewed by your advisor</p>
+                            <p className="text-[11px] text-emerald-600 mt-0.5">
+                              {sitesWithReviewed.map((s, i) => (
+                                <span key={s.id}>
+                                  {i > 0 && ' · '}
+                                  <button onClick={() => { setSelectedSite(s); setView('site'); setSiteTab('documents'); }} className="font-black hover:underline">
+                                    {s.name} ({portfolioReviewedUploadCounts[s.id]})
+                                  </button>
+                                </span>
+                              ))}
+                            </p>
+                          </div>
+                        </div>
+                        {sitesWithReviewed.length === 1 && (
+                          <button onClick={() => { setSelectedSite(sitesWithReviewed[0]); setView('site'); setSiteTab('documents'); }} className="px-4 py-2 bg-emerald-500 text-white rounded-xl text-[11px] font-black uppercase tracking-wider hover:bg-emerald-600 flex-shrink-0">View</button>
+                        )}
+                      </div>
                     )}
                   </div>
                 );
@@ -8995,6 +9496,7 @@ export default function App() {
         <ClientUploadsPanel
           siteId={selectedSite.id}
           siteName={selectedSite.name}
+          siteFolderPath={selectedSite.datto_folder_path ?? null}
           userId={user.id}
           onClose={() => setShowClientUploadsPanel(false)}
           onCountChange={(n) => setPendingUploadsCount(n)}
