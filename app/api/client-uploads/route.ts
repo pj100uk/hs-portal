@@ -61,12 +61,13 @@ export async function POST(request: NextRequest) {
 
     if (storageErr) return NextResponse.json({ error: `Storage upload failed: ${storageErr.message}` }, { status: 500 });
 
-    // Upload to Datto "Client Provided Documents"
+    // Upload to Datto "Client Provided Documents" via API
     let dattoFileId: string | null = null;
+    let storedFileName = fileName; // may be updated if Datto assigns a different name
     try {
-      const { data: site } = await supabase.from('sites').select('datto_folder_id, datto_folder_path').eq('id', siteId).single();
+      const { data: site } = await supabase.from('sites').select('datto_folder_id').eq('id', siteId).single();
       if (site?.datto_folder_id) {
-        const targetFolderId = await resolveClientDocsFolderId(site.datto_folder_id);
+        const targetFolderId = await resolveClientDocsFolderId(String(site.datto_folder_id));
         const form = new FormData();
         form.append('partData', new Blob([new Uint8Array(fileBuffer)], { type: mimeType }), fileName);
         form.append('fileName', fileName);
@@ -74,13 +75,18 @@ export async function POST(request: NextRequest) {
         const dattoRes = await fetch(`${BASE_URL}/file/${targetFolderId}/files`, {
           method: 'POST', headers: { Authorization: AUTH_HEADER }, body: form,
         });
+        const dattoBody = await dattoRes.text();
         if (dattoRes.ok) {
-          const body = await dattoRes.json().catch(() => ({}));
-          const d = body.value ?? body;
+          let dattoJson: any = {};
+          try { dattoJson = JSON.parse(dattoBody); } catch { /* non-JSON */ }
+          const d = dattoJson.value ?? dattoJson;
           dattoFileId = String(d.fileID ?? d.fileId ?? d.id ?? '') || null;
-          console.log('[client-upload] Datto API upload ok, fileId:', dattoFileId);
+          // If Datto assigned a different name (e.g. "(1)" suffix), store the actual name
+          const actualDattoName: string | null = d.name ?? d.fileName ?? null;
+          if (actualDattoName && actualDattoName !== fileName) storedFileName = actualDattoName;
+          console.log('[client-upload] Datto API upload ok, fileId:', dattoFileId, '| name:', storedFileName);
         } else {
-          console.error('[client-upload] Datto API upload failed:', dattoRes.status, await dattoRes.text());
+          console.error('[client-upload] Datto API upload failed:', dattoRes.status, dattoBody);
         }
       } else {
         console.warn('[client-upload] site has no datto_folder_id — skipping Datto upload');
@@ -95,7 +101,7 @@ export async function POST(request: NextRequest) {
         id: uploadId,
         site_id: siteId,
         uploaded_by: userId || null,
-        file_name: fileName,
+        file_name: storedFileName,
         file_size_bytes: fileSize || null,
         storage_path: storagePath,
         notes: notes || null,

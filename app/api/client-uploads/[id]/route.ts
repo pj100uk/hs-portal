@@ -1,7 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import fs from 'fs';
-import path from 'path';
 import { BASE_URL, AUTH_HEADER, resolveSubfolder } from '../../datto/folder-utils';
 
 export const runtime = 'nodejs';
@@ -10,8 +8,6 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
-
-const DATTO_DRIVE_ROOT = 'W:\\Customer Documents';
 
 export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
   const { data: row } = await supabase
@@ -23,7 +19,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
 
   const { data, error } = await supabase.storage
     .from('client-uploads')
-    .createSignedUrl(row.storage_path, 3600, { download: row.file_name });
+    .createSignedUrl(row.storage_path, 3600);
   if (error || !data?.signedUrl) return NextResponse.json({ error: error?.message ?? 'Could not generate URL' }, { status: 500 });
   return NextResponse.json({ url: data.signedUrl });
 }
@@ -67,10 +63,8 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     if (fetchErr || !upload) return NextResponse.json({ error: 'Upload not found' }, { status: 404 });
 
     // Fetch action and site in parallel
-    const [{ data: actionRow, error: actionErr }, { data: site }] = await Promise.all([
-      supabase.from('actions').select('id, site_id, hazard_ref, source_document_id, source_document_name, source_folder_id, source_folder_path').eq('id', actionId).single(),
-      supabase.from('sites').select('datto_folder_path').eq('id', upload.site_id).single(),
-    ]);
+    const { data: actionRow, error: actionErr } = await supabase
+      .from('actions').select('id, site_id, hazard_ref, source_document_id, source_document_name, source_folder_id').eq('id', actionId).single();
     if (actionErr || !actionRow) return NextResponse.json({ error: 'Action not found' }, { status: 404 });
 
     // Build canonical filename
@@ -110,53 +104,28 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     await supabase.from('action_evidence').update({ storage_path: newStoragePath }).eq('id', evidence.id);
     await supabase.storage.from('client-uploads').remove([upload.storage_path]);
 
-    // Move file in Datto: write to Evidence folder, delete from Client Provided Documents
+    // Move file in Datto: upload to Evidence folder, remove from Client Provided Documents
     let newDattoFileId: string | null = null;
-    if (actionRow.source_folder_id || actionRow.source_folder_path) {
+    if (actionRow.source_folder_id) {
       try {
-        const wdriveAccessible = actionRow.source_folder_path && fs.existsSync(DATTO_DRIVE_ROOT);
-
-        if (wdriveAccessible) {
-          const pathParts = actionRow.source_folder_path.split('/').filter(Boolean);
-          const evidenceDir = path.join(DATTO_DRIVE_ROOT, ...pathParts.slice(0, -1), 'Evidence');
-          const destPath = path.join(evidenceDir, canonicalName);
-
-          // Locate the original file in Client Provided Documents
-          const srcPath = site?.datto_folder_path && upload.file_name
-            ? path.join(DATTO_DRIVE_ROOT, ...site.datto_folder_path.split('/').filter(Boolean), 'Client Provided Documents', upload.file_name)
-            : null;
-
-          if (srcPath && fs.existsSync(srcPath)) {
-            fs.mkdirSync(evidenceDir, { recursive: true });
-            fs.renameSync(srcPath, destPath);
-            console.log('[client-upload link] renamed/moved via W: drive:', srcPath, '->', destPath);
-
-            // Poll Datto API for the new Evidence file ID
-            if (actionRow.source_folder_id) {
-              const { id: evidenceFolderId } = await resolveSubfolder(actionRow.source_folder_id, 'Evidence');
-              if (evidenceFolderId) {
-                for (let i = 0; i < 5; i++) {
-                  await new Promise(r => setTimeout(r, 1000));
-                  try {
-                    const listRes = await fetch(`${BASE_URL}/file/${evidenceFolderId}/files`, { headers: { Authorization: AUTH_HEADER }, cache: 'no-store' });
-                    if (listRes.ok) {
-                      const json = await listRes.json();
-                      const arr: any[] = Array.isArray(json) ? json : (json.result ?? json.files ?? json.items ?? []);
-                      const match = arr.find((f: any) => (f.name ?? f.fileName) === canonicalName);
-                      if (match) { newDattoFileId = String(match.id ?? match.fileId ?? match.fileID ?? '') || null; break; }
-                    }
-                  } catch { /* retry */ }
-                }
-              }
+        const { id: evidenceFolderId, error: folderErr } = await resolveSubfolder(actionRow.source_folder_id, 'Evidence');
+        if (evidenceFolderId) {
+          // Check if a file with this canonical name already exists (avoids "(1)" duplicates)
+          const listRes = await fetch(`${BASE_URL}/file/${evidenceFolderId}/files`, {
+            headers: { Authorization: AUTH_HEADER }, cache: 'no-store',
+          });
+          if (listRes.ok) {
+            const json = await listRes.json();
+            const arr: any[] = Array.isArray(json) ? json : (json.result ?? json.files ?? json.items ?? []);
+            const existing = arr.find((f: any) => (f.name ?? f.fileName) === canonicalName);
+            if (existing) {
+              newDattoFileId = String(existing.id ?? existing.fileId ?? existing.fileID ?? '') || null;
+              console.log('[client-upload link] file already exists in Evidence, reusing id:', newDattoFileId);
             }
-            console.log('[client-upload link] W: drive rename complete, dattoFileId:', newDattoFileId);
-          } else {
-            console.warn('[client-upload link] W: drive source not found, skipping W: drive move:', srcPath);
           }
-        } else if (actionRow.source_folder_id) {
-          // Datto API fallback: download from Supabase, upload to Evidence folder
-          const { id: evidenceFolderId, error: folderErr } = await resolveSubfolder(actionRow.source_folder_id, 'Evidence');
-          if (evidenceFolderId) {
+
+          let actualEvidenceName = canonicalName;
+          if (!newDattoFileId) {
             const { data: fileBlob, error: dlErr } = await supabase.storage.from('client-uploads').download(newStoragePath);
             if (!dlErr && fileBlob) {
               const form = new FormData();
@@ -170,28 +139,34 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
                 const respBody = await dattoRes.json().catch(() => ({}));
                 const d = respBody.value ?? respBody;
                 newDattoFileId = String(d.fileID ?? d.fileId ?? d.id ?? '') || null;
-                console.log('[client-upload link] Datto API Evidence upload ok, fileId:', newDattoFileId);
-
-                // Delete original from Datto Client Provided Documents
-                if (upload.datto_file_id) {
-                  const delRes = await fetch(`${BASE_URL}/file/${upload.datto_file_id}`, { method: 'DELETE', headers: { Authorization: AUTH_HEADER } });
-                  if (!delRes.ok) console.warn('[client-upload link] Datto delete failed:', delRes.status);
-                }
+                // Capture actual Datto filename in case it was renamed (e.g. "(1)" suffix)
+                const actualName: string | null = d.name ?? d.fileName ?? null;
+                if (actualName && actualName !== canonicalName) actualEvidenceName = actualName;
+                console.log('[client-upload link] Datto API Evidence upload ok, fileId:', newDattoFileId, '| name:', actualEvidenceName);
               } else {
                 console.error('[client-upload link] Datto Evidence upload failed:', dattoRes.status, await dattoRes.text());
               }
             }
-          } else {
-            console.warn('[client-upload link] could not resolve Evidence folder:', folderErr);
           }
+
+          // Remove original from Datto Client Provided Documents
+          if (upload.datto_file_id) {
+            const delRes = await fetch(`${BASE_URL}/file/${upload.datto_file_id}`, { method: 'DELETE', headers: { Authorization: AUTH_HEADER } });
+            if (!delRes.ok) console.warn('[client-upload link] Datto delete of original failed:', delRes.status);
+          }
+
+          const evidenceUpdates: Record<string, string> = {};
+          if (newDattoFileId) evidenceUpdates.datto_file_id = newDattoFileId;
+          if (actualEvidenceName !== canonicalName) evidenceUpdates.file_name = actualEvidenceName;
+          if (Object.keys(evidenceUpdates).length > 0) {
+            await supabase.from('action_evidence').update(evidenceUpdates).eq('id', evidence.id);
+          }
+        } else {
+          console.warn('[client-upload link] could not resolve Evidence folder:', folderErr);
         }
       } catch (dattoErr: any) {
         console.error('[client-upload link] Datto move exception:', dattoErr.message);
       }
-    }
-
-    if (newDattoFileId) {
-      await supabase.from('action_evidence').update({ datto_file_id: newDattoFileId }).eq('id', evidence.id);
     }
 
     const { data: updated, error: updateErr } = await supabase

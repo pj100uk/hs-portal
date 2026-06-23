@@ -36,11 +36,18 @@ export async function POST(req: NextRequest) {
 
   try {
     // 1. Check if the file already exists in Datto (e.g. uploaded but ID not saved)
-    const listRes = await fetch(`${BASE_URL}/file/${targetFolderId}/files`, {
-      headers: { Authorization: AUTH_HEADER },
-      cache: 'no-store',
-    });
-    if (listRes.ok) {
+    const listCtrl = new AbortController();
+    const listTimer = setTimeout(() => listCtrl.abort(), 10_000);
+    let listRes: Response | null = null;
+    try {
+      listRes = await fetch(`${BASE_URL}/file/${targetFolderId}/files`, {
+        headers: { Authorization: AUTH_HEADER },
+        cache: 'no-store',
+        signal: listCtrl.signal,
+      });
+    } catch { /* timeout or network error — fall through to re-upload */ }
+    clearTimeout(listTimer);
+    if (listRes?.ok) {
       const json = await listRes.json();
       const arr: any[] = Array.isArray(json) ? json : (json.result ?? json.files ?? json.items ?? []);
       const match = arr.find((f: any) => (f.name ?? f.fileName) === doc.file_name);

@@ -125,7 +125,7 @@ export async function PATCH(request: NextRequest) {
         const originalName: string = data.file_name ?? 'file';
         const dotIndex = originalName.lastIndexOf('.');
         const ext = dotIndex !== -1 ? originalName.slice(dotIndex) : '';
-        const newFileName = document_name.includes('.') ? document_name : `${document_name}${ext}`;
+        const newFileName = (ext && document_name.toLowerCase().endsWith(ext.toLowerCase())) ? document_name : `${document_name}${ext}`;
         const srcPath = clientDocPath(site.datto_folder_path, originalName);
 
         if (fs.existsSync(srcPath)) {
@@ -158,7 +158,24 @@ export async function PATCH(request: NextRequest) {
           await supabase.from('site_documents').update({ file_name: newFileName }).eq('id', documentId);
           console.log('[documents] renamed on W: drive:', originalName, '→', newFileName);
         } else {
-          console.warn('[documents] file not found on W: drive for rename:', srcPath);
+          console.warn('[documents] file not found on W: drive for rename — falling back to Datto API');
+          // Fallback: rename via Datto API (no vault archive possible without vault_folder_id here)
+          if (data.datto_file_id) {
+            try {
+              const patchRes = await fetch(`${BASE_URL}/file/${data.datto_file_id}?name=${encodeURIComponent(newFileName)}`, {
+                method: 'PATCH',
+                headers: { Authorization: AUTH_HEADER },
+              });
+              if (patchRes.ok) {
+                await supabase.from('site_documents').update({ file_name: newFileName }).eq('id', documentId);
+                console.log('[documents] renamed via Datto API:', originalName, '→', newFileName);
+              } else {
+                console.warn('[documents] Datto API rename failed:', patchRes.status, await patchRes.text());
+              }
+            } catch (apiErr: any) {
+              console.warn('[documents] Datto API rename exception:', apiErr.message);
+            }
+          }
         }
       }
     } catch (err) {
@@ -227,21 +244,22 @@ export async function DELETE(request: NextRequest) {
     try {
       const { data: siteData } = await supabase
         .from('sites')
-        .select('datto_folder_path')
+        .select('datto_folder_path, vault_folder_id')
         .eq('id', data.site_id)
         .single();
 
-      if (siteData?.datto_folder_path) {
-        const now = new Date();
-        const dd = String(now.getDate()).padStart(2, '0');
-        const mm = String(now.getMonth() + 1).padStart(2, '0');
-        const yy = String(now.getFullYear()).slice(2);
-        const originalName: string = data.file_name ?? 'file';
-        const dotIndex = originalName.lastIndexOf('.');
-        const archivedName = dotIndex !== -1
-          ? `${originalName.slice(0, dotIndex)} v1 ${dd}-${mm}-${yy}${originalName.slice(dotIndex)}`
-          : `${originalName} v1 ${dd}-${mm}-${yy}`;
+      const now = new Date();
+      const dd = String(now.getDate()).padStart(2, '0');
+      const mm = String(now.getMonth() + 1).padStart(2, '0');
+      const yy = String(now.getFullYear()).slice(2);
+      const originalName: string = data.file_name ?? 'file';
+      const dotIndex = originalName.lastIndexOf('.');
+      const archivedName = dotIndex !== -1
+        ? `${originalName.slice(0, dotIndex)} v1 ${dd}-${mm}-${yy}${originalName.slice(dotIndex)}`
+        : `${originalName} v1 ${dd}-${mm}-${yy}`;
 
+      let wdriveArchived = false;
+      if (siteData?.datto_folder_path) {
         const srcPath = clientDocPath(siteData.datto_folder_path, originalName);
         const archiveDir = vaultFolderPath(siteData.datto_folder_path);
         const destPath = path.join(archiveDir, archivedName);
@@ -249,9 +267,57 @@ export async function DELETE(request: NextRequest) {
         if (fs.existsSync(srcPath)) {
           fs.mkdirSync(archiveDir, { recursive: true });
           fs.renameSync(srcPath, destPath);
+          wdriveArchived = true;
           console.log('[documents] archived on W: drive:', originalName, '→ Vault/', archivedName);
         } else {
-          console.warn('[documents] file not found on W: drive for archive:', srcPath);
+          console.warn('[documents] file not found on W: drive for archive — falling back to Datto API');
+        }
+      }
+
+      if (!wdriveArchived) {
+        // Fallback: archive via Datto API
+        // If vault_folder_id set: download + upload to vault, then rename original
+        // Otherwise: rename original in place with archived name
+        let archivedToVault = false;
+        if (siteData?.vault_folder_id) {
+          try {
+            const downloadRes = await fetch(`${BASE_URL}/file/${data.datto_file_id}/data`, {
+              headers: { Authorization: AUTH_HEADER },
+            });
+            if (downloadRes.ok) {
+              const fileData = await downloadRes.arrayBuffer();
+              const mimeType = downloadRes.headers.get('content-type') ?? 'application/octet-stream';
+              const form = new FormData();
+              form.append('partData', new Blob([new Uint8Array(fileData)], { type: mimeType }), archivedName);
+              form.append('fileName', archivedName);
+              form.append('makeUnique', 'true');
+              const uploadRes = await fetch(`${BASE_URL}/file/${siteData.vault_folder_id}/files`, {
+                method: 'POST', headers: { Authorization: AUTH_HEADER }, body: form,
+              });
+              if (uploadRes.ok) {
+                archivedToVault = true;
+                console.log('[documents] archived to Vault via Datto API:', archivedName);
+              } else {
+                console.warn('[documents] Datto vault upload failed:', uploadRes.status, await uploadRes.text());
+              }
+            }
+          } catch (apiErr: any) {
+            console.warn('[documents] Datto API vault archive exception:', apiErr.message);
+          }
+        }
+        // Rename original with archived name to mark it as removed (regardless of vault success)
+        try {
+          const patchRes = await fetch(`${BASE_URL}/file/${data.datto_file_id}?name=${encodeURIComponent(archivedName)}`, {
+            method: 'PATCH',
+            headers: { Authorization: AUTH_HEADER },
+          });
+          if (patchRes.ok) {
+            console.log('[documents] renamed in Datto:', originalName, '→', archivedName, archivedToVault ? '(also in Vault)' : '(in place)');
+          } else {
+            console.warn('[documents] Datto API rename failed:', patchRes.status, await patchRes.text());
+          }
+        } catch (apiErr: any) {
+          console.warn('[documents] Datto API rename exception:', apiErr.message);
         }
       }
     } catch (err) {

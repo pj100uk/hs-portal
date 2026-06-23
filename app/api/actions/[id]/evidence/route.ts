@@ -1,11 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import Busboy from 'busboy';
-import fs from 'fs';
-import path from 'path';
 import { BASE_URL, AUTH_HEADER, resolveSubfolder } from '../../../datto/folder-utils';
-
-const DATTO_DRIVE_ROOT = 'W:\\Customer Documents';
 
 export const runtime = 'nodejs';
 
@@ -128,60 +124,56 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
     // Update the storage path now we know it
     await supabase.from('action_evidence').update({ storage_path: storagePath }).eq('id', row.id);
 
-    // Upload to Evidence subfolder — W: drive first, Datto API fallback
+    // Upload to Evidence subfolder via Datto API
     let dattoFileId: string | null = null;
     let finalFileName = canonicalName;
-    let wdriveOk = false;
-    console.log('[evidence] sourceFolderPath:', sourceFolderPath || '(none)', '| sourceFolderId:', sourceFolderId || '(none)');
-
-    // 1. W: drive (only when the drive is accessible — skipped on cloud deployments or disconnected drives)
-    const wdriveAccessible = sourceFolderPath && fs.existsSync(DATTO_DRIVE_ROOT);
-    if (wdriveAccessible) {
-      try {
-        const pathParts = sourceFolderPath.split('/').filter(Boolean);
-        const evidenceDir = path.join(DATTO_DRIVE_ROOT, ...pathParts.slice(0, -1), 'Evidence');
-        fs.mkdirSync(evidenceDir, { recursive: true });
-        const targetFile = path.join(evidenceDir, canonicalName);
-        fs.writeFileSync(targetFile, fileBuffer!);
-        console.log('[evidence] wrote via W: drive:', targetFile);
-        wdriveOk = true;
-      } catch (fsErr: any) {
-        console.warn('[evidence] W: drive write failed, falling back to Datto API:', fsErr.message);
-      }
-    }
-
-    // 2. Datto API — used when W: drive unavailable (clients via cloud, disconnected drive)
-    if (!wdriveOk && sourceFolderId) {
+    if (sourceFolderId) {
       const { id: evidenceFolderId, error: folderErr } = await resolveSubfolder(sourceFolderId, 'Evidence');
       console.log('[evidence] evidenceFolderId:', evidenceFolderId ?? `(null — ${folderErr})`);
       if (evidenceFolderId) {
         try {
-          const form = new FormData();
-          form.append('partData', new Blob([new Uint8Array(fileBuffer!)], { type: mimeType }), canonicalName);
-          form.append('fileName', canonicalName);
-          form.append('makeUnique', 'true');
-          const dattoRes = await fetch(`${BASE_URL}/file/${evidenceFolderId}/files`, {
-            method: 'POST', headers: { Authorization: AUTH_HEADER }, body: form,
+          // Check if a file with this canonical name already exists (avoids creating duplicates with "(1)" suffix)
+          const listRes = await fetch(`${BASE_URL}/file/${evidenceFolderId}/files`, {
+            headers: { Authorization: AUTH_HEADER }, cache: 'no-store',
           });
-          const dattoBody = await dattoRes.text();
-          console.log('[evidence] Datto upload status:', dattoRes.status, '| body:', dattoBody);
-          if (dattoRes.ok) {
-            let dattoJson: any = {};
-            try { dattoJson = JSON.parse(dattoBody); } catch { /* non-JSON */ }
-            const d = dattoJson.value ?? dattoJson;
-            dattoFileId = String(d.fileID ?? d.fileId ?? d.id ?? '') || null;
-            const actualDattoName: string | null = d.name ?? d.fileName ?? null;
-            const dbUpdates: Record<string, string> = {};
-            if (dattoFileId) dbUpdates.datto_file_id = dattoFileId;
-            if (actualDattoName && actualDattoName !== canonicalName) {
-              dbUpdates.file_name = actualDattoName;
-              finalFileName = actualDattoName;
+          if (listRes.ok) {
+            const json = await listRes.json();
+            const arr: any[] = Array.isArray(json) ? json : (json.result ?? json.files ?? json.items ?? []);
+            const existing = arr.find((f: any) => (f.name ?? f.fileName) === canonicalName);
+            if (existing) {
+              dattoFileId = String(existing.id ?? existing.fileId ?? existing.fileID ?? '') || null;
+              console.log('[evidence] file already exists in Evidence, reusing id:', dattoFileId);
             }
-            if (Object.keys(dbUpdates).length > 0) {
-              await supabase.from('action_evidence').update(dbUpdates).eq('id', row.id);
+          }
+
+          if (!dattoFileId) {
+            const form = new FormData();
+            form.append('partData', new Blob([new Uint8Array(fileBuffer!)], { type: mimeType }), canonicalName);
+            form.append('fileName', canonicalName);
+            form.append('makeUnique', 'true');
+            const dattoRes = await fetch(`${BASE_URL}/file/${evidenceFolderId}/files`, {
+              method: 'POST', headers: { Authorization: AUTH_HEADER }, body: form,
+            });
+            const dattoBody = await dattoRes.text();
+            console.log('[evidence] Datto upload status:', dattoRes.status);
+            if (dattoRes.ok) {
+              let dattoJson: any = {};
+              try { dattoJson = JSON.parse(dattoBody); } catch { /* non-JSON */ }
+              const d = dattoJson.value ?? dattoJson;
+              dattoFileId = String(d.fileID ?? d.fileId ?? d.id ?? '') || null;
+              // If Datto assigned a different name (e.g. "(1)" suffix), sync it back to the DB record
+              const actualName: string | null = d.name ?? d.fileName ?? null;
+              if (actualName && actualName !== canonicalName) finalFileName = actualName;
+            } else {
+              console.warn('[evidence] Datto upload failed:', dattoRes.status, dattoBody);
             }
-          } else {
-            console.warn('[evidence] Datto upload failed:', dattoRes.status, dattoBody);
+          }
+
+          const dbUpdates: Record<string, string> = {};
+          if (dattoFileId) dbUpdates.datto_file_id = dattoFileId;
+          if (finalFileName !== canonicalName) dbUpdates.file_name = finalFileName;
+          if (Object.keys(dbUpdates).length > 0) {
+            await supabase.from('action_evidence').update(dbUpdates).eq('id', row.id);
           }
         } catch (err) {
           console.warn('[evidence] Datto upload exception:', err);

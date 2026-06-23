@@ -10,7 +10,7 @@ import {
   Folder, FolderOpen, File, Pencil, GraduationCap, Heart,
   Warehouse, ShoppingBag, Home, Sparkles, AlertCircle,
   Upload, FileCheck, Trash2, Users, Search, KeyRound, Download,
-  Archive, Copy, RotateCcw, Minus, EyeOff
+  Archive, Copy, RotateCcw, Minus, EyeOff, ArrowRight
 } from 'lucide-react';
 import mammoth from 'mammoth';
 import * as XLSX from 'xlsx';
@@ -97,7 +97,7 @@ interface ReviewAction extends ExtractedAction {
   pendingActions?: ExtractedAction[];
 }
 interface Organisation { id: string; name: string; datto_folder_id: string | null; datto_folder_name: string | null; logo_url: string | null; }
-interface Profile { role: 'superadmin' | 'advisor' | 'client'; site_id: string | null; organisation_id: string | null; datto_base_path: string | null; view_only: boolean; }
+interface Profile { role: 'superadmin' | 'advisor' | 'client'; site_id: string | null; organisation_id: string | null; datto_base_path: string | null; view_only: boolean; full_name: string | null; }
 interface SiteDocument {
   id: string; site_id: string; uploaded_by: string | null; uploaded_at: string;
   file_name: string; datto_file_id: string | null; datto_folder_id: string | null;
@@ -487,7 +487,7 @@ const daysLate = (resolvedDate: string, dueDate: string): number => {
 function getFileHref(file: DattoItem, folderPath: string, role: string): string {
   const ext = file.name.split('.').pop()?.toLowerCase() || '';
   const officeExts = ['docx', 'doc', 'xlsx', 'xls', 'pptx', 'ppt'];
-  if (role === 'advisor' && officeExts.includes(ext)) {
+  if ((role === 'advisor' || role === 'superadmin') && officeExts.includes(ext)) {
     const basePath = typeof window !== 'undefined' ? (localStorage.getItem('dattoBasePath') || 'W:/Customer Documents') : 'W:/Customer Documents';
     const uri = buildOfficeUri(basePath, folderPath, file.name);
     if (uri) return uri;
@@ -496,7 +496,7 @@ function getFileHref(file: DattoItem, folderPath: string, role: string): string 
   if (role === 'client') {
     return `/viewer?fileId=${file.id}&fileName=${encodeURIComponent(file.name)}&role=${role}`;
   }
-  return `/api/datto/file?fileId=${file.id}&fileName=${encodeURIComponent(file.name)}&forceDownload=true`;
+  return `/api/datto/file?fileId=${file.id}&fileName=${encodeURIComponent(file.name)}`;
 }
 
 function fileTypeBadge(name: string): { label: string; cls: string } {
@@ -1449,15 +1449,29 @@ const AddActionForm = ({ site, onSave, onCancel }: { site: Site; onSave: (action
 };
 
 // ─── Document Card ────────────────────────────────────────────────────────────
-const DocumentCard = ({ doc, role, userId, actions, onDelete, onRename, onToggleAction, expanded, onExpand, onDattoRetry }: {
+const DocumentCard = ({ doc, role, userId, actions, onDelete, onRename, onToggleAction, expanded, onExpand, onDattoRetry, siteFolderPath }: {
   doc: SiteDocument; role: string; userId: string | null; actions: Action[];
   onDelete: (id: string) => void;
   onRename: (id: string, newName: string) => void;
   onToggleAction: (id: string, resolved: boolean) => void;
   expanded: boolean; onExpand: () => void;
   onDattoRetry?: (docId: string, newFileId: string) => void;
+  siteFolderPath?: string | null;
 }) => {
   const [editingName, setEditingName] = useState(false);
+  // Tracks whether we're in the 3-minute "sync in progress" window for this doc
+  const [isFresh, setIsFresh] = useState(() => {
+    if (!doc.client_provided || doc.datto_file_id) return false;
+    return (Date.now() - new Date(doc.uploaded_at).getTime()) < 3 * 60 * 1000;
+  });
+  useEffect(() => {
+    if (!doc.client_provided || doc.datto_file_id || !isFresh) return;
+    const remaining = 3 * 60 * 1000 - (Date.now() - new Date(doc.uploaded_at).getTime());
+    if (remaining <= 0) { setIsFresh(false); return; }
+    const t = setTimeout(() => setIsFresh(false), remaining);
+    return () => clearTimeout(t);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [doc.uploaded_at, doc.client_provided, doc.datto_file_id]);
   const [dattoRetrying, setDattoRetrying] = useState(false);
   const [dattoRetryError, setDattoRetryError] = useState(false);
   const [dattoRetryMsg, setDattoRetryMsg] = useState<string | null>(null);
@@ -1519,11 +1533,20 @@ const DocumentCard = ({ doc, role, userId, actions, onDelete, onRename, onToggle
   const expStatus = doc.expiry_date ? (doc.expiry_date < today ? 'expired' : doc.expiry_date <= soon ? 'expiring' : 'valid') : 'none';
   const openActions = actions.filter(a => a.status !== 'resolved');
   const resolvedActions = actions.filter(a => a.status === 'resolved');
-  const viewHref = doc.datto_file_id
-    ? `/viewer?fileId=${doc.datto_file_id}&fileName=${encodeURIComponent(doc.file_name ?? '')}&role=${role}`
-    : doc.client_provided
-    ? `/viewer?docId=${doc.id}&fileName=${encodeURIComponent(doc.file_name ?? '')}&role=${role}`
-    : null;
+  const isAdvisorRole = role === 'advisor' || role === 'superadmin';
+  const docExt = (doc.file_name ?? '').split('.').pop()?.toLowerCase() || '';
+  const officeExts = ['docx', 'doc', 'xlsx', 'xls', 'pptx', 'ppt'];
+  let advisorOfficeHref: string | null = null;
+  if (isAdvisorRole && officeExts.includes(docExt) && doc.datto_file_id && siteFolderPath) {
+    const basePath = typeof window !== 'undefined' ? (localStorage.getItem('dattoBasePath') || 'W:/Customer Documents') : 'W:/Customer Documents';
+    advisorOfficeHref = buildOfficeUri(basePath, `${siteFolderPath}/Client Provided Documents`, doc.file_name ?? '');
+  }
+  const viewHref = advisorOfficeHref
+    ?? (doc.datto_file_id
+      ? `/viewer?fileId=${doc.datto_file_id}&fileName=${encodeURIComponent(doc.file_name ?? '')}&role=${role}`
+      : doc.client_provided
+      ? `/viewer?docId=${doc.id}&fileName=${encodeURIComponent(doc.file_name ?? '')}&role=${role}`
+      : null);
 
   // Card colours: expiry status takes precedence; client-provided defaults to amber
   const cardCls = expStatus === 'expired'  ? 'bg-rose-50/60 border-rose-200'
@@ -1567,8 +1590,7 @@ const DocumentCard = ({ doc, role, userId, actions, onDelete, onRename, onToggle
                 {doc.client_provided && <span title="Client provided"><Upload size={12} className="text-amber-500 flex-shrink-0" /></span>}
                 <input ref={reuploadInputRef} type="file" className="hidden" onChange={handleReuploadFileChange} />
                 {doc.client_provided && !doc.datto_file_id && (() => {
-                  const fresh = (Date.now() - new Date(doc.uploaded_at).getTime()) < 3 * 60 * 1000;
-                  if (fresh) return <span title="Linking to Datto — this may take a minute" className="flex items-center gap-1 text-[10px] font-black text-amber-600 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded-md flex-shrink-0"><RefreshCw size={9} className="animate-spin" />Datto sync…</span>;
+                  if (isFresh) return <span title="Syncing to Datto — this can take a few minutes" className="flex items-center gap-1 text-[10px] font-black text-amber-600 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded-md flex-shrink-0"><RefreshCw size={9} className="animate-spin" />Datto sync…</span>;
                   if (dattoRetryError && dattoRetryMsg === 'reupload') {
                     return (
                       <button
@@ -1610,7 +1632,7 @@ const DocumentCard = ({ doc, role, userId, actions, onDelete, onRename, onToggle
                 {expStatus === 'expiring' && <span className="text-[10px] font-black uppercase px-2.5 py-1 rounded-lg border bg-amber-50 border-amber-200 text-amber-700">Expiring Soon</span>}
                 {expStatus === 'valid'    && <span className="text-[10px] font-black uppercase px-2.5 py-1 rounded-lg border bg-emerald-50 border-emerald-200 text-emerald-700">Valid</span>}
                 {viewHref && (
-                  <a href={viewHref} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} className="flex items-center gap-1 text-[11px] font-bold text-indigo-600 hover:text-indigo-800 hover:underline" title="Open document">
+                  <a href={viewHref} target={advisorOfficeHref ? undefined : '_blank'} rel={advisorOfficeHref ? undefined : 'noopener noreferrer'} onClick={e => e.stopPropagation()} className="flex items-center gap-1 text-[11px] font-bold text-indigo-600 hover:text-indigo-800 hover:underline" title="Open document">
                     <ExternalLink size={12} className="text-indigo-500 flex-shrink-0" />Open
                   </a>
                 )}
@@ -1700,10 +1722,10 @@ const smartTitleCase = (filename: string): string => {
   }).join(' ');
 };
 
-const UploadModal = ({ site, userId, onClose, onSaved, initialFiles }: {
+const UploadModal = ({ site, userId, onClose, onSaved, initialFiles, skipAI }: {
   site: Site; userId: string | null;
   onClose: () => void; onSaved: (doc: SiteDocument, newCompliance: number | null, replacedId?: string, dattoPending?: boolean) => void;
-  initialFiles?: File[];
+  initialFiles?: File[]; skipAI?: boolean;
 }) => {
   type FileStatus = 'pending' | 'uploading' | 'extracting' | 'done' | 'error';
   type FileItem = {
@@ -1754,7 +1776,8 @@ const UploadModal = ({ site, userId, onClose, onSaved, initialFiles }: {
         duplicateDattoFileId: uploadData.duplicateDattoFileId ?? undefined,
       });
 
-      // AI extract
+      // AI extract — skip for view-only client uploads
+      if (skipAI) { updateItem(idx, { status: 'done' }); continue; }
       updateItem(idx, { status: 'extracting' });
       const f = files[idx];
       const ext = f.name.split('.').pop()?.toLowerCase() ?? '';
@@ -1805,10 +1828,12 @@ const UploadModal = ({ site, userId, onClose, onSaved, initialFiles }: {
 
   const handleSave = async () => {
     setSaving(true);
+    setSaveError('');
     const priorityMap: Record<string, string> = { HIGH: 'red', MEDIUM: 'amber', LOW: 'green' };
     let lastDoc: SiteDocument | null = null;
     let lastCompliance: number | null = null;
 
+    try {
     for (const item of items.filter(it => it.status === 'done' && it.documentId)) {
       // Upload to Datto now that we know the user's choice
       // If there's a duplicate (replace or keep both), rename old file to v(n) date first
@@ -1865,6 +1890,10 @@ const UploadModal = ({ site, userId, onClose, onSaved, initialFiles }: {
     if (lastDoc) onSaved(lastDoc, lastCompliance);
     setSaving(false);
     onClose();
+    } catch (err: any) {
+      setSaveError(err?.message ?? 'Connection error — please try again.');
+      setSaving(false);
+    }
   };
 
   const doneCount = items.filter(it => it.status === 'done').length;
@@ -2131,7 +2160,7 @@ const GeneralUploadModal = ({ siteId, userId, onClose, onUploaded, initialFiles 
 const SiteDocumentsTab = ({ site, profile, userId, onComplianceUpdate, onActionsAdded, onDocumentDeleted }: {
   site: Site; profile: Profile; userId: string | null; onComplianceUpdate: (score: number) => void; onActionsAdded?: (actions: Action[]) => void; onDocumentDeleted?: (docId: string) => void;
 }) => {
-  type ClientUploadRow = { id: string; file_name: string; file_size_bytes: number | null; notes: string | null; status: string; uploaded_at: string; review_note: string | null; action_id: string | null; hidden?: boolean };
+  type ClientUploadRow = { id: string; file_name: string; file_size_bytes: number | null; notes: string | null; status: string; uploaded_at: string; review_note: string | null; action_id: string | null; hidden?: boolean; datto_file_id: string | null };
   const [documents, setDocuments] = useState<SiteDocument[]>([]);
   const [docActions, setDocActions] = useState<Action[]>([]);
   const [loading, setLoading] = useState(true);
@@ -2264,6 +2293,23 @@ const SiteDocumentsTab = ({ site, profile, userId, onComplianceUpdate, onActions
     }
   };
 
+  const handleOpenUpload = (u: ClientUploadRow) => {
+    const isAdvisor = profile.role === 'advisor' || profile.role === 'superadmin';
+    // Advisor + Office file: always try W: drive ms- protocol (path needs only siteFolderPath)
+    if (isAdvisor && site.datto_folder_path) {
+      const folderPath = `${site.datto_folder_path}/Client Provided Documents`;
+      const href = getFileHref({ id: u.datto_file_id ?? '', name: u.file_name, type: 'file' }, folderPath, profile.role);
+      if (href.startsWith('ms-')) { window.location.href = href; return; }
+    }
+    // Non-Office with Datto ID: Datto API inline (PDFs open in browser)
+    if (u.datto_file_id) {
+      window.open(`/api/datto/file?fileId=${u.datto_file_id}&fileName=${encodeURIComponent(u.file_name)}`, '_blank');
+      return;
+    }
+    // Fallback: Supabase signed URL (no forced download)
+    fetch(`/api/client-uploads/${u.id}`).then(r => r.json()).then(d => { if (d.url) window.open(d.url, '_blank'); });
+  };
+
   const deleteUpload = async (id: string) => {
     setUploadWorking(prev => new Set(prev).add(id));
     const res = await fetch(`/api/client-uploads/${id}`, { method: 'DELETE' });
@@ -2333,7 +2379,7 @@ const SiteDocumentsTab = ({ site, profile, userId, onComplianceUpdate, onActions
               const filtered = docsSearch.trim() ? documents.filter(d => (d.document_name || d.file_name).toLowerCase().includes(docsSearch.toLowerCase())) : documents;
               return filtered.length === 0
                 ? <p className="text-xs text-amber-700 text-center py-4">No documents match "{docsSearch}"</p>
-                : <div className="space-y-2">{filtered.map(doc => <DocumentCard key={doc.id} doc={doc} role={profile.role} userId={userId} actions={docActions.filter(a => (a as any)._siteDocumentId === doc.id)} onDelete={handleDelete} onRename={handleRename} onToggleAction={handleToggleAction} expanded={expandedDocId === doc.id} onExpand={() => setExpandedDocId(prev => prev === doc.id ? null : doc.id)} onDattoRetry={(id, fileId) => setDocuments(prev => prev.map(d => d.id === id ? { ...d, datto_file_id: fileId } : d))} />)}</div>;
+                : <div className="space-y-2">{filtered.map(doc => <DocumentCard key={doc.id} doc={doc} role={profile.role} userId={userId} actions={docActions.filter(a => (a as any)._siteDocumentId === doc.id)} onDelete={handleDelete} onRename={handleRename} onToggleAction={handleToggleAction} expanded={expandedDocId === doc.id} onExpand={() => setExpandedDocId(prev => prev === doc.id ? null : doc.id)} onDattoRetry={(id, fileId) => setDocuments(prev => prev.map(d => d.id === id ? { ...d, datto_file_id: fileId } : d))} siteFolderPath={site.datto_folder_path ?? null} />)}</div>;
             })()}
           </div>
         )}
@@ -2376,7 +2422,7 @@ const SiteDocumentsTab = ({ site, profile, userId, onComplianceUpdate, onActions
           <div className="bg-indigo-50 border-t border-indigo-200 px-5 pb-4 pt-3 space-y-3">
             <div className="space-y-1">
               <p className="text-xs text-indigo-800">Use <span className="font-black">Upload</span> to send files directly to your advisor — for example, photos of completed work, signed inspection records, training certificates, or any other confirmation that a task has been carried out.</p>
-              <p className="text-xs text-indigo-800">Unlike document uploads, evidence files are not scanned for actions by AI. Your advisor will review each file and either acknowledge it or link it to an existing action to support completion of the action. You will be able to see the outcome below once reviewed.</p>
+              <p className="text-xs text-indigo-800">Unlike documents uploaded via Client Managed Documents, evidence files are not scanned for actions by AI. Your advisor will review each file and either acknowledge it or link it to an existing action to support completion of the action. You will be able to see the outcome below once reviewed.</p>
               <p className="text-xs text-indigo-800">Please include a brief note with each upload describing what the file relates to so your advisor can process it quickly.</p>
             </div>
             {generalUploads.length > 0 && (
@@ -2410,6 +2456,7 @@ const SiteDocumentsTab = ({ site, profile, userId, onComplianceUpdate, onActions
                       <div className="flex items-center gap-2 flex-shrink-0">
                         <span className="text-[10px] text-slate-400">{new Date(u.uploaded_at).toLocaleDateString('en-GB')}</span>
                         <span className={`text-[10px] font-black px-2 py-0.5 rounded-full ${statusColour}`}>{statusLabel}</span>
+                        <button onClick={() => handleOpenUpload(u)} title="Open file" className="text-slate-300 hover:text-indigo-500 transition-colors"><ExternalLink size={12} /></button>
                         <button onClick={() => deleteUpload(u.id)} title="Delete" className="text-slate-300 hover:text-rose-500 transition-colors"><Trash2 size={12} /></button>
                       </div>
                     </div>
@@ -2422,7 +2469,7 @@ const SiteDocumentsTab = ({ site, profile, userId, onComplianceUpdate, onActions
         )}
       </div>
 
-      {showUpload && <UploadModal site={site} userId={userId} onClose={() => { setShowUpload(false); setDroppedDocsFiles([]); }} onSaved={handleSaved} initialFiles={droppedDocsFiles.length ? droppedDocsFiles : undefined} />}
+      {showUpload && <UploadModal site={site} userId={userId} onClose={() => { setShowUpload(false); setDroppedDocsFiles([]); }} onSaved={handleSaved} initialFiles={droppedDocsFiles.length ? droppedDocsFiles : undefined} skipAI={profile.view_only} />}
       {showGeneralUpload && <GeneralUploadModal siteId={site.id} userId={userId} onClose={() => { setShowGeneralUpload(false); setDroppedEvidenceFiles([]); }} onUploaded={() => { refreshUploads(); setActiveSection('evidence'); }} initialFiles={droppedEvidenceFiles.length ? droppedEvidenceFiles : undefined} />}
     </div>
   );
@@ -3087,6 +3134,7 @@ const SuperadminPanel = ({ onViewSite, onViewOrg, onSyncSite }: { onViewSite: (s
   const [userPassword, setUserPassword] = useState('');
   const [userFullName, setUserFullName] = useState('');
   const [userRole, setUserRole] = useState<'advisor' | 'client'>('advisor');
+  const [userViewOnly, setUserViewOnly] = useState(false);
   const [userOrgId, setUserOrgId] = useState('');
   const [userSiteIds, setUserSiteIds] = useState<string[]>([]);
 
@@ -3332,10 +3380,10 @@ const SuperadminPanel = ({ onViewSite, onViewOrg, onSyncSite }: { onViewSite: (s
     if (!userEmail.trim()) { flash('Email is required', true); return; }
     if (!userPassword.trim()) { flash('Password is required', true); return; }
     if (userRole === 'client' && !userOrgId) { flash('Organisation is required for client users', true); return; }
-    const res = await fetch('/api/admin/users', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: userEmail.trim(), password: userPassword, role: userRole, organisation_id: userOrgId || null, site_ids: userSiteIds, full_name: userFullName.trim() || null }) });
+    const res = await fetch('/api/admin/users', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: userEmail.trim(), password: userPassword, role: userRole, organisation_id: userOrgId || null, site_ids: userSiteIds, full_name: userFullName.trim() || null, view_only: userRole === 'client' ? userViewOnly : undefined }) });
     const data = await res.json();
     if (!res.ok) { flash(apiErr(data, 'Create user failed'), true); return; }
-    flash('User created!'); setUserEmail(''); setUserPassword(''); setUserFullName(''); setUserRole('advisor'); setUserOrgId(''); setUserSiteIds([]); setShowUserForm(false); loadUsers(); loadClientSiteAssignments();
+    flash('User created!'); setUserEmail(''); setUserPassword(''); setUserFullName(''); setUserRole('advisor'); setUserViewOnly(false); setUserOrgId(''); setUserSiteIds([]); setShowUserForm(false); loadUsers(); loadClientSiteAssignments();
   };
 
   const handleCreateAssignment = async () => {
@@ -4126,6 +4174,10 @@ const SuperadminPanel = ({ onViewSite, onViewOrg, onSyncSite }: { onViewSite: (s
                       </div>
                     </div>
                   )}
+                <label className="flex items-center gap-2 cursor-pointer mt-1">
+                  <input type="checkbox" checked={userViewOnly} onChange={e => setUserViewOnly(e.target.checked)} className="accent-indigo-600 rounded" />
+                  <span className="text-sm font-bold text-slate-700">View only <span className="text-slate-400 font-normal">(read-only access — documents &amp; compliance only)</span></span>
+                </label>
                 </>
               )}
               <div className="flex gap-3">
@@ -4885,6 +4937,7 @@ const ClientUploadsPanel = ({ siteId, siteName, siteFolderPath, userId, onClose,
   const [noteText, setNoteText] = useState<Record<string, string>>({});
   const [linkExpanded, setLinkExpanded] = useState<Record<string, boolean>>({});
   const [actionSearch, setActionSearch] = useState<Record<string, string>>({});
+  const [expandedDocName, setExpandedDocName] = useState<Record<string, string | null>>({});
   const [siteActions, setSiteActions] = useState<SiteAction[]>([]);
   const [actionsLoading, setActionsLoading] = useState(false);
   const [dbCount, setDbCount] = useState(0);
@@ -4983,14 +5036,18 @@ const ClientUploadsPanel = ({ siteId, siteName, siteFolderPath, userId, onClose,
   };
 
   const handleOpen = (upload: Upload) => {
-    if (upload.datto_file_id && siteFolderPath) {
+    // Office files: always try W: drive via ms- protocol — path only needs siteFolderPath, not datto_file_id
+    if (siteFolderPath) {
       const folderPath = `${siteFolderPath}/Client Provided Documents`;
-      const href = getFileHref({ id: upload.datto_file_id, name: upload.file_name, type: 'file' }, folderPath, 'advisor');
+      const href = getFileHref({ id: upload.datto_file_id ?? '', name: upload.file_name, type: 'file' }, folderPath, 'advisor');
       if (href.startsWith('ms-')) { window.location.href = href; return; }
-      window.open(href, '_blank');
+    }
+    // Non-Office with Datto ID: stream via Datto API inline (PDFs open in browser)
+    if (upload.datto_file_id) {
+      window.open(`/api/datto/file?fileId=${upload.datto_file_id}&fileName=${encodeURIComponent(upload.file_name)}`, '_blank');
       return;
     }
-    // Fallback: Supabase signed URL
+    // Fallback: Supabase signed URL — no forced download (PDFs open inline)
     fetch(`/api/client-uploads/${upload.id}`).then(r => r.json()).then(d => { if (d.url) window.open(d.url, '_blank'); });
   };
 
@@ -5083,32 +5140,40 @@ const ClientUploadsPanel = ({ siteId, siteName, siteFolderPath, userId, onClose,
                           <div className="max-h-52 overflow-y-auto">
                             {filtered.length === 0 ? (
                               <p className="p-3 text-[11px] text-slate-400 text-center">No actions match</p>
-                            ) : Object.entries(groups).map(([docName, actions]) => (
-                              <div key={docName}>
-                                <div className="px-2.5 py-1 bg-slate-200 text-[10px] font-black text-slate-700 uppercase tracking-wider sticky top-0 truncate" title={docName}>
-                                  📄 {docName}
-                                </div>
-                                {actions.map(a => (
+                            ) : Object.entries(groups).map(([docName, actions]) => {
+                              const isOpen = query ? true : expandedDocName[upload.id] === docName;
+                              return (
+                                <div key={docName}>
                                   <button
-                                    key={a.id}
-                                    onClick={() => {
-                                      setPendingActions(prev => ({ ...prev, [upload.id]: a.id }));
-                                      setAcknowledgedSet(prev => new Set(prev).add(upload.id));
-                                      setLinkExpanded(prev => ({ ...prev, [upload.id]: false }));
-                                    }}
-                                    className={`w-full text-left px-3 py-2 flex items-start gap-2 hover:bg-indigo-50 transition-colors border-b border-slate-50 last:border-b-0 ${pendingActions[upload.id] === a.id ? 'bg-violet-50' : ''}`}
+                                    className="w-full px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-[10px] font-black text-slate-700 uppercase tracking-wider sticky top-0 flex items-center gap-1.5 transition-colors"
+                                    onClick={() => setExpandedDocName(prev => ({ ...prev, [upload.id]: prev[upload.id] === docName ? null : docName }))}
                                   >
-                                    {a.hazard_ref && (
-                                      <span className="bg-slate-200 text-slate-600 text-[9px] font-black px-1.5 py-0.5 rounded flex-shrink-0 mt-0.5">{a.hazard_ref}</span>
-                                    )}
-                                    <span className="flex-1 text-[11px] text-slate-700 leading-snug">{a.title}</span>
-                                    {a.due_date && (
-                                      <span className="text-[10px] text-slate-400 flex-shrink-0 mt-0.5">{a.due_date}</span>
-                                    )}
+                                    <ChevronRight size={10} className={`flex-shrink-0 transition-transform ${isOpen ? 'rotate-90' : ''}`} />
+                                    <span className="flex-1 text-left truncate" title={docName}>{docName}</span>
+                                    <span className="text-slate-400 font-normal normal-case tracking-normal">{actions.length}</span>
                                   </button>
-                                ))}
-                              </div>
-                            ))}
+                                  {isOpen && actions.map(a => (
+                                    <button
+                                      key={a.id}
+                                      onClick={() => {
+                                        setPendingActions(prev => ({ ...prev, [upload.id]: a.id }));
+                                        setAcknowledgedSet(prev => new Set(prev).add(upload.id));
+                                        setLinkExpanded(prev => ({ ...prev, [upload.id]: false }));
+                                      }}
+                                      className={`w-full text-left px-3 py-2 flex items-start gap-2 hover:bg-indigo-50 transition-colors border-b border-slate-50 last:border-b-0 ${pendingActions[upload.id] === a.id ? 'bg-violet-50' : ''}`}
+                                    >
+                                      {a.hazard_ref && (
+                                        <span className="bg-slate-200 text-slate-600 text-[9px] font-black px-1.5 py-0.5 rounded flex-shrink-0 mt-0.5">{a.hazard_ref}</span>
+                                      )}
+                                      <span className="flex-1 text-[11px] text-slate-700 leading-snug">{a.title}</span>
+                                      {a.due_date && (
+                                        <span className="text-[10px] text-slate-400 flex-shrink-0 mt-0.5">{a.due_date}</span>
+                                      )}
+                                    </button>
+                                  ))}
+                                </div>
+                              );
+                            })}
                           </div>
                         </>
                       );
@@ -5564,7 +5629,7 @@ const AiSuggestionsPanel = ({ siteId, siteName, onClose, onCountChange, onAction
                         {item.source_document_id && (() => {
                           const basePath = typeof window !== 'undefined' ? (localStorage.getItem('dattoBasePath') || 'W:/Customer Documents') : 'W:/Customer Documents';
                           const uri = item.source_folder_path ? buildOfficeUri(basePath, item.source_folder_path, item.source_document_name) : null;
-                          const href = uri ?? `/api/datto/file?fileId=${item.source_document_id}&fileName=${encodeURIComponent(item.source_document_name)}&forceDownload=true`;
+                          const href = uri ?? `/api/datto/file?fileId=${item.source_document_id}&fileName=${encodeURIComponent(item.source_document_name)}`;
                           return (
                             <a href={href} target={uri ? '_self' : '_blank'} rel="noopener noreferrer" className="px-3 py-1.5 border border-indigo-200 text-indigo-500 rounded-xl text-[11px] font-black hover:bg-indigo-50 hover:border-indigo-300 flex items-center gap-1 justify-center" title="Open source document locally">
                               <ExternalLink size={10} />Open doc
@@ -6051,7 +6116,7 @@ export default function App() {
   const [viewAsRole, setViewAsRole] = useState<'advisor' | 'client' | null>(null);
   const effectiveRole = viewAsRole ?? profile?.role ?? 'client';
   const [siteTab, setSiteTab] = useState<'actions' | 'documents' | 'dochealth' | 'iag' | 'files'>('actions');
-  const effectiveSiteTab = isViewOnly && (siteTab === 'actions' || siteTab === 'documents') ? 'files' : siteTab;
+  const effectiveSiteTab = isViewOnly && siteTab === 'actions' ? 'files' : siteTab;
   const [iagServices, setIagServices] = useState<any[]>([]);
   const [iagServicesLoading, setIagServicesLoading] = useState(false);
   const [selectedSite, setSelectedSite] = useState<Site | null>(null);
@@ -6159,12 +6224,12 @@ export default function App() {
           }
         }
         if (data.role === 'superadmin') setView('admin');
-        else if (data.role === 'client' && data.view_only) { setView('site'); setSiteTab('files'); }
+        else if (data.role === 'client' && data.view_only) { setSiteTab('files'); } // view stays 'portfolio'; sites loading auto-navigates to 'site' for single-site free clients
         else setView('portfolio');
       }
     });
-    fetch('/api/admin/users').then(r => r.json()).then(users => {
-      setAdvisors((users as any[]).filter(u => u.profile?.role === 'advisor').map(u => ({ id: u.id, email: u.email })));
+    fetch('/api/admin/advisors').then(r => r.json()).then(advisors => {
+      setAdvisors((advisors as any[]).map(u => ({ id: u.id, email: u.email })));
     }).catch(() => {});
   }, [user?.id]);
 
@@ -6458,7 +6523,7 @@ export default function App() {
 
   // Init file browser when Files tab is opened (preserves state on tab toggle, only re-inits for new site)
   React.useEffect(() => {
-    if (siteTab !== 'files' || !selectedSite?.datto_folder_id) return;
+    if (effectiveSiteTab !== 'files' || !selectedSite?.datto_folder_id) return;
     if (folderData.has(selectedSite.datto_folder_id)) return;
     setSectionFiles(new Map());
     setSectionLoading(new Set());
@@ -6469,7 +6534,7 @@ export default function App() {
       await loadFolder(selectedSite.datto_folder_id!, rootPath);
     };
     init();
-  }, [siteTab, selectedSite?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [effectiveSiteTab, selectedSite?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const scheduleNextOccurrence = async (action: Action) => {
     const { date: dueDate, issueDate } = action;
@@ -6660,7 +6725,7 @@ export default function App() {
       });
     }
   };
-  const handleSiteClick = (site: Site) => { setSelectedSite(site); setView('site'); if (isViewOnly) setSiteTab(site.datto_folder_id ? 'files' : 'iag'); recalcActionProgress(site.id); refreshComplianceScore(site.id); };
+  const handleSiteClick = (site: Site) => { setSelectedSite(site); setView('site'); if (isViewOnly) setSiteTab(site.datto_folder_id ? 'files' : 'documents'); recalcActionProgress(site.id); refreshComplianceScore(site.id); };
   const handleSaveSyncConfig = (siteId: string, includedIds: string[]) => {
     setSites(prev => prev.map(s => s.id === siteId ? { ...s, included_datto_folder_ids: includedIds, excluded_datto_folder_ids: [] } : s));
     setSelectedSite(prev => prev?.id === siteId ? { ...prev, included_datto_folder_ids: includedIds, excluded_datto_folder_ids: [] } : prev);
@@ -7893,7 +7958,7 @@ export default function App() {
       <aside className="hidden lg:flex fixed left-0 top-0 h-full w-20 bg-indigo-950 flex-col items-center pt-4 pb-8 gap-10 text-indigo-300 z-20">
         <nav className="flex flex-col gap-6">
           {profile?.role === 'superadmin' && <button onClick={() => setView('admin')} className={`p-3 rounded-xl transition-all ${view === 'admin' ? 'bg-indigo-700 text-white shadow-inner' : 'hover:text-white hover:bg-white/5'}`} title="Admin Panel"><Shield size={22} /></button>}
-          {(profile?.role === 'advisor' || (profile?.role === 'client' && !isViewOnly && sites.length > 1)) && <button onClick={() => { setView('portfolio'); setSelectedSite(null); }} className={`p-3 rounded-xl transition-all ${view === 'portfolio' ? 'bg-indigo-700 text-white shadow-inner' : 'hover:text-white hover:bg-white/5'}`} title="Dashboard"><Layout size={22} /></button>}
+          {(profile?.role === 'advisor' || (profile?.role === 'client' && sites.length > 1)) && <button onClick={() => { setView('portfolio'); setSelectedSite(null); }} className={`p-3 rounded-xl transition-all ${view === 'portfolio' ? 'bg-indigo-700 text-white shadow-inner' : 'hover:text-white hover:bg-white/5'}`} title="Dashboard"><Layout size={22} /></button>}
           {(profile?.role === 'advisor' || profile?.role === 'client') && <button onClick={() => { setView('site'); if (sites.length > 0 && !selectedSite) setSelectedSite(sites[0]); }} className={`p-3 rounded-xl transition-all ${view === 'site' ? 'bg-indigo-700 text-white shadow-inner' : 'hover:text-white hover:bg-white/5'}`} title={isViewOnly ? 'Documents' : 'Action Plans'}><FileText size={22} /></button>}
           {(profile?.role === 'advisor' || profile?.role === 'superadmin') && <button onClick={() => setShowSettings(true)} className="p-3 rounded-xl hover:text-white hover:bg-white/5" title="Settings"><Settings size={22} /></button>}
         </nav>
@@ -7907,7 +7972,7 @@ export default function App() {
       {/* Bottom navigation bar — tablet/mobile only */}
       <nav className="fixed bottom-0 left-0 right-0 lg:hidden flex items-center justify-around bg-indigo-950 h-16 z-20 border-t border-indigo-900 text-indigo-300">
         {profile?.role === 'superadmin' && <button onClick={() => setView('admin')} className={`flex flex-col items-center gap-1 p-2 rounded-xl transition-all ${view === 'admin' ? 'text-white' : 'hover:text-white'}`}><Shield size={20} /><span className="text-[9px] font-black uppercase tracking-wide">Admin</span></button>}
-        {(profile?.role === 'advisor' || (profile?.role === 'client' && !isViewOnly && sites.length > 1)) && <button onClick={() => { setView('portfolio'); setSelectedSite(null); }} className={`flex flex-col items-center gap-1 p-2 rounded-xl transition-all ${view === 'portfolio' ? 'text-white' : 'hover:text-white'}`}><Layout size={20} /><span className="text-[9px] font-black uppercase tracking-wide">Dashboard</span></button>}
+        {(profile?.role === 'advisor' || (profile?.role === 'client' && sites.length > 1)) && <button onClick={() => { setView('portfolio'); setSelectedSite(null); }} className={`flex flex-col items-center gap-1 p-2 rounded-xl transition-all ${view === 'portfolio' ? 'text-white' : 'hover:text-white'}`}><Layout size={20} /><span className="text-[9px] font-black uppercase tracking-wide">Dashboard</span></button>}
         {(profile?.role === 'advisor' || profile?.role === 'client') && <button onClick={() => { setView('site'); if (sites.length > 0 && !selectedSite) setSelectedSite(sites[0]); }} className={`flex flex-col items-center gap-1 p-2 rounded-xl transition-all ${view === 'site' ? 'text-white' : 'hover:text-white'}`}><FileText size={20} /><span className="text-[9px] font-black uppercase tracking-wide">{isViewOnly ? 'Docs' : 'Actions'}</span></button>}
         {(profile?.role === 'advisor' || profile?.role === 'superadmin') && <button onClick={() => setShowSettings(true)} className="flex flex-col items-center gap-1 p-2 rounded-xl hover:text-white"><Settings size={20} /><span className="text-[9px] font-black uppercase tracking-wide">Settings</span></button>}
         <button onClick={handleLogout} className="flex flex-col items-center gap-1 p-2 rounded-xl hover:text-white"><LogOut size={20} /><span className="text-[9px] font-black uppercase tracking-wide">Sign out</span></button>
@@ -7916,16 +7981,16 @@ export default function App() {
       <main className="lg:pl-20 pb-16 lg:pb-0">
         <header className="bg-white/95 backdrop-blur-sm border-b border-slate-200 px-4 md:px-8 py-3 md:py-4 flex items-center justify-between sticky top-0 z-10">
           <div className="flex items-center gap-3">
-            {view === 'site' && (profile?.role === 'advisor' || (profile?.role === 'client' && !isViewOnly && sites.length > 1)) && <button onClick={() => { setView('portfolio'); setSelectedSite(null); }} className="p-2 hover:bg-slate-100 rounded-lg text-slate-400"><ArrowLeft size={18} /></button>}
+            {view === 'site' && (profile?.role === 'advisor' || (profile?.role === 'client' && sites.length > 1)) && <button onClick={() => { setView('portfolio'); setSelectedSite(null); }} className="p-2 hover:bg-slate-100 rounded-lg text-slate-400"><ArrowLeft size={18} /></button>}
             <img src="/logo-full.svg" alt="McCormack Benson Health & Safety" className="h-14 w-auto object-contain" />
           </div>
           <div className="flex items-center gap-5">
             <button onClick={() => setShowChangePassword(true)} className="p-2 rounded-xl text-slate-400 hover:text-slate-600 hover:bg-slate-100" title="Change password"><KeyRound size={16} /></button>
             <div className="text-right hidden sm:block"><p className="text-xs font-black text-slate-800">{user.email}</p><p className="text-[10px] text-indigo-600 font-bold uppercase tracking-widest">● {profile?.role}</p>{(profile?.role === 'advisor' || profile?.role === 'superadmin') && <p className="text-[9px] text-slate-400 font-bold uppercase tracking-widest flex items-center justify-end gap-1 mt-0.5"><Database size={8} />Sync: {syncLastRun}</p>}</div>
-            {(profile?.role === 'advisor' || (profile?.role === 'client' && !isViewOnly && sites.length > 1)) && (
+            {(profile?.role === 'advisor' || (profile?.role === 'client' && sites.length > 1)) && (
               <div className="hidden md:flex bg-slate-100 p-1 rounded-xl">
-                <button onClick={() => { setView('portfolio'); setSelectedSite(null); }} className={`px-4 py-1.5 text-[10px] font-black uppercase rounded-lg transition-all ${view === 'portfolio' ? 'bg-white shadow-sm text-indigo-600' : 'text-slate-400 hover:text-slate-600'}`}>Dashboard</button>
-                <button onClick={() => { setView('site'); if (sites.length > 0 && !selectedSite) setSelectedSite(sites[0]); }} className={`px-4 py-1.5 text-[10px] font-black uppercase rounded-lg transition-all ${view === 'site' ? 'bg-white shadow-sm text-indigo-600' : 'text-slate-400 hover:text-slate-600'}`}>Action Plan</button>
+                <button onClick={() => { setView('portfolio'); setSelectedSite(null); }} className={`px-4 py-1.5 text-[10px] font-black uppercase rounded-lg transition-all ${view === 'portfolio' ? 'bg-white shadow-sm text-indigo-600' : 'text-slate-400 hover:text-slate-600'}`}>Sites</button>
+                {!isViewOnly && <button onClick={() => { setView('site'); if (sites.length > 0 && !selectedSite) setSelectedSite(sites[0]); }} className={`px-4 py-1.5 text-[10px] font-black uppercase rounded-lg transition-all ${view === 'site' ? 'bg-white shadow-sm text-indigo-600' : 'text-slate-400 hover:text-slate-600'}`}>Action Plan</button>}
               </div>
             )}
           </div>
@@ -7967,7 +8032,71 @@ export default function App() {
             }}
           />}
 
-          {view === 'portfolio' && (profile?.role === 'advisor' || profile?.role === 'client' || profile?.role === 'superadmin') && (
+          {view === 'portfolio' && isViewOnly && (
+            <div className="space-y-8 animate-in fade-in duration-500">
+              <div className="bg-gradient-to-br from-slate-800 via-slate-900 to-indigo-950 rounded-xl p-6 md:p-10 text-white flex flex-col lg:flex-row justify-between items-start lg:items-center gap-6 shadow-2xl relative overflow-hidden">
+                <div className="absolute top-0 right-0 w-96 h-96 bg-indigo-500 rounded-full -mr-32 -mt-32 blur-[100px] opacity-10 pointer-events-none" />
+                <div className="relative z-10 flex items-center gap-5">
+                  {clientOrg?.logo_url && (
+                    <div className="bg-white rounded-xl px-3 py-2 flex items-center justify-center shrink-0 h-16 max-w-[160px]">
+                      <img src={clientOrg.logo_url} alt={clientOrg.name} className="max-h-12 max-w-[130px] object-contain" />
+                    </div>
+                  )}
+                  <div>
+                    <h2 className="text-2xl md:text-3xl font-black tracking-tighter">{clientOrg?.name ?? 'Your Sites'}</h2>
+                    <p className="text-indigo-300 mt-2 text-sm">Select a site to view your documents.</p>
+                  </div>
+                </div>
+                <div className="bg-white/5 backdrop-blur-md rounded-lg p-4 border border-white/10 text-center min-w-[90px] relative z-10">
+                  <div className="flex items-center justify-center gap-1 text-[10px] font-black uppercase tracking-widest text-indigo-300 mb-1.5"><Building2 size={12} />Sites</div>
+                  <p className="text-3xl font-black text-white">{sites.length}</p>
+                </div>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                {sites.map(site => {
+                  const lastSync = site.last_ai_sync ? new Date(site.last_ai_sync) : null;
+                  const syncLabel = lastSync
+                    ? (() => {
+                        const diffMs = Date.now() - lastSync.getTime();
+                        const diffDays = Math.floor(diffMs / 86400000);
+                        if (diffDays === 0) return 'Today';
+                        if (diffDays === 1) return 'Yesterday';
+                        if (diffDays < 7) return `${diffDays} days ago`;
+                        if (diffDays < 30) return `${Math.floor(diffDays / 7)} week${Math.floor(diffDays / 7) !== 1 ? 's' : ''} ago`;
+                        return lastSync.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+                      })()
+                    : null;
+                  return (
+                    <div key={site.id} className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm">
+                      <div className="mb-4">
+                        {clientOrg?.logo_url
+                          ? <img src={clientOrg.logo_url} alt={clientOrg.name ?? ''} className="h-8 max-w-[130px] object-contain" />
+                          : <div className="w-8 h-8 bg-indigo-50 rounded-lg flex items-center justify-center text-indigo-400"><Building2 size={16} /></div>
+                        }
+                      </div>
+                      <p className="font-black text-slate-900 text-base leading-tight">{site.name}</p>
+                      {syncLabel && <p className="text-[10px] text-slate-400 font-bold mt-1">Documents updated {syncLabel}</p>}
+                      <div className="flex flex-wrap gap-2 mt-4">
+                        <button
+                          onClick={() => { setSelectedSite(site); setSiteTab('files'); setView('site'); }}
+                          className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-full text-[11px] font-black transition-colors"
+                        >
+                          <Folder size={11} />H&amp;S Documents
+                        </button>
+                        <button
+                          onClick={() => { setSelectedSite(site); setSiteTab('documents'); setView('site'); }}
+                          className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-700 rounded-full text-[11px] font-black border border-amber-200 transition-colors"
+                        >
+                          <FileText size={11} />Client Managed Docs
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+          {view === 'portfolio' && !isViewOnly && (profile?.role === 'advisor' || profile?.role === 'client' || profile?.role === 'superadmin') && (
             <div className="space-y-8 animate-in fade-in duration-500">
               <div className="bg-gradient-to-br from-indigo-900 via-indigo-950 to-slate-900 rounded-xl p-6 md:p-10 text-white flex flex-col lg:flex-row justify-between items-start lg:items-center gap-6 md:gap-8 shadow-2xl relative overflow-hidden">
                 <div className="absolute top-0 right-0 w-96 h-96 bg-indigo-500 rounded-full -mr-32 -mt-32 blur-[100px] opacity-20 pointer-events-none" />
@@ -8252,7 +8381,7 @@ export default function App() {
                       {SITE_TYPE_LABELS[selectedSite.type] || selectedSite.type}
                     </p>
                     {viewSites.length > 1 && (
-                      <select value={selectedSite?.id || ''} onChange={e => { const s = sites.find(s => s.id === e.target.value); if (s) setSelectedSite(s); }} className="mt-2 px-3 py-1.5 border border-slate-200 rounded-xl text-xs font-bold text-slate-600 focus:outline-none bg-white">
+                      <select value={selectedSite?.id || ''} onChange={e => { const s = sites.find(s => s.id === e.target.value); if (s) handleSiteClick(s); }} className="mt-2 px-3 py-1.5 border border-slate-200 rounded-xl text-xs font-bold text-slate-600 focus:outline-none bg-white">
                         {viewSites.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
                       </select>
                     )}
@@ -8619,8 +8748,8 @@ export default function App() {
                   );
                 })()}
                 {selectedSite.datto_folder_id && <button onClick={() => setSiteTab('files')} className={`px-4 py-2 text-[11px] font-black uppercase tracking-widest rounded-lg transition-all whitespace-nowrap ${effectiveSiteTab === 'files' ? 'bg-white shadow-sm text-sky-600' : 'text-slate-400 hover:text-slate-600'}`}>H&S Documents</button>}
-                {!isViewOnly && <button onClick={() => setSiteTab('documents')} className={`px-4 py-2 text-[11px] font-black uppercase tracking-widest rounded-lg transition-all whitespace-nowrap ${effectiveSiteTab === 'documents' ? 'bg-white shadow-sm text-amber-600' : 'text-slate-400 hover:text-slate-600'}`}>Client Documents</button>}
-                <button onClick={() => { setSiteTab('iag'); loadIagServices(selectedSite.id); }} className={`px-4 py-2 text-[11px] font-black uppercase tracking-widest rounded-lg transition-all whitespace-nowrap ${effectiveSiteTab === 'iag' ? 'bg-white shadow-sm text-violet-600' : 'text-slate-400 hover:text-slate-600'}`}>Industry Alignment</button>
+                <button onClick={() => setSiteTab('documents')} className={`px-4 py-2 text-[11px] font-black uppercase tracking-widest rounded-lg transition-all whitespace-nowrap ${effectiveSiteTab === 'documents' ? 'bg-white shadow-sm text-amber-600' : 'text-slate-400 hover:text-slate-600'}`}>Client Documents</button>
+                {!isViewOnly && <button onClick={() => { setSiteTab('iag'); loadIagServices(selectedSite.id); }} className={`px-4 py-2 text-[11px] font-black uppercase tracking-widest rounded-lg transition-all whitespace-nowrap ${effectiveSiteTab === 'iag' ? 'bg-white shadow-sm text-violet-600' : 'text-slate-400 hover:text-slate-600'}`}>Industry Alignment</button>}
                 {effectiveRole !== 'client' && <button onClick={() => setSiteTab('dochealth')} className={`px-4 py-2 text-[11px] font-black uppercase tracking-widest rounded-lg transition-all whitespace-nowrap ${effectiveSiteTab === 'dochealth' ? 'bg-white shadow-sm text-amber-600' : 'text-slate-400 hover:text-slate-600'}`}>Management</button>}
               </div>
 
@@ -8974,7 +9103,7 @@ export default function App() {
                             {(() => {
                               const basePath = typeof window !== 'undefined' ? (localStorage.getItem('dattoBasePath') || 'W:/Customer Documents') : 'W:/Customer Documents';
                               const uri = ra.docFolderPath ? buildOfficeUri(basePath, ra.docFolderPath, ra.docName) : null;
-                              const href = uri ?? `/api/datto/file?fileId=${ra.docFileId}&fileName=${encodeURIComponent(ra.docName)}&forceDownload=true`;
+                              const href = uri ?? `/api/datto/file?fileId=${ra.docFileId}&fileName=${encodeURIComponent(ra.docName)}`;
                               return (
                                 <a href={href} target={uri ? '_self' : '_blank'} rel="noopener noreferrer"
                                   className="px-3 py-1.5 border border-indigo-200 text-indigo-500 rounded-xl text-[11px] font-black hover:bg-indigo-50 hover:border-indigo-300 flex items-center gap-1 justify-center"
