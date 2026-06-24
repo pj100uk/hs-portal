@@ -29,14 +29,24 @@ function toArr(raw: any): any[] {
   return Array.isArray(raw) ? raw : (raw.result ?? raw.files ?? raw.items ?? raw.data ?? []);
 }
 
-/** List children of a Datto folder */
+/** List children of a Datto folder (10 s timeout) */
 async function listChildren(folderId: string): Promise<any[]> {
-  const res = await fetch(`${BASE_URL}/file/${folderId}/files`, {
-    headers: { Authorization: AUTH_HEADER },
-    cache: 'no-store',
-  });
-  if (!res.ok) { console.error('[folder-utils] list failed:', res.status, await res.text()); return []; }
-  return toArr(await res.json());
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 10_000);
+  try {
+    const res = await fetch(`${BASE_URL}/file/${folderId}/files`, {
+      headers: { Authorization: AUTH_HEADER },
+      cache: 'no-store',
+      signal: ctrl.signal,
+    });
+    clearTimeout(timer);
+    if (!res.ok) { console.error('[folder-utils] list failed:', res.status, await res.text()); return []; }
+    return toArr(await res.json());
+  } catch (err: any) {
+    clearTimeout(timer);
+    console.error('[folder-utils] listChildren error (folderId=%s):', folderId, err.message);
+    return [];
+  }
 }
 
 /** Find a subfolder by name (case-insensitive) in a list of Datto items */
@@ -53,10 +63,21 @@ export async function resolveSubfolder(parentFolderId: string, folderName: strin
   if (existingId) return { id: existingId };
 
   // Create it
-  const createRes = await fetch(`${BASE_URL}/file/${parentFolderId}?name=${encodeURIComponent(folderName)}`, {
-    method: 'POST',
-    headers: { Authorization: AUTH_HEADER },
-  });
+  const createCtrl = new AbortController();
+  const createTimer = setTimeout(() => createCtrl.abort(), 10_000);
+  let createRes: Response;
+  try {
+    createRes = await fetch(`${BASE_URL}/file/${parentFolderId}?name=${encodeURIComponent(folderName)}`, {
+      method: 'POST',
+      headers: { Authorization: AUTH_HEADER },
+      signal: createCtrl.signal,
+    });
+  } catch (err: any) {
+    clearTimeout(createTimer);
+    console.error('[folder-utils] create', folderName, 'fetch error:', err.message);
+    return { id: null, error: `Datto folder create failed: ${err.message}` };
+  }
+  clearTimeout(createTimer);
   const createBody = await createRes.text();
   console.log('[folder-utils] create', folderName, '— status:', createRes.status, 'body:', createBody);
 

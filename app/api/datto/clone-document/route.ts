@@ -187,7 +187,7 @@ export async function POST(request: NextRequest) {
     // 2. Fall back to Datto REST API
     const mimeType = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
     const form = new FormData();
-    form.append('partData', new Blob([cloneBytes], { type: mimeType }), cloneName);
+    form.append('partData', new Blob([new Uint8Array(cloneBytes)], { type: mimeType }), cloneName);
     form.append('fileName', cloneName);
     form.append('makeUnique', 'false');
 

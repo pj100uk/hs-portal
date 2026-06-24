@@ -69,7 +69,7 @@ export async function POST(req: NextRequest) {
     const mimeType = fileBlob.type || 'application/octet-stream';
 
     const form = new FormData();
-    form.append('partData', new Blob([fileBuffer], { type: mimeType }), doc.file_name);
+    form.append('partData', new Blob([new Uint8Array(fileBuffer)], { type: mimeType }), doc.file_name);
     form.append('fileName', doc.file_name);
     form.append('makeUnique', 'false');
     const uploadRes = await fetch(`${BASE_URL}/file/${targetFolderId}/files`, {

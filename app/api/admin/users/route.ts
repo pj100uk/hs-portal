@@ -25,7 +25,7 @@ export async function GET() {
 
 // POST — create a new user
 export async function POST(request: NextRequest) {
-  const { email, password, role, organisation_id, site_ids } = await request.json();
+  const { email, password, role, organisation_id, site_ids, full_name, view_only } = await request.json();
 
   if (!email || !password || !role) {
     return NextResponse.json({ error: 'Email, password and role are required' }, { status: 400 });
@@ -35,29 +35,34 @@ export async function POST(request: NextRequest) {
     email,
     password,
     email_confirm: true,
+    user_metadata: full_name ? { full_name } : undefined,
   });
 
   if (userError) return NextResponse.json({ error: userError.message }, { status: 400 });
 
+  const profileUpdates: Record<string, unknown> = { role, organisation_id: organisation_id || null, full_name: full_name || null };
+  if (role === 'client' && view_only !== undefined) profileUpdates.view_only = !!view_only;
+
   const { error: profileError } = await supabaseAdmin
     .from('profiles')
-    .update({ role, organisation_id: organisation_id || null })
+    .update(profileUpdates)
     .eq('id', userData.user.id);
 
   if (profileError) return NextResponse.json({ error: profileError.message }, { status: 400 });
 
   if (role === 'client' && site_ids && site_ids.length > 0) {
-    await supabaseAdmin.from('client_site_assignments').insert(
+    const { error: assignError } = await supabaseAdmin.from('client_site_assignments').insert(
       site_ids.map((siteId: string) => ({ client_user_id: userData.user.id, site_id: siteId }))
     );
+    if (assignError) return NextResponse.json({ error: `User created but site assignment failed: ${assignError.message}` }, { status: 400 });
   }
 
   return NextResponse.json({ user: userData.user });
 }
 
-// PATCH — update a user's profile (organisation_id, datto_base_path) or set password
+// PATCH — update a user's profile (organisation_id, datto_base_path, full_name) or set password
 export async function PATCH(request: NextRequest) {
-  const { userId, organisation_id, datto_base_path, view_only, newPassword } = await request.json();
+  const { userId, organisation_id, datto_base_path, view_only, newPassword, full_name } = await request.json();
   if (!userId) return NextResponse.json({ error: 'userId is required' }, { status: 400 });
 
   // Admin password set — no profile update needed
@@ -71,6 +76,7 @@ export async function PATCH(request: NextRequest) {
   if (organisation_id !== undefined) updates.organisation_id = organisation_id ?? null;
   if (datto_base_path !== undefined) updates.datto_base_path = datto_base_path || null;
   if (view_only !== undefined) updates.view_only = view_only;
+  if (full_name !== undefined) updates.full_name = full_name || null;
   if (Object.keys(updates).length === 0) return NextResponse.json({ error: 'Nothing to update' }, { status: 400 });
 
   const { error } = await supabaseAdmin

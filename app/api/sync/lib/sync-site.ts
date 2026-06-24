@@ -42,15 +42,25 @@ function normaliseItems(raw: any): { id: string; name: string; type: 'file' | 'f
   }));
 }
 
+const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
+
+async function dattoFetch(url: string, retries = 3): Promise<Response> {
+  for (let attempt = 0; attempt < retries; attempt++) {
+    const res = await fetch(url, { headers: { Authorization: AUTH_HEADER }, cache: 'no-store' });
+    if (res.status !== 429) return res;
+    const waitSec = parseInt(res.headers.get('X-Rate-Limit-Retry-After-Seconds') ?? '5', 10);
+    console.warn(`[sync] 429 rate limit on ${url} — waiting ${waitSec}s (attempt ${attempt + 1}/${retries})`);
+    await sleep((waitSec + 1) * 1000);
+  }
+  return fetch(url, { headers: { Authorization: AUTH_HEADER }, cache: 'no-store' });
+}
+
 async function fetchAllFiles(
   folderId: string,
   userExcludedIds: Set<string> = new Set(),
   currentPath = ''
 ): Promise<{ id: string; name: string; type: 'file' | 'folder'; modified?: string; parentFolderId: string; folderPath: string }[]> {
-  const res = await fetch(`${BASE_URL}/file/${folderId}/files`, {
-    headers: { Authorization: AUTH_HEADER },
-    cache: 'no-store',
-  });
+  const res = await dattoFetch(`${BASE_URL}/file/${folderId}/files`);
   if (!res.ok) return [];
   const raw = await res.json();
   const items = normaliseItems(raw);
@@ -62,10 +72,18 @@ async function fetchAllFiles(
     !EXCLUDED_FOLDERS.includes(i.name.toLowerCase()) &&
     !userExcludedIds.has(i.id)
   );
-  const subFiles = await Promise.all(
-    folders.map(f => fetchAllFiles(f.id, userExcludedIds, currentPath ? `${currentPath}/${f.name}` : f.name))
-  );
-  return [...files, ...subFiles.flat()];
+  // Process folders in small batches to avoid Datto rate limits
+  const BATCH = 2;
+  const allSubFiles: any[][] = [];
+  for (let i = 0; i < folders.length; i += BATCH) {
+    if (i > 0) await sleep(200);
+    const batch = folders.slice(i, i + BATCH);
+    const batchResults = await Promise.all(
+      batch.map(f => fetchAllFiles(f.id, userExcludedIds, currentPath ? `${currentPath}/${f.name}` : f.name))
+    );
+    allSubFiles.push(...batchResults);
+  }
+  return [...files, ...allSubFiles.flat()];
 }
 
 // ── Text helpers ─────────────────────────────────────────────────────────────
