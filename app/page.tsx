@@ -6614,7 +6614,7 @@ export default function App() {
       await loadFolder(selectedSite.datto_folder_id!, rootPath);
     };
     init();
-  }, [effectiveSiteTab, selectedSite?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [effectiveSiteTab, selectedSite?.id, profile?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const scheduleNextOccurrence = async (action: Action) => {
     const { date: dueDate, issueDate } = action;
@@ -8817,20 +8817,20 @@ export default function App() {
               }
               {!isViewOnly && scoreExplanationCard && <ScoreExplanationModal card={scoreExplanationCard} onClose={() => setScoreExplanationCard(null)} />}
               {/* Site tab toggle */}
-              <div className="flex flex-wrap bg-slate-100 p-1 rounded-xl gap-0.5 w-full">
+              <div className="flex flex-wrap bg-indigo-100 p-1 rounded-xl gap-0.5 w-full">
                 {!isViewOnly && (() => {
                   const pendingCount = (effectiveRole === 'advisor' || effectiveRole === 'superadmin') ? siteActions.filter(a => a.status === 'pending_review').length : 0;
                   return (
-                    <button onClick={() => setSiteTab('actions')} className={`flex items-center gap-1.5 px-4 py-2 text-[11px] font-black uppercase tracking-widest rounded-lg transition-all whitespace-nowrap ${effectiveSiteTab === 'actions' ? 'bg-white shadow-sm text-indigo-600' : 'text-slate-400 hover:text-slate-600'}`}>
+                    <button onClick={() => setSiteTab('actions')} className={`flex items-center gap-1.5 px-4 py-2 text-[11px] font-black uppercase tracking-widest rounded-lg transition-all whitespace-nowrap ${effectiveSiteTab === 'actions' ? 'bg-white shadow-sm text-indigo-600' : 'text-indigo-400 hover:text-indigo-600'}`}>
                       Assigned Actions
                       {pendingCount > 0 && <span className="bg-violet-500 text-white text-[9px] font-black rounded-full min-w-[16px] h-4 flex items-center justify-center px-1">{pendingCount}</span>}
                     </button>
                   );
                 })()}
-                {selectedSite.datto_folder_id && <button onClick={() => setSiteTab('files')} className={`px-4 py-2 text-[11px] font-black uppercase tracking-widest rounded-lg transition-all whitespace-nowrap ${effectiveSiteTab === 'files' ? 'bg-white shadow-sm text-sky-600' : 'text-slate-400 hover:text-slate-600'}`}>H&S Documents</button>}
-                <button onClick={() => setSiteTab('documents')} className={`px-4 py-2 text-[11px] font-black uppercase tracking-widest rounded-lg transition-all whitespace-nowrap ${effectiveSiteTab === 'documents' ? 'bg-white shadow-sm text-amber-600' : 'text-slate-400 hover:text-slate-600'}`}>Client Documents</button>
-                {!isViewOnly && <button onClick={() => { setSiteTab('iag'); loadIagServices(selectedSite.id); }} className={`px-4 py-2 text-[11px] font-black uppercase tracking-widest rounded-lg transition-all whitespace-nowrap ${effectiveSiteTab === 'iag' ? 'bg-white shadow-sm text-violet-600' : 'text-slate-400 hover:text-slate-600'}`}>Industry Alignment</button>}
-                {effectiveRole !== 'client' && <button onClick={() => setSiteTab('dochealth')} className={`px-4 py-2 text-[11px] font-black uppercase tracking-widest rounded-lg transition-all whitespace-nowrap ${effectiveSiteTab === 'dochealth' ? 'bg-white shadow-sm text-amber-600' : 'text-slate-400 hover:text-slate-600'}`}>Management</button>}
+                {selectedSite.datto_folder_id && <button onClick={() => setSiteTab('files')} className={`px-4 py-2 text-[11px] font-black uppercase tracking-widest rounded-lg transition-all whitespace-nowrap ${effectiveSiteTab === 'files' ? 'bg-white shadow-sm text-sky-600' : 'text-indigo-400 hover:text-indigo-600'}`}>H&S Documents</button>}
+                <button onClick={() => setSiteTab('documents')} className={`px-4 py-2 text-[11px] font-black uppercase tracking-widest rounded-lg transition-all whitespace-nowrap ${effectiveSiteTab === 'documents' ? 'bg-white shadow-sm text-amber-600' : 'text-indigo-400 hover:text-indigo-600'}`}>Client Documents</button>
+                {!isViewOnly && <button onClick={() => { setSiteTab('iag'); loadIagServices(selectedSite.id); }} className={`px-4 py-2 text-[11px] font-black uppercase tracking-widest rounded-lg transition-all whitespace-nowrap ${effectiveSiteTab === 'iag' ? 'bg-white shadow-sm text-violet-600' : 'text-indigo-400 hover:text-indigo-600'}`}>Industry Alignment</button>}
+                {effectiveRole !== 'client' && <button onClick={() => setSiteTab('dochealth')} className={`px-4 py-2 text-[11px] font-black uppercase tracking-widest rounded-lg transition-all whitespace-nowrap ${effectiveSiteTab === 'dochealth' ? 'bg-white shadow-sm text-amber-600' : 'text-indigo-400 hover:text-indigo-600'}`}>Management</button>}
               </div>
 
               {effectiveSiteTab === 'actions' && !isViewOnly && (<>
@@ -9438,11 +9438,11 @@ export default function App() {
                       href={href}
                       target={isOfficeLink ? undefined : '_blank'}
                       rel={isOfficeLink ? undefined : 'noopener noreferrer'}
-                      className="flex items-center gap-3 px-4 py-2.5 hover:bg-sky-50 group transition-colors"
+                      className="flex items-center gap-3 px-4 py-2.5 bg-white hover:bg-indigo-50 group transition-colors"
                       title={isOfficeLink ? 'Open in Word/Excel from mapped drive' : undefined}
                     >
                       <div className="flex-1 min-w-0">
-                        <p className="text-[12px] font-semibold text-slate-700 group-hover:text-sky-700 truncate flex items-center gap-1.5">
+                        <p className="text-[12px] font-semibold text-slate-700 group-hover:text-indigo-700 truncate flex items-center gap-1.5">
                           <span className="truncate">{file.name.replace(/\.[^.]+$/, '')}</span>
                           <span className={`text-[8px] font-black px-1 py-0.5 rounded flex-shrink-0 ${badge.cls}`}>{badge.label}</span>
                         </p>
@@ -9498,16 +9498,16 @@ export default function App() {
                           const isLoading = sectionLoading.has(folder.id);
                           const files = sectionFiles.get(folder.id) ?? [];
                           return (
-                            <div key={folder.id} className="bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden">
+                            <div key={folder.id} className="bg-indigo-50 rounded-lg border border-indigo-100 shadow-sm overflow-hidden">
                               <button
                                 onClick={() => toggleSection(folder)}
-                                className={`w-full flex items-center gap-3 px-4 py-2.5 transition-colors text-left border-l-4 ${isExpanded ? 'bg-indigo-50 border-l-indigo-500' : 'bg-white border-l-transparent hover:bg-slate-50'}`}
+                                className={`group w-full flex items-center gap-3 px-4 py-2.5 transition-colors text-left border-l-4 ${isExpanded ? 'bg-indigo-100 border-l-indigo-500' : 'bg-indigo-50 border-l-indigo-200 hover:bg-indigo-100 hover:border-l-indigo-400'}`}
                               >
                                 {isExpanded
                                   ? <FolderOpen size={15} className="text-indigo-500 flex-shrink-0" />
-                                  : <Folder size={15} className="text-amber-400 flex-shrink-0" />
+                                  : <Folder size={15} className="text-indigo-300 group-hover:text-indigo-500 flex-shrink-0 transition-colors" />
                                 }
-                                <span className={`text-[13px] font-bold flex-1 truncate ${isExpanded ? 'text-indigo-700' : 'text-slate-800'}`}>{folder.name}</span>
+                                <span className={`text-[13px] font-bold flex-1 truncate ${isExpanded ? 'text-indigo-700' : 'text-indigo-600 group-hover:text-indigo-700'} transition-colors`}>{folder.name}</span>
                                 {isExpanded && files.length > 0 && (
                                   <span className="text-[10px] font-bold text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full flex-shrink-0">{files.length}</span>
                                 )}
@@ -9566,10 +9566,10 @@ export default function App() {
                                               if (!prev.has(subKey)) s.add(subKey);
                                               return s;
                                             })}
-                                            className={`w-full px-4 py-2 border-y flex items-center gap-2 transition-colors text-left ${isSubOpen ? 'bg-indigo-50 border-indigo-100 border-l-2 border-l-indigo-400' : 'bg-slate-50 border-slate-100 hover:bg-slate-100'}`}
+                                            className={`w-full px-4 py-2 border-y flex items-center gap-2 transition-colors text-left ${isSubOpen ? 'bg-indigo-50 border-indigo-100 border-l-2 border-l-indigo-300' : 'bg-indigo-50/20 border-indigo-100 hover:bg-indigo-50'}`}
                                           >
-                                            {isSubOpen ? <FolderOpen size={11} className="text-indigo-400 flex-shrink-0" /> : <Folder size={11} className="text-amber-300 flex-shrink-0" />}
-                                            <span className={`text-[11px] font-bold flex-1 ${isSubOpen ? 'text-indigo-600' : 'text-slate-600'}`}>{groupPath}</span>
+                                            {isSubOpen ? <FolderOpen size={11} className="text-indigo-300 flex-shrink-0" /> : <Folder size={11} className="text-indigo-200 flex-shrink-0" />}
+                                            <span className={`text-[11px] font-bold flex-1 ${isSubOpen ? 'text-indigo-500' : 'text-indigo-400'}`}>{groupPath}</span>
                                             <span className="text-[10px] text-slate-400 mr-1">{totalCount}</span>
                                             <ChevronDown size={11} className={`text-slate-400 flex-shrink-0 transition-transform ${isSubOpen ? 'rotate-180' : ''}`} />
                                           </button>
@@ -9587,10 +9587,10 @@ export default function App() {
                                                         if (!prev.has(subSubKey)) s.add(subSubKey);
                                                         return s;
                                                       })}
-                                                      className={`w-full pl-10 pr-4 py-2 flex items-center gap-2 transition-colors text-left ${isSubSubOpen ? 'bg-indigo-50 border-indigo-100 border-l-2 border-l-indigo-400' : 'bg-slate-50 border-slate-100 hover:bg-slate-100'}`}
+                                                      className={`w-full pl-10 pr-4 py-2 flex items-center gap-2 transition-colors text-left ${isSubSubOpen ? 'bg-indigo-50 border-indigo-100 border-l-2 border-l-indigo-300' : 'bg-indigo-50/20 border-indigo-100 hover:bg-indigo-50'}`}
                                                     >
-                                                      {isSubSubOpen ? <FolderOpen size={11} className="text-indigo-400 flex-shrink-0" /> : <Folder size={11} className="text-amber-400 flex-shrink-0" />}
-                                                      <span className={`text-[11px] font-bold flex-1 ${isSubSubOpen ? 'text-indigo-600' : 'text-slate-600'}`}>{subGroupName}</span>
+                                                      {isSubSubOpen ? <FolderOpen size={11} className="text-indigo-300 flex-shrink-0" /> : <Folder size={11} className="text-indigo-200 flex-shrink-0" />}
+                                                      <span className={`text-[11px] font-bold flex-1 ${isSubSubOpen ? 'text-indigo-500' : 'text-indigo-400'}`}>{subGroupName}</span>
                                                       <span className="text-[10px] text-slate-400 mr-1">{subFiles.length}</span>
                                                       <ChevronDown size={11} className={`text-slate-400 flex-shrink-0 transition-transform ${isSubSubOpen ? 'rotate-180' : ''}`} />
                                                     </button>
@@ -9616,9 +9616,9 @@ export default function App() {
 
                         {/* Any files sitting directly in the root (no subfolder) */}
                         {rootFiles.length > 0 && (
-                          <div className="bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden">
-                            <div className="px-4 py-3 border-b border-slate-100">
-                              <span className="text-[11px] font-black uppercase tracking-widest text-slate-400">Other files</span>
+                          <div className="bg-indigo-50 rounded-lg border border-indigo-100 shadow-sm overflow-hidden">
+                            <div className="px-4 py-3 border-b border-indigo-100">
+                              <span className="text-[11px] font-black uppercase tracking-widest text-indigo-300">Other files</span>
                             </div>
                             <div className="divide-y divide-slate-50">
                               {rootFiles.map(file => renderFileRow({ ...file, folderPath: rootEntry?.path ?? '' }))}
