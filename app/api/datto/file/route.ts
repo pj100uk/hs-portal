@@ -10,6 +10,7 @@ export async function GET(request: NextRequest) {
   const fileId = searchParams.get('fileId');
   const fileName = searchParams.get('fileName') || 'document';
   const forceDownload = searchParams.get('forceDownload') === 'true';
+  const forceInline = searchParams.get('inline') === 'true';
 
   if (!fileId) {
     return NextResponse.json({ error: 'fileId is required' }, { status: 400 });
@@ -41,8 +42,8 @@ export async function GET(request: NextRequest) {
     };
     const contentType = contentTypeMap[ext] || 'application/octet-stream';
 
-    // PDFs and images open inline unless forceDownload is set
-    const inlineable = ['pdf', 'png', 'jpg', 'jpeg', 'gif', 'webp'].includes(ext);
+    // Images always inline; PDFs inline only when ?inline=true (viewer iframe), otherwise attachment (opens Acrobat)
+    const inlineable = ['png', 'jpg', 'jpeg', 'gif', 'webp'].includes(ext) || (ext === 'pdf' && forceInline);
     const disposition = (!forceDownload && inlineable)
       ? `inline; filename="${fileName}"`
       : `attachment; filename="${fileName}"`;

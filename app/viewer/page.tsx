@@ -55,7 +55,7 @@ export default function ViewerPage() {
 
     if (!fileId) { setState({ mode: 'error', message: 'No file ID provided.' }); return; }
 
-    const dattoSrc     = `/api/datto/file?fileId=${fileId}&fileName=${encodeURIComponent(name)}`;
+    const dattoSrc     = `/api/datto/file?fileId=${fileId}&fileName=${encodeURIComponent(name)}&inline=true`;
     const dattoFullUrl = `${origin}/api/datto/file?fileId=${fileId}&fileName=${encodeURIComponent(name)}`;
 
     // ── H&S docs (fileId) ────────────────────────────────────────────────────

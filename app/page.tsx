@@ -6117,6 +6117,7 @@ export default function App() {
   const effectiveRole = viewAsRole ?? profile?.role ?? 'client';
   const [siteTab, setSiteTab] = useState<'actions' | 'documents' | 'dochealth' | 'iag' | 'files'>('actions');
   const effectiveSiteTab = isViewOnly && siteTab === 'actions' ? 'files' : siteTab;
+  const pendingTabRef = React.useRef<typeof siteTab | null>(null);
   const [iagServices, setIagServices] = useState<any[]>([]);
   const [iagServicesLoading, setIagServicesLoading] = useState(false);
   const [selectedSite, setSelectedSite] = useState<Site | null>(null);
@@ -6375,13 +6376,15 @@ export default function App() {
     });
   }, [user, sites]);
 
-  const handleLogout = async () => { await supabase.auth.signOut(); setUser(null); setProfile(null); setSites([]); setOrganisations([]); };
+  const handleLogout = async () => { await supabase.auth.signOut(); setUser(null); setProfile(null); setSites([]); setOrganisations([]); setSelectedSite(null); };
   const handleDattoSync = () => { setIsSyncing(true); setTimeout(() => { setIsSyncing(false); setSyncLastRun('Just now'); }, 2000); };
 
   const loadIagServices = async (siteId: string) => {
     setIagServicesLoading(true);
-    const res = await fetch(`/api/sites/${siteId}/services`);
-    if (res.ok) setIagServices(await res.json());
+    try {
+      const res = await fetch(`/api/sites/${siteId}/services`);
+      if (res.ok) setIagServices(await res.json());
+    } catch { /* session invalidated or component unmounting during logout */ }
     setIagServicesLoading(false);
   };
 
@@ -6446,7 +6449,8 @@ export default function App() {
     setFilterPriority('all');
     setActionSearch('');
     setShowActionSearch(false);
-    setSiteTab('actions');
+    setSiteTab(pendingTabRef.current ?? 'actions');
+    pendingTabRef.current = null;
   }, [selectedSite?.id]);
 
   // Auto-load services whenever the selected site changes (for Actions Score panel enrichment)
@@ -6520,6 +6524,11 @@ export default function App() {
     }
   }, [siteTab, filterPriority]);
 
+
+  // Clear search cache when leaving the files tab so next search reflects current Datto state
+  React.useEffect(() => {
+    if (effectiveSiteTab !== 'files') setSearchFileCache(null);
+  }, [effectiveSiteTab]);
 
   // Init file browser when Files tab is opened (preserves state on tab toggle, only re-inits for new site)
   React.useEffect(() => {
@@ -8052,7 +8061,7 @@ export default function App() {
                   <p className="text-3xl font-black text-white">{sites.length}</p>
                 </div>
               </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              <div className="flex flex-wrap justify-center gap-4">
                 {sites.map(site => {
                   const lastSync = site.last_ai_sync ? new Date(site.last_ai_sync) : null;
                   const syncLabel = lastSync
@@ -8067,8 +8076,8 @@ export default function App() {
                       })()
                     : null;
                   return (
-                    <div key={site.id} className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm">
-                      <div className="mb-4">
+                    <div key={site.id} className="w-full sm:w-[420px] bg-white rounded-xl border border-slate-200 p-6 shadow-sm">
+                      <div className="flex justify-end mb-4">
                         {clientOrg?.logo_url
                           ? <img src={clientOrg.logo_url} alt={clientOrg.name ?? ''} className="h-8 max-w-[130px] object-contain" />
                           : <div className="w-8 h-8 bg-indigo-50 rounded-lg flex items-center justify-center text-indigo-400"><Building2 size={16} /></div>
@@ -8076,18 +8085,18 @@ export default function App() {
                       </div>
                       <p className="font-black text-slate-900 text-base leading-tight">{site.name}</p>
                       {syncLabel && <p className="text-[10px] text-slate-400 font-bold mt-1">Documents updated {syncLabel}</p>}
-                      <div className="flex flex-wrap gap-2 mt-4">
-                        <button
-                          onClick={() => { setSelectedSite(site); setSiteTab('files'); setView('site'); }}
-                          className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-full text-[11px] font-black transition-colors"
-                        >
-                          <Folder size={11} />H&amp;S Documents
+                      <div className="mt-4 border-t border-slate-100 pt-3 space-y-0.5">
+                        <button onClick={() => { pendingTabRef.current = 'files'; setSiteTab('files'); setSelectedSite(site); setView('site'); }} className="w-full flex items-center gap-2 px-1 py-px text-left text-[12px] text-indigo-600 hover:text-indigo-800 font-semibold group transition-colors">
+                          <Folder size={12} className="shrink-0 text-indigo-400 group-hover:text-indigo-600 transition-colors" />
+                          View your H&amp;S documents
                         </button>
-                        <button
-                          onClick={() => { setSelectedSite(site); setSiteTab('documents'); setView('site'); }}
-                          className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-700 rounded-full text-[11px] font-black border border-amber-200 transition-colors"
-                        >
-                          <FileText size={11} />Client Managed Docs
+                        <button onClick={() => { pendingTabRef.current = 'documents'; setSiteTab('documents'); setSelectedSite(site); setView('site'); }} className="w-full flex items-center gap-2 px-1 py-px text-left text-[12px] text-amber-600 hover:text-amber-800 font-semibold group transition-colors">
+                          <FileText size={12} className="shrink-0 text-amber-400 group-hover:text-amber-600 transition-colors" />
+                          View your own documents
+                        </button>
+                        <button onClick={() => { pendingTabRef.current = 'documents'; setSiteTab('documents'); setSelectedSite(site); setView('site'); }} className="w-full flex items-center gap-2 px-1 py-px text-left text-[12px] text-emerald-600 hover:text-emerald-800 font-semibold group transition-colors">
+                          <Upload size={12} className="shrink-0 text-emerald-400 group-hover:text-emerald-600 transition-colors" />
+                          Upload supporting documents
                         </button>
                       </div>
                     </div>
@@ -9391,7 +9400,7 @@ export default function App() {
                         className="flex-1 text-sm text-slate-700 placeholder-slate-300 bg-transparent outline-none"
                       />
                       {searchLoading && <span className="text-[10px] font-bold text-slate-400 animate-pulse">Searching…</span>}
-                      {fileSearchQuery && <button onClick={() => setFileSearchQuery('')} className="text-slate-300 hover:text-slate-500"><X size={13} /></button>}
+                      {fileSearchQuery && <button onClick={() => { setFileSearchQuery(''); setSearchFileCache(null); }} className="text-slate-300 hover:text-slate-500"><X size={13} /></button>}
                     </div>
 
                     {/* Search results */}
@@ -9421,7 +9430,7 @@ export default function App() {
                             <div key={folder.id} className="bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden">
                               <button
                                 onClick={() => toggleSection(folder)}
-                                className={`w-full flex items-center gap-3 px-4 py-3.5 transition-colors text-left border-l-4 ${isExpanded ? 'bg-indigo-50 border-l-indigo-500' : 'bg-white border-l-transparent hover:bg-slate-50'}`}
+                                className={`w-full flex items-center gap-3 px-4 py-2.5 transition-colors text-left border-l-4 ${isExpanded ? 'bg-indigo-50 border-l-indigo-500' : 'bg-white border-l-transparent hover:bg-slate-50'}`}
                               >
                                 {isExpanded
                                   ? <FolderOpen size={15} className="text-indigo-500 flex-shrink-0" />
