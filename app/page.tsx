@@ -6614,7 +6614,7 @@ export default function App() {
       await loadFolder(selectedSite.datto_folder_id!, rootPath);
     };
     init();
-  }, [effectiveSiteTab, selectedSite?.id, profile?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [effectiveSiteTab, selectedSite?.id, user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const scheduleNextOccurrence = async (action: Action) => {
     const { date: dueDate, issueDate } = action;
