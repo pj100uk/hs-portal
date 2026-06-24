@@ -17,9 +17,8 @@ export interface ActivityEvent {
 }
 
 export function logActivity(event: ActivityEvent): void {
-  supabase
-    .from('activity_log')
-    .insert({
+  Promise.resolve(
+    supabase.from('activity_log').insert({
       user_id:         event.userId,
       site_id:         event.siteId,
       organisation_id: event.organisationId ?? null,
@@ -29,6 +28,5 @@ export function logActivity(event: ActivityEvent): void {
       resource_name:   event.resourceName ?? null,
       metadata:        event.metadata ?? {},
     })
-    .then()
-    .catch(err => console.error('[activity_log] write error:', err));
+  ).catch(err => console.error('[activity_log] write error:', err));
 }
