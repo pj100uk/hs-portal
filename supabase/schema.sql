@@ -1,4 +1,4 @@
--- Schema dumped at 2026-05-26T19:12:06.806Z
+-- Schema dumped at 2026-06-24T15:01:00.870Z
 
 TABLE: action_evidence
   id uuid NOT NULL DEFAULT gen_random_uuid()
@@ -40,6 +40,18 @@ TABLE: actions
   issue_date text
   review_note text
   extraction_version int4 NOT NULL DEFAULT 1
+
+TABLE: activity_log
+  id uuid NOT NULL DEFAULT gen_random_uuid()
+  created_at timestamptz NOT NULL DEFAULT now()
+  user_id uuid
+  site_id uuid
+  organisation_id uuid
+  action text NOT NULL
+  resource_type text
+  resource_id text
+  resource_name text
+  metadata jsonb DEFAULT '{}'::jsonb
 
 TABLE: advisor_organisations
   id uuid NOT NULL DEFAULT gen_random_uuid()
@@ -87,6 +99,8 @@ TABLE: client_uploads
   reviewed_by uuid
   reviewed_at timestamptz
   review_note text
+  datto_file_id text
+  hidden bool NOT NULL DEFAULT false
 
 TABLE: document_health
   id uuid NOT NULL DEFAULT gen_random_uuid()
@@ -111,6 +125,7 @@ TABLE: profiles
   datto_workplace_user text
   datto_base_path text
   view_only bool NOT NULL DEFAULT false
+  full_name text
 
 TABLE: site_documents
   id uuid NOT NULL DEFAULT gen_random_uuid()
