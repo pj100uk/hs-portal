@@ -20,10 +20,13 @@ export default function ViewerPage() {
     const docId    = params.get('docId')  || '';
     const name     = params.get('fileName') || 'document';
     const role     = params.get('role') || 'client';
+    const userId   = params.get('userId') || '';
+    const siteId   = params.get('siteId') || '';
     const ext      = name.split('.').pop()?.toLowerCase() || '';
     const isOffice = OFFICE_EXTS.includes(ext);
     const isImage  = IMAGE_EXTS.includes(ext);
     const origin   = window.location.origin;
+    const activitySuffix = userId ? `&userId=${encodeURIComponent(userId)}${siteId ? `&siteId=${encodeURIComponent(siteId)}` : ''}` : '';
 
     // ── Client uploaded documents (docId) ────────────────────────────────────
     if (docId) {
@@ -55,7 +58,7 @@ export default function ViewerPage() {
 
     if (!fileId) { setState({ mode: 'error', message: 'No file ID provided.' }); return; }
 
-    const dattoSrc     = `/api/datto/file?fileId=${fileId}&fileName=${encodeURIComponent(name)}&inline=true`;
+    const dattoSrc     = `/api/datto/file?fileId=${fileId}&fileName=${encodeURIComponent(name)}&inline=true${activitySuffix}`;
     const dattoFullUrl = `${origin}/api/datto/file?fileId=${fileId}&fileName=${encodeURIComponent(name)}`;
 
     // ── H&S docs (fileId) ────────────────────────────────────────────────────

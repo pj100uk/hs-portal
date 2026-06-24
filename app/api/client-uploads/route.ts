@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import Busboy from 'busboy';
 import { BASE_URL, AUTH_HEADER, resolveClientDocsFolderId } from '../datto/folder-utils';
+import { logActivity } from '../../lib/activity';
 
 export const runtime = 'nodejs';
 
@@ -117,6 +118,16 @@ export async function POST(request: NextRequest) {
     }
 
     // TODO: notify advisor by email when SMTP available
+
+    logActivity({
+      userId: userId || null,
+      siteId: siteId || null,
+      action: 'file_uploaded',
+      resourceType: 'client_upload',
+      resourceId: row.id,
+      resourceName: storedFileName,
+      metadata: { fileSizeBytes: fileSize || null },
+    });
 
     return NextResponse.json({ upload: row });
   } catch (err: any) {

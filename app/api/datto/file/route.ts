@@ -1,4 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { logActivity } from '../../../lib/activity';
+
+export const runtime = 'nodejs';
 
 const CLIENT_ID = '8768d9f6-7ae5-4c96-a8a7-512e3c957fd0';
 const CLIENT_SECRET = '8228393f-1323-4d80-8dbe-e3e87c291158';
@@ -11,6 +14,8 @@ export async function GET(request: NextRequest) {
   const fileName = searchParams.get('fileName') || 'document';
   const forceDownload = searchParams.get('forceDownload') === 'true';
   const forceInline = searchParams.get('inline') === 'true';
+  const userId = searchParams.get('userId') || null;
+  const siteId = searchParams.get('siteId') || null;
 
   if (!fileId) {
     return NextResponse.json({ error: 'fileId is required' }, { status: 400 });
@@ -49,6 +54,17 @@ export async function GET(request: NextRequest) {
       : `attachment; filename="${fileName}"`;
 
     const buffer = await res.arrayBuffer();
+
+    if (userId) {
+      logActivity({
+        userId,
+        siteId,
+        action: 'document_viewed',
+        resourceType: 'datto_file',
+        resourceId: fileId,
+        resourceName: fileName,
+      });
+    }
 
     return new NextResponse(buffer, {
       headers: {

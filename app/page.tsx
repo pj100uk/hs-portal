@@ -484,7 +484,7 @@ const daysLate = (resolvedDate: string, dueDate: string): number => {
   return Math.round((new Date(resolvedDate + 'T00:00:00').getTime() - new Date(dueDate + 'T00:00:00').getTime()) / 86400000);
 };
 
-function getFileHref(file: DattoItem, folderPath: string, role: string): string {
+function getFileHref(file: DattoItem, folderPath: string, role: string, userId?: string, siteId?: string): string {
   const ext = file.name.split('.').pop()?.toLowerCase() || '';
   const officeExts = ['docx', 'doc', 'xlsx', 'xls', 'pptx', 'ppt'];
   if ((role === 'advisor' || role === 'superadmin') && officeExts.includes(ext)) {
@@ -494,7 +494,8 @@ function getFileHref(file: DattoItem, folderPath: string, role: string): string 
   }
   // Clients always get PDF via viewer — never raw Office files
   if (role === 'client') {
-    return `/viewer?fileId=${file.id}&fileName=${encodeURIComponent(file.name)}&role=${role}`;
+    const activitySuffix = userId ? `&userId=${encodeURIComponent(userId)}${siteId ? `&siteId=${encodeURIComponent(siteId)}` : ''}` : '';
+    return `/viewer?fileId=${file.id}&fileName=${encodeURIComponent(file.name)}&role=${role}${activitySuffix}`;
   }
   return `/api/datto/file?fileId=${file.id}&fileName=${encodeURIComponent(file.name)}`;
 }
@@ -3160,6 +3161,8 @@ const SuperadminPanel = ({ onViewSite, onViewOrg, onSyncSite }: { onViewSite: (s
 
   // User row expansion (client site management)
   const [expandingUserId, setExpandingUserId] = useState<string | null>(null);
+  const [userActivityMap, setUserActivityMap] = useState<Record<string, any[]>>({});
+  const [userActivityLoading, setUserActivityLoading] = useState<Record<string, boolean>>({});
   const [adminSetPwUser, setAdminSetPwUser] = useState<{ id: string; email: string } | null>(null);
   const [adminSetPwValue, setAdminSetPwValue] = useState('');
   const [adminSetPwLoading, setAdminSetPwLoading] = useState(false);
@@ -3231,6 +3234,17 @@ const SuperadminPanel = ({ onViewSite, onViewOrg, onSyncSite }: { onViewSite: (s
     const res = await fetch(`/api/admin/usage?userId=${userId}&days=${usageDays}`);
     if (res.ok) setUsageData(await res.json());
     setUsageLoading(false);
+  };
+
+  const loadUserActivity = async (targetUserId: string) => {
+    setUserActivityLoading(prev => ({ ...prev, [targetUserId]: true }));
+    const { data: { session } } = await supabase.auth.getSession();
+    const callerId = session?.user?.id;
+    if (!callerId) { setUserActivityLoading(prev => ({ ...prev, [targetUserId]: false })); return; }
+    const res = await fetch(`/api/activity?userId=${targetUserId}&callerId=${callerId}`);
+    const data = await res.json().catch(() => ({}));
+    setUserActivityMap(prev => ({ ...prev, [targetUserId]: data.events ?? [] }));
+    setUserActivityLoading(prev => ({ ...prev, [targetUserId]: false }));
   };
 
   const loadDataHealth = async () => {
@@ -4197,7 +4211,7 @@ const SuperadminPanel = ({ onViewSite, onViewOrg, onSyncSite }: { onViewSite: (s
                     const isExpanded = expandingUserId === user.id;
                     return (
                       <React.Fragment key={user.id}>
-                        <tr className={`${isClient ? 'cursor-pointer select-none' : ''} ${isExpanded ? 'bg-indigo-50/60' : 'hover:bg-slate-50'}`} onClick={isClient ? () => { setExpandingUserId(isExpanded ? null : user.id); setUserSiteSearch(''); } : undefined}>
+                        <tr className={`${isClient ? 'cursor-pointer select-none' : ''} ${isExpanded ? 'bg-indigo-50/60' : 'hover:bg-slate-50'}`} onClick={isClient ? () => { const newExpanded = isExpanded ? null : user.id; setExpandingUserId(newExpanded); setUserSiteSearch(''); if (newExpanded && !userActivityMap[user.id]) loadUserActivity(user.id); } : undefined}>
                           <td className="px-6 py-4">
                             <span className="font-bold text-slate-800">{user.profile?.full_name || user.email}</span>
                             {user.profile?.full_name && <span className="block text-xs text-slate-400">{user.email}</span>}
@@ -4246,6 +4260,54 @@ const SuperadminPanel = ({ onViewSite, onViewOrg, onSyncSite }: { onViewSite: (s
                                     </div>
                                   )}
                                 </div>
+                              </div>
+
+                              {/* Recent Activity */}
+                              <div className="mt-5 pt-4 border-t border-slate-200">
+                                <div className="flex items-center justify-between mb-2">
+                                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Recent Activity</p>
+                                  {userActivityMap[user.id]?.length > 0 && (
+                                    <a
+                                      href={`/api/activity?userId=${user.id}&callerId=${user.id}&format=csv`}
+                                      onClick={async e => {
+                                        e.preventDefault();
+                                        const { data: { session } } = await supabase.auth.getSession();
+                                        const callerId = session?.user?.id ?? '';
+                                        window.location.href = `/api/activity?userId=${user.id}&callerId=${callerId}&format=csv`;
+                                      }}
+                                      className="text-[10px] font-black text-indigo-500 hover:text-indigo-700 uppercase tracking-widest"
+                                    >
+                                      Export CSV
+                                    </a>
+                                  )}
+                                </div>
+                                {userActivityLoading[user.id] ? (
+                                  <div className="text-xs text-slate-400 font-bold animate-pulse py-2">Loading…</div>
+                                ) : !userActivityMap[user.id] ? (
+                                  <div className="text-xs text-slate-400 py-2">No data loaded.</div>
+                                ) : userActivityMap[user.id].length === 0 ? (
+                                  <div className="text-xs text-slate-400 py-2">No activity recorded for this user.</div>
+                                ) : (
+                                  <div className="space-y-1 max-h-56 overflow-y-auto pr-1">
+                                    {userActivityMap[user.id].slice(0, 50).map((ev: any) => {
+                                      const actionLabel: Record<string, string> = {
+                                        document_viewed:   'Viewed',
+                                        file_uploaded:     'Uploaded file',
+                                        evidence_uploaded: 'Uploaded evidence',
+                                        login:             'Logged in',
+                                      };
+                                      return (
+                                        <div key={ev.id} className="flex items-center gap-2 py-1.5 px-3 bg-slate-50 rounded-xl text-xs">
+                                          <span className="font-bold text-slate-600 shrink-0">{actionLabel[ev.action] ?? ev.action}</span>
+                                          {ev.resource_name && <span className="text-slate-400 truncate flex-1">{ev.resource_name}</span>}
+                                          <span className="text-slate-300 font-medium shrink-0 tabular-nums ml-auto">
+                                            {new Date(ev.created_at).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                                          </span>
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                )}
                               </div>
                             </td>
                           </tr>
@@ -6191,6 +6253,7 @@ export default function App() {
   const [advisors, setAdvisors] = useState<{ id: string; email: string }[]>([]);
   const aiCancelledRef = React.useRef(false);
   const currentUserIdRef = React.useRef<string | null>(null);
+  const loginLoggedRef   = React.useRef<string | null>(null);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -6208,6 +6271,14 @@ export default function App() {
       currentUserIdRef.current = session?.user?.id ?? null;
       setUser(session?.user ?? null);
       if (event === 'PASSWORD_RECOVERY') setShowPasswordReset(true);
+      if (event === 'SIGNED_IN' && session?.user?.id && loginLoggedRef.current !== session.user.id) {
+        loginLoggedRef.current = session.user.id;
+        fetch('/api/activity', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ userId: session.user.id, action: 'login', metadata: { email: session.user.email } }),
+        }).catch(() => {});
+      }
     });
     return () => subscription.unsubscribe();
   }, []);
@@ -9359,7 +9430,7 @@ export default function App() {
 
                 const renderFileRow = (file: DattoItem & { folderPath?: string }, subPath?: string) => {
                   const badge = fileTypeBadge(file.name);
-                  const href = getFileHref(file, file.folderPath || browserRootPath, role);
+                  const href = getFileHref(file, file.folderPath || browserRootPath, role, role === 'client' ? user?.id : undefined, role === 'client' ? selectedSite?.id : undefined);
                   const isOfficeLink = href.startsWith('ms-');
                   return (
                     <a

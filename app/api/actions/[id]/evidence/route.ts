@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import Busboy from 'busboy';
 import { BASE_URL, AUTH_HEADER, resolveSubfolder } from '../../../datto/folder-utils';
+import { logActivity } from '../../../../lib/activity';
 
 export const runtime = 'nodejs';
 
@@ -180,6 +181,16 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
         }
       }
     }
+
+    logActivity({
+      userId: userId || null,
+      siteId: siteId || null,
+      action: 'evidence_uploaded',
+      resourceType: 'action_evidence',
+      resourceId: row.id,
+      resourceName: finalFileName,
+      metadata: { actionId, fileSizeBytes: fileSize || null },
+    });
 
     return NextResponse.json({
       evidence: {
