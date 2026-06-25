@@ -10,7 +10,7 @@ import {
   Folder, FolderOpen, File, Pencil, GraduationCap, Heart,
   Warehouse, ShoppingBag, Home, Sparkles, AlertCircle,
   Upload, FileCheck, Trash2, Users, Search, KeyRound, Download,
-  Archive, Copy, RotateCcw, Minus, EyeOff, ArrowRight
+  Archive, Copy, RotateCcw, Minus, EyeOff, Eye, ArrowRight
 } from 'lucide-react';
 import mammoth from 'mammoth';
 import * as XLSX from 'xlsx';
@@ -3133,6 +3133,7 @@ const SuperadminPanel = ({ onViewSite, onViewOrg, onSyncSite }: { onViewSite: (s
   // Create form — user
   const [userEmail, setUserEmail] = useState('');
   const [userPassword, setUserPassword] = useState('');
+  const [showUserPassword, setShowUserPassword] = useState(false);
   const [userFullName, setUserFullName] = useState('');
   const [userRole, setUserRole] = useState<'advisor' | 'client'>('advisor');
   const [userViewOnly, setUserViewOnly] = useState(false);
@@ -3166,6 +3167,7 @@ const SuperadminPanel = ({ onViewSite, onViewOrg, onSyncSite }: { onViewSite: (s
   const [adminSetPwUser, setAdminSetPwUser] = useState<{ id: string; email: string } | null>(null);
   const [adminSetPwValue, setAdminSetPwValue] = useState('');
   const [adminSetPwLoading, setAdminSetPwLoading] = useState(false);
+  const [showAdminSetPw, setShowAdminSetPw] = useState(false);
   const [adminRenameUser, setAdminRenameUser] = useState<{ id: string; email: string; currentName: string } | null>(null);
   const [adminRenameValue, setAdminRenameValue] = useState('');
   const [userSiteSearch, setUserSiteSearch] = useState('');
@@ -3397,7 +3399,7 @@ const SuperadminPanel = ({ onViewSite, onViewOrg, onSyncSite }: { onViewSite: (s
     const res = await fetch('/api/admin/users', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: userEmail.trim(), password: userPassword, role: userRole, organisation_id: userOrgId || null, site_ids: userSiteIds, full_name: userFullName.trim() || null, view_only: userRole === 'client' ? userViewOnly : undefined }) });
     const data = await res.json();
     if (!res.ok) { flash(apiErr(data, 'Create user failed'), true); return; }
-    flash('User created!'); setUserEmail(''); setUserPassword(''); setUserFullName(''); setUserRole('advisor'); setUserViewOnly(false); setUserOrgId(''); setUserSiteIds([]); setShowUserForm(false); loadUsers(); loadClientSiteAssignments();
+    flash('User created!'); setUserEmail(''); setUserPassword(''); setUserFullName(''); setUserRole('advisor'); setUserViewOnly(false); setUserOrgId(''); setUserSiteIds([]); setShowUserPassword(false); setShowUserForm(false); loadUsers(); loadClientSiteAssignments();
   };
 
   const handleCreateAssignment = async () => {
@@ -4153,8 +4155,8 @@ const SuperadminPanel = ({ onViewSite, onViewOrg, onSyncSite }: { onViewSite: (s
             <div className="bg-white border border-indigo-200 rounded-lg p-6 space-y-4">
               <h4 className="font-black text-slate-900 text-sm uppercase tracking-widest">New User</h4>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div><label className={labelClass}>Email *</label><input type="email" value={userEmail} onChange={e => setUserEmail(e.target.value)} placeholder="user@company.com" className={inputClass} /></div>
-                <div><label className={labelClass}>Password *</label><input type="password" value={userPassword} onChange={e => setUserPassword(e.target.value)} placeholder="Min 8 characters" className={inputClass} /></div>
+                <div><label className={labelClass}>Email *</label><input type="email" value={userEmail} onChange={e => setUserEmail(e.target.value)} autoComplete="off" placeholder="user@company.com" className={inputClass} /></div>
+                <div><label className={labelClass}>Password *</label><div className="relative"><input type={showUserPassword ? 'text' : 'password'} value={userPassword} onChange={e => setUserPassword(e.target.value)} autoComplete="new-password" placeholder="Min 8 characters" className={`${inputClass} pr-10`} /><button type="button" onClick={() => setShowUserPassword(v => !v)} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">{showUserPassword ? <EyeOff size={15} /> : <Eye size={15} />}</button></div></div>
               </div>
               <div><label className={labelClass}>Full Name</label><input type="text" value={userFullName} onChange={e => setUserFullName(e.target.value)} placeholder="e.g. Jane Smith" className={inputClass} /></div>
               <div>
@@ -4831,16 +4833,16 @@ const SuperadminPanel = ({ onViewSite, onViewOrg, onSyncSite }: { onViewSite: (s
             <h3 className="font-black text-slate-900 text-base mb-1">Set password</h3>
             <p className="text-xs text-slate-400 mb-4">{adminSetPwUser.email}</p>
             {flashError && <div className="bg-rose-50 border border-rose-200 text-rose-700 text-xs font-bold px-3 py-2 rounded-xl mb-3">{flashError}</div>}
-            <div><label className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1 block">New Password</label><div className="relative"><Lock size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300" /><input type="password" value={adminSetPwValue} onChange={e => setAdminSetPwValue(e.target.value)} onKeyDown={async e => { if (e.key === 'Enter') { /* submit */ } }} placeholder="Min. 8 characters" className="w-full pl-9 pr-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300" /></div></div>
+            <div><label className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1 block">New Password</label><div className="relative"><Lock size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300" /><input type={showAdminSetPw ? 'text' : 'password'} value={adminSetPwValue} onChange={e => setAdminSetPwValue(e.target.value)} onKeyDown={async e => { if (e.key === 'Enter') { /* submit */ } }} autoComplete="new-password" placeholder="Min. 8 characters" className="w-full pl-9 pr-10 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300" /><button type="button" onClick={() => setShowAdminSetPw(v => !v)} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">{showAdminSetPw ? <EyeOff size={15} /> : <Eye size={15} />}</button></div></div>
             <div className="flex gap-2 mt-5">
-              <button onClick={() => { setAdminSetPwUser(null); setAdminSetPwValue(''); }} className="flex-1 py-2.5 border border-slate-200 rounded-xl text-[11px] font-black uppercase tracking-wider text-slate-500 hover:bg-slate-50" title="Cancel without saving">Cancel</button>
+              <button onClick={() => { setAdminSetPwUser(null); setAdminSetPwValue(''); setShowAdminSetPw(false); }} className="flex-1 py-2.5 border border-slate-200 rounded-xl text-[11px] font-black uppercase tracking-wider text-slate-500 hover:bg-slate-50" title="Cancel without saving">Cancel</button>
               <button disabled={adminSetPwLoading} onClick={async () => {
                 if (adminSetPwValue.length < 8) { flash('Password must be at least 8 characters', true); return; }
                 setAdminSetPwLoading(true);
                 const res = await fetch('/api/admin/users', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userId: adminSetPwUser.id, newPassword: adminSetPwValue }) });
                 setAdminSetPwLoading(false);
                 if (!res.ok) { const d = await res.json().catch(() => ({})); flash(apiErr(d, 'Failed to set password'), true); return; }
-                setAdminSetPwUser(null); setAdminSetPwValue(''); flash('Password updated');
+                setAdminSetPwUser(null); setAdminSetPwValue(''); setShowAdminSetPw(false); flash('Password updated');
               }} className="flex-1 py-2.5 bg-indigo-600 text-white rounded-xl text-[11px] font-black uppercase tracking-wider hover:bg-indigo-700 disabled:opacity-50" title="Set new password for this user">{adminSetPwLoading ? 'Saving…' : 'Set Password'}</button>
             </div>
           </div>
@@ -6080,6 +6082,7 @@ const SyncConfigModal = ({ site, onClose, onSave }: {
 const SetPasswordModal = ({ title, onSubmit, onClose }: { title: string; onSubmit: (pw: string) => Promise<void>; onClose: () => void }) => {
   const [pw, setPw] = useState(''); const [pw2, setPw2] = useState('');
   const [loading, setLoading] = useState(false); const [err, setErr] = useState('');
+  const [showPw, setShowPw] = useState(false);
   const handle = async () => {
     if (pw.length < 8) { setErr('Password must be at least 8 characters'); return; }
     if (pw !== pw2) { setErr('Passwords do not match'); return; }
@@ -6093,8 +6096,8 @@ const SetPasswordModal = ({ title, onSubmit, onClose }: { title: string; onSubmi
         <h3 className="font-black text-slate-900 text-base mb-4">{title}</h3>
         {err && <div className="bg-rose-50 border border-rose-200 text-rose-700 text-xs font-bold px-3 py-2 rounded-xl mb-3">{err}</div>}
         <div className="space-y-3">
-          <div><label className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1 block">New Password</label><div className="relative"><Lock size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300" /><input type="password" value={pw} onChange={e => setPw(e.target.value)} placeholder="Min. 8 characters" className="w-full pl-9 pr-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300" /></div></div>
-          <div><label className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1 block">Confirm Password</label><div className="relative"><Lock size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300" /><input type="password" value={pw2} onChange={e => setPw2(e.target.value)} onKeyDown={e => e.key === 'Enter' && handle()} placeholder="Repeat password" className="w-full pl-9 pr-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300" /></div></div>
+          <div><label className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1 block">New Password</label><div className="relative"><Lock size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300" /><input type={showPw ? 'text' : 'password'} value={pw} onChange={e => setPw(e.target.value)} autoComplete="new-password" placeholder="Min. 8 characters" className="w-full pl-9 pr-10 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300" /><button type="button" onClick={() => setShowPw(v => !v)} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">{showPw ? <EyeOff size={15} /> : <Eye size={15} />}</button></div></div>
+          <div><label className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1 block">Confirm Password</label><div className="relative"><Lock size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300" /><input type={showPw ? 'text' : 'password'} value={pw2} onChange={e => setPw2(e.target.value)} onKeyDown={e => e.key === 'Enter' && handle()} autoComplete="new-password" placeholder="Repeat password" className="w-full pl-9 pr-10 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300" /><button type="button" onClick={() => setShowPw(v => !v)} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">{showPw ? <EyeOff size={15} /> : <Eye size={15} />}</button></div></div>
         </div>
         <div className="flex gap-2 mt-5">
           <button onClick={onClose} className="flex-1 py-2.5 border border-slate-200 rounded-xl text-[11px] font-black uppercase tracking-wider text-slate-500 hover:bg-slate-50">Cancel</button>
