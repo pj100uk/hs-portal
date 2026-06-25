@@ -3,6 +3,7 @@ import { createClient } from '@supabase/supabase-js';
 import Busboy from 'busboy';
 import { BASE_URL, AUTH_HEADER, resolveSubfolder } from '../../../datto/folder-utils';
 import { logActivity } from '../../../../lib/activity';
+import { notifyAdvisorOfEvidenceUpload } from '../../../../lib/email';
 
 export const runtime = 'nodejs';
 
@@ -181,6 +182,8 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
         }
       }
     }
+
+    notifyAdvisorOfEvidenceUpload({ siteId, uploadedBy: userId || null, fileName: finalFileName, hazardRef: hazardRef || null, sourceDocumentName: sourceDocumentName || null });
 
     logActivity({
       userId: userId || null,

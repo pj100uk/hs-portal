@@ -5009,6 +5009,8 @@ const ClientUploadsPanel = ({ siteId, siteName, siteFolderPath, userId, onClose,
   const [acknowledgedSet, setAcknowledgedSet] = useState<Set<string>>(new Set());
   const [clientDocs, setClientDocs] = useState<ClientDoc[]>([]);
   const [dismissedDocs, setDismissedDocs] = useState<Set<string>>(new Set());
+  const [rejectExpanded, setRejectExpanded] = useState<Record<string, boolean>>({});
+  const [rejectNote, setRejectNote] = useState<Record<string, string>>({});
 
   useEffect(() => {
     setLoading(true);
@@ -5099,6 +5101,17 @@ const ClientUploadsPanel = ({ siteId, siteName, siteFolderPath, userId, onClose,
     }
   };
 
+  const handleReject = async (uploadId: string) => {
+    setWorking(prev => new Set(prev).add(uploadId));
+    const res = await fetch(`/api/client-uploads/${uploadId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'reject', reviewedBy: userId, reviewNote: rejectNote[uploadId] || null }),
+    });
+    if (res.ok) remove(uploadId);
+    setWorking(prev => { const s = new Set(prev); s.delete(uploadId); return s; });
+  };
+
   const handleOpen = (upload: Upload) => {
     // Office files: always try W: drive via ms- protocol — path only needs siteFolderPath, not datto_file_id
     if (siteFolderPath) {
@@ -5169,6 +5182,22 @@ const ClientUploadsPanel = ({ siteId, siteName, siteFolderPath, userId, onClose,
                     rows={2}
                     className="w-full border border-slate-200 rounded px-2 py-1 text-[11px] resize-none focus:outline-none focus:ring-2 focus:ring-indigo-300 mt-1"
                   />
+                )}
+                {/* Reject note textarea */}
+                {rejectExpanded[upload.id] && (
+                  <div className="mt-1 border border-rose-200 rounded-lg bg-rose-50 p-2 space-y-1.5">
+                    <textarea
+                      value={rejectNote[upload.id] ?? ''}
+                      onChange={e => setRejectNote(prev => ({ ...prev, [upload.id]: e.target.value }))}
+                      placeholder="Reason for returning (optional)…"
+                      rows={2}
+                      className="w-full border border-rose-200 rounded px-2 py-1 text-[11px] resize-none focus:outline-none focus:ring-2 focus:ring-rose-300 bg-white"
+                    />
+                    <div className="flex gap-2">
+                      <button onClick={() => setRejectExpanded(prev => ({ ...prev, [upload.id]: false }))} className="px-2.5 py-1 border border-slate-200 rounded text-[10px] font-black text-slate-500 bg-white hover:bg-slate-50">Cancel</button>
+                      <button onClick={() => handleReject(upload.id)} className="px-2.5 py-1 bg-rose-600 text-white rounded text-[10px] font-black hover:bg-rose-700">Confirm Return</button>
+                    </div>
+                  </div>
                 )}
 
                 {/* Link to action picker */}
@@ -5262,6 +5291,10 @@ const ClientUploadsPanel = ({ siteId, siteName, siteFolderPath, userId, onClose,
                 {!noteExpanded[upload.id] && (
                   <button onClick={() => setNoteExpanded(prev => ({ ...prev, [upload.id]: true }))} className="flex items-center gap-1 border border-slate-200 text-slate-500 rounded-lg text-[10px] font-black px-2.5 py-1 hover:bg-slate-100 transition-colors">+ Note</button>
                 )}
+                <button
+                  onClick={() => setRejectExpanded(prev => ({ ...prev, [upload.id]: !prev[upload.id] }))}
+                  className={`flex items-center gap-1 border rounded-lg text-[10px] font-black px-2.5 py-1 transition-colors ${rejectExpanded[upload.id] ? 'bg-rose-50 border-rose-300 text-rose-700' : 'border-rose-200 text-rose-500 hover:bg-rose-50 hover:border-rose-300 hover:text-rose-700'}`}
+                >Return</button>
                 <button
                   onClick={async () => {
                     await fetch(`/api/client-uploads/${upload.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'hide' }) });
@@ -6740,11 +6773,11 @@ export default function App() {
     if (action) await scheduleNextOccurrence({ ...action, resolvedDate: today });
   };
   const handleAdvisorReject = async (id: string, note: string) => {
-    const { error } = await supabase.from('actions').update({ status: 'open', review_note: note || null }).eq('id', id);
-    if (error) { console.error('[handleAdvisorReject] DB error:', error); showAppFlash('Failed to reject — please try again.'); return; }
-    setAllActions(prev => prev.map(a => a.id === id ? { ...a, status: 'open' as ActionStatus, reviewNote: note || null } : a));
     const action = allActions.find(a => a.id === id);
     const siteId = sites.find(s => s.name === action?.site)?.id;
+    const res = await fetch(`/api/actions/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'reject', note, siteId }) });
+    if (!res.ok) { showAppFlash('Failed to reject — please try again.'); return; }
+    setAllActions(prev => prev.map(a => a.id === id ? { ...a, status: 'open' as ActionStatus, reviewNote: note || null } : a));
     if (siteId) recalcActionProgress(siteId);
   };
   const handleApplyFromWord = async (id: string, diff: ReadDiff) => {

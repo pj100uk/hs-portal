@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { BASE_URL, AUTH_HEADER, resolveSubfolder } from '../../datto/folder-utils';
+import { notifyClientOfUploadRejection } from '../../lib/email';
 
 export const runtime = 'nodejs';
 
@@ -49,6 +50,25 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       .select()
       .single();
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ upload: data });
+  }
+
+  if (action === 'reject') {
+    const { data: upload, error: fetchErr } = await supabase
+      .from('client_uploads').select('uploaded_by, file_name').eq('id', params.id).single();
+    if (fetchErr || !upload) return NextResponse.json({ error: 'Upload not found' }, { status: 404 });
+
+    const { data, error } = await supabase
+      .from('client_uploads')
+      .update({ status: 'rejected', reviewed_by: reviewedBy || null, reviewed_at: new Date().toISOString(), review_note: reviewNote || null })
+      .eq('id', params.id)
+      .select()
+      .single();
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+    if (upload.uploaded_by) {
+      notifyClientOfUploadRejection({ uploadedBy: upload.uploaded_by, fileName: upload.file_name, reviewNote: reviewNote || null });
+    }
     return NextResponse.json({ upload: data });
   }
 

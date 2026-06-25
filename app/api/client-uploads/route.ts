@@ -3,6 +3,7 @@ import { createClient } from '@supabase/supabase-js';
 import Busboy from 'busboy';
 import { BASE_URL, AUTH_HEADER, resolveClientDocsFolderId } from '../datto/folder-utils';
 import { logActivity } from '../../lib/activity';
+import { notifyAdvisorOfGeneralUpload } from '../../lib/email';
 
 export const runtime = 'nodejs';
 
@@ -117,7 +118,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: insertErr.message }, { status: 500 });
     }
 
-    // TODO: notify advisor by email when SMTP available
+    notifyAdvisorOfGeneralUpload({ siteId, uploadedBy: userId || null, fileName: storedFileName, notes: notes || null });
 
     logActivity({
       userId: userId || null,
