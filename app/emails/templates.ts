@@ -16,14 +16,15 @@ function layout(content: string): string {
       <table width="600" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:8px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,0.1);">
         <!-- Header -->
         <tr>
-          <td style="background:${INDIGO};padding:24px 40px;">
+          <td style="background:#c7d2fe;padding:24px 40px;">
             <table cellpadding="0" cellspacing="0" width="100%"><tr>
               <td style="vertical-align:middle;">
                 <img src="https://www.riskdox.co.uk/logo.png" alt="MBHS" height="52" style="display:block;height:52px;border:0;" />
               </td>
               <td style="vertical-align:middle;text-align:right;">
-                <span style="display:block;color:#ffffff;font-size:20px;font-weight:800;letter-spacing:-0.5px;line-height:1.1;">RiskDox</span>
-                <span style="display:block;color:#a5b4fc;font-size:10px;font-weight:600;letter-spacing:1.5px;text-transform:uppercase;margin-top:3px;">Health &amp; Safety Portal</span>
+                <span style="display:block;color:#1e1b4b;font-size:20px;font-weight:800;letter-spacing:-0.5px;line-height:1.1;">RiskDox</span>
+                <span style="display:block;color:#3730a3;font-size:10px;font-weight:600;letter-spacing:1.5px;text-transform:uppercase;margin-top:3px;margin-right:-1.5px;">Health &amp; Safety Portal</span>
+                <span style="display:block;color:#4338ca;font-size:9px;font-weight:400;letter-spacing:0.3px;margin-top:2px;margin-right:-0.3px;">by McCormack Benson Health &amp; Safety</span>
               </td>
             </tr></table>
           </td>
