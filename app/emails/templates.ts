@@ -19,10 +19,10 @@ function layout(content: string): string {
           <td style="background:${INDIGO};padding:24px 40px;">
             <table cellpadding="0" cellspacing="0" width="100%"><tr>
               <td style="vertical-align:middle;">
-                <img src="https://www.riskdox.co.uk/logo.png" alt="MBHS" height="38" style="display:block;height:38px;border:0;" />
+                <img src="https://www.riskdox.co.uk/logo.png" alt="MBHS" height="52" style="display:block;height:52px;border:0;" />
               </td>
               <td style="vertical-align:middle;text-align:right;">
-                <span style="color:#a5b4fc;font-size:12px;font-weight:500;letter-spacing:0.3px;">Health &amp; Safety Portal</span>
+                <span style="color:#a5b4fc;font-size:12px;font-weight:500;letter-spacing:0.3px;">RiskDox Health &amp; Safety Portal</span>
               </td>
             </tr></table>
           </td>
@@ -83,8 +83,11 @@ function metaTable(rows: string): string {
 // ─── Templates ───────────────────────────────────────────────────────────────
 
 export function advisorGeneralUploadHtml(params: {
-  uploaderName: string; fileName: string; siteName: string; notes?: string | null;
+  uploaderName: string; orgName?: string | null; fileName: string; siteName: string; notes?: string | null;
 }): string {
+  const uploaderDisplay = params.orgName
+    ? `<strong>${params.uploaderName}</strong> (<em>${params.orgName}</em>)`
+    : `<strong>${params.uploaderName}</strong>`;
   const rows = [
     metaRow('File', params.fileName),
     metaRow('Site', params.siteName),
@@ -93,15 +96,16 @@ export function advisorGeneralUploadHtml(params: {
 
   return layout(`
     ${heading('New file uploaded for review')}
-    ${para(`<strong>${params.uploaderName}</strong> has uploaded a file to the portal and it is waiting for your review.`)}
+    ${para(`${uploaderDisplay} has uploaded a file to the portal and it is waiting for your review.`)}
     ${metaTable(rows)}
     ${ctaButton('Review in Portal', PORTAL_URL)}
   `);
 }
 
 export function advisorEvidenceUploadHtml(params: {
-  siteName: string; fileName: string; hazardRef?: string | null; sourceDocumentName?: string | null;
+  siteName: string; orgName?: string | null; fileName: string; hazardRef?: string | null; sourceDocumentName?: string | null;
 }): string {
+  const orgDisplay = params.orgName ? ` from <em>${params.orgName}</em>` : '';
   const rows = [
     metaRow('File', params.fileName),
     ...(params.hazardRef ? [metaRow('Action ref', `Ref ${params.hazardRef}`)] : []),
@@ -111,7 +115,7 @@ export function advisorEvidenceUploadHtml(params: {
 
   return layout(`
     ${heading('New evidence uploaded for an action')}
-    ${para('A client has uploaded evidence against an action. Please log in to review it.')}
+    ${para(`A client${orgDisplay} has uploaded evidence against an action. Please log in to review it.`)}
     ${metaTable(rows)}
     ${ctaButton('Review in Portal', PORTAL_URL)}
   `);

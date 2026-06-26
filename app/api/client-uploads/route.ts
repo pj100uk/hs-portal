@@ -54,8 +54,19 @@ export async function POST(request: NextRequest) {
     if (!fileBuffer || !fileName) return NextResponse.json({ error: 'No file provided' }, { status: 400 });
     if (!siteId) return NextResponse.json({ error: 'siteId is required' }, { status: 400 });
 
+    // Build canonical name: "{baseName} v{n} DD-MM-YY.ext"
+    const ext = fileName.includes('.') ? fileName.slice(fileName.lastIndexOf('.')) : '';
+    const baseName = fileName.slice(0, fileName.length - ext.length).replace(/ v\d+ \d{2}-\d{2}-\d{2}$/, '').trim();
+    const now = new Date();
+    const ukDate = `${String(now.getDate()).padStart(2, '0')}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getFullYear()).slice(2)}`;
+    const { count: existingCount } = await supabase
+      .from('client_uploads').select('id', { count: 'exact', head: true })
+      .eq('site_id', siteId).ilike('file_name', `${baseName}%`);
+    const vNum = (existingCount ?? 0) + 1;
+    const canonicalName = `${baseName} v${vNum} ${ukDate}${ext}`;
+
     const uploadId = crypto.randomUUID();
-    const storagePath = `general-uploads/${uploadId}/${fileName}`;
+    const storagePath = `general-uploads/${uploadId}/${canonicalName}`;
 
     const { error: storageErr } = await supabase.storage
       .from('client-uploads')
@@ -65,14 +76,14 @@ export async function POST(request: NextRequest) {
 
     // Upload to Datto "Client Provided Documents" via API
     let dattoFileId: string | null = null;
-    let storedFileName = fileName; // may be updated if Datto assigns a different name
+    let storedFileName = canonicalName;
     try {
       const { data: site } = await supabase.from('sites').select('datto_folder_id').eq('id', siteId).single();
       if (site?.datto_folder_id) {
         const targetFolderId = await resolveClientDocsFolderId(String(site.datto_folder_id));
         const form = new FormData();
-        form.append('partData', new Blob([new Uint8Array(fileBuffer)], { type: mimeType }), fileName);
-        form.append('fileName', fileName);
+        form.append('partData', new Blob([new Uint8Array(fileBuffer)], { type: mimeType }), canonicalName);
+        form.append('fileName', canonicalName);
         form.append('makeUnique', 'true');
         const dattoRes = await fetch(`${BASE_URL}/file/${targetFolderId}/files`, {
           method: 'POST', headers: { Authorization: AUTH_HEADER }, body: form,

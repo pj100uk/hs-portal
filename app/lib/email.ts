@@ -15,7 +15,7 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
-const FROM = 'noreply@mb-hs.com';
+const FROM = 'RiskDox <noreply@mb-hs.com>';
 const PORTAL_URL = 'https://www.riskdox.co.uk';
 
 async function sendEmail(to: string, subject: string, text: string, html: string): Promise<void> {
@@ -68,14 +68,20 @@ async function lookupSiteName(siteId: string): Promise<string> {
   return data?.name ?? 'your site';
 }
 
+async function lookupOrgName(siteId: string): Promise<string | null> {
+  const { data } = await supabase.from('sites').select('organisations(name)').eq('id', siteId).single();
+  return (data?.organisations as any)?.name ?? null;
+}
+
 // ─── Exported notification functions (fire-and-forget) ───────────────────────
 
 export async function notifyAdvisorOfGeneralUpload(params: {
   siteId: string; uploadedBy: string | null; fileName: string; notes: string | null;
 }): Promise<void> {
-  const [advisorEmails, siteName] = await Promise.all([
+  const [advisorEmails, siteName, orgName] = await Promise.all([
     lookupAdvisorEmails(params.siteId),
     lookupSiteName(params.siteId),
+    lookupOrgName(params.siteId),
   ]);
   if (!advisorEmails.length) return;
 
@@ -93,7 +99,7 @@ export async function notifyAdvisorOfGeneralUpload(params: {
     `Log in to review: ${PORTAL_URL}`,
   ].join('\n');
 
-  const html = advisorGeneralUploadHtml({ uploaderName, fileName: params.fileName, siteName, notes: params.notes });
+  const html = advisorGeneralUploadHtml({ uploaderName, orgName, fileName: params.fileName, siteName, notes: params.notes });
   for (const email of advisorEmails) {
     await sendEmail(email, `New file uploaded for review — ${siteName}`, text, html);
   }
@@ -103,9 +109,10 @@ export async function notifyAdvisorOfEvidenceUpload(params: {
   siteId: string; uploadedBy: string | null; fileName: string;
   hazardRef: string | null; sourceDocumentName: string | null;
 }): Promise<void> {
-  const [advisorEmails, siteName] = await Promise.all([
+  const [advisorEmails, siteName, orgName] = await Promise.all([
     lookupAdvisorEmails(params.siteId),
     lookupSiteName(params.siteId),
+    lookupOrgName(params.siteId),
   ]);
   if (!advisorEmails.length) return;
 
@@ -120,7 +127,7 @@ export async function notifyAdvisorOfEvidenceUpload(params: {
   ].join('\n');
 
   const html = advisorEvidenceUploadHtml({
-    siteName, fileName: params.fileName,
+    siteName, orgName, fileName: params.fileName,
     hazardRef: params.hazardRef, sourceDocumentName: params.sourceDocumentName,
   });
   const subjectRef = ref ? `${ref} — ` : '';
