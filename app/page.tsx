@@ -4294,7 +4294,11 @@ const SuperadminPanel = ({ onViewSite, onViewOrg, onSyncSite }: { onViewSite: (s
                             {user.profile?.full_name && <span className="block text-xs text-slate-400">{user.email}</span>}
                           </td>
                           <td className="px-6 py-4"><span className={`text-[10px] font-black uppercase tracking-wider px-2 py-1 rounded-lg border ${user.profile?.role === 'superadmin' ? 'bg-indigo-100 text-indigo-700 border-indigo-200' : user.profile?.role === 'advisor' ? 'bg-amber-100 text-amber-700 border-amber-200' : 'bg-emerald-100 text-emerald-700 border-emerald-200'}`}>{user.profile?.role || 'unknown'}</span></td>
-                          <td className="px-6 py-4 text-sm text-slate-500">{user.profile?.organisation_id ? organisations.find(o => o.id === user.profile.organisation_id)?.name || '—' : '—'}</td>
+                          <td className="px-6 py-4 text-sm text-slate-500">{
+                            user.profile?.role === 'advisor'
+                              ? (() => { const orgNames = assignments.filter((a: any) => a.advisor_id === user.id).map((a: any) => a.organisations?.name || organisations.find(o => o.id === a.organisation_id)?.name).filter(Boolean); return orgNames.length ? orgNames.join(', ') : '—'; })()
+                              : user.profile?.organisation_id ? organisations.find(o => o.id === user.profile.organisation_id)?.name || '—' : '—'
+                          }</td>
                           <td className="px-6 py-4 text-sm text-slate-500">
                             {isClient ? (
                               userAssignments.length > 0
