@@ -42,8 +42,13 @@ async function lookupAdvisorEmails(siteId: string): Promise<string[]> {
     orgAdvisors?.forEach(a => advisorIds.add(a.advisor_id));
   }
 
+  const { data: profiles } = await supabase
+    .from('profiles').select('id, receive_emails').in('id', [...advisorIds]);
+
   const emails: string[] = [];
   for (const id of advisorIds) {
+    const profile = profiles?.find(p => p.id === id);
+    if (profile?.receive_emails === false) continue;
     const { data: { user } } = await supabase.auth.admin.getUserById(id);
     if (user?.email) emails.push(user.email);
   }
@@ -51,6 +56,8 @@ async function lookupAdvisorEmails(siteId: string): Promise<string[]> {
 }
 
 async function lookupClientEmail(userId: string): Promise<string | null> {
+  const { data: profile } = await supabase.from('profiles').select('receive_emails').eq('id', userId).single();
+  if (profile?.receive_emails === false) return null;
   const { data: { user } } = await supabase.auth.admin.getUserById(userId);
   return user?.email ?? null;
 }

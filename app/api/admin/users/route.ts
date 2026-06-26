@@ -62,7 +62,7 @@ export async function POST(request: NextRequest) {
 
 // PATCH — update a user's profile (organisation_id, datto_base_path, full_name, phone) or set password
 export async function PATCH(request: NextRequest) {
-  const { userId, organisation_id, datto_base_path, view_only, newPassword, full_name, phone } = await request.json();
+  const { userId, organisation_id, datto_base_path, view_only, receive_emails, newPassword, full_name, phone } = await request.json();
   if (!userId) return NextResponse.json({ error: 'userId is required' }, { status: 400 });
 
   // Admin password set — no profile update needed
@@ -76,6 +76,7 @@ export async function PATCH(request: NextRequest) {
   if (organisation_id !== undefined) updates.organisation_id = organisation_id ?? null;
   if (datto_base_path !== undefined) updates.datto_base_path = datto_base_path || null;
   if (view_only !== undefined) updates.view_only = view_only;
+  if (receive_emails !== undefined) updates.receive_emails = receive_emails;
   if (full_name !== undefined) updates.full_name = full_name || null;
   if (phone !== undefined) updates.phone = phone || null;
   if (Object.keys(updates).length === 0) return NextResponse.json({ error: 'Nothing to update' }, { status: 400 });

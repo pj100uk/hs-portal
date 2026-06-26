@@ -98,7 +98,7 @@ interface ReviewAction extends ExtractedAction {
   pendingActions?: ExtractedAction[];
 }
 interface Organisation { id: string; name: string; datto_folder_id: string | null; datto_folder_name: string | null; logo_url: string | null; }
-interface Profile { role: 'superadmin' | 'advisor' | 'client'; site_id: string | null; organisation_id: string | null; datto_base_path: string | null; view_only: boolean; full_name: string | null; }
+interface Profile { role: 'superadmin' | 'advisor' | 'client'; site_id: string | null; organisation_id: string | null; datto_base_path: string | null; view_only: boolean; full_name: string | null; receive_emails: boolean; }
 interface SiteDocument {
   id: string; site_id: string; uploaded_by: string | null; uploaded_at: string;
   file_name: string; datto_file_id: string | null; datto_folder_id: string | null;
@@ -3431,6 +3431,10 @@ const SuperadminPanel = ({ onViewSite, onViewOrg, onSyncSite }: { onViewSite: (s
     await fetch('/api/admin/users', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userId, view_only: viewOnly }) });
     loadUsers();
   };
+  const handleSetReceiveEmails = async (userId: string, receiveEmails: boolean) => {
+    await fetch('/api/admin/users', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userId, receive_emails: receiveEmails }) });
+    loadUsers();
+  };
 
   const handleAddOrgAdvisor = async (orgId: string, advisorId: string) => {
     const { error } = await supabase.from('advisor_organisations').insert({ advisor_id: advisorId, organisation_id: orgId });
@@ -3860,6 +3864,10 @@ const SuperadminPanel = ({ onViewSite, onViewOrg, onSyncSite }: { onViewSite: (s
                                                 <label className="flex items-center gap-1.5 text-[10px] font-bold text-slate-500 cursor-pointer select-none">
                                                   <input type="checkbox" checked={!!u.profile?.view_only} onChange={e => handleSetViewOnly(u.id, e.target.checked)} className="accent-indigo-600" />
                                                   Viewer only
+                                                </label>
+                                                <label className="flex items-center gap-1.5 text-[10px] font-bold text-slate-500 cursor-pointer select-none">
+                                                  <input type="checkbox" checked={u.profile?.receive_emails !== false} onChange={e => handleSetReceiveEmails(u.id, e.target.checked)} className="accent-indigo-600" />
+                                                  Emails
                                                 </label>
                                                 <button onClick={() => handleRemoveOrgClient(u.id)} className="text-rose-400 hover:text-rose-600 p-0.5 rounded" title="Remove this client from the organisation"><X size={13} /></button>
                                               </div>
@@ -4293,7 +4301,13 @@ const SuperadminPanel = ({ onViewSite, onViewOrg, onSyncSite }: { onViewSite: (s
                             ) : '—'}
                           </td>
                           <td className="px-6 py-4 text-right">
-                            <div className="flex items-center justify-end gap-1">
+                            <div className="flex items-center justify-end gap-2">
+                              {user.profile?.role !== 'superadmin' && (
+                                <label className="flex items-center gap-1.5 text-[10px] font-bold text-slate-500 cursor-pointer select-none" onClick={e => e.stopPropagation()}>
+                                  <input type="checkbox" checked={user.profile?.receive_emails !== false} onChange={e => handleSetReceiveEmails(user.id, e.target.checked)} className="accent-indigo-600" />
+                                  Emails
+                                </label>
+                              )}
                               {user.profile?.role !== 'superadmin' && <button onClick={e => { e.stopPropagation(); setAdminRenameUser({ id: user.id, email: user.email, currentName: user.profile?.full_name || '', currentPhone: user.profile?.phone || '' }); setAdminRenameValue(user.profile?.full_name || ''); setAdminRenamePhoneValue(user.profile?.phone || ''); }} className="text-slate-400 hover:text-indigo-600 p-1.5 rounded-lg hover:bg-indigo-50" title="Set display name"><Pencil size={14} /></button>}
                               {user.profile?.role !== 'superadmin' && <button onClick={e => { e.stopPropagation(); setAdminSetPwUser({ id: user.id, email: user.email }); setAdminSetPwValue(''); }} className="text-slate-400 hover:text-indigo-600 p-1.5 rounded-lg hover:bg-indigo-50" title="Set password"><KeyRound size={14} /></button>}
                               {user.profile?.role !== 'superadmin' && <button onClick={e => { e.stopPropagation(); handleDeleteUser(user.id); }} className="text-rose-400 hover:text-rose-600 p-1.5 rounded-lg hover:bg-rose-50" title="Permanently delete this user account"><X size={14} /></button>}
