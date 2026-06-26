@@ -1,5 +1,11 @@
 import { Resend } from 'resend';
 import { createClient } from '@supabase/supabase-js';
+import {
+  advisorGeneralUploadHtml,
+  advisorEvidenceUploadHtml,
+  clientUploadRejectionHtml,
+  clientActionRejectionHtml,
+} from '../emails/templates';
 
 const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
 
@@ -11,10 +17,10 @@ const supabase = createClient(
 const FROM = 'noreply@mb-hs.com';
 const PORTAL_URL = 'https://www.riskdox.co.uk';
 
-async function sendEmail(to: string, subject: string, text: string): Promise<void> {
+async function sendEmail(to: string, subject: string, text: string, html: string): Promise<void> {
   if (!resend) { console.warn('[email] RESEND_API_KEY not set — skipping email'); return; }
   try {
-    await resend.emails.send({ from: FROM, to, subject, text });
+    await resend.emails.send({ from: FROM, to, subject, text, html });
   } catch (err: any) {
     console.error('[email] send failed:', err.message);
   }
@@ -69,16 +75,16 @@ export function notifyAdvisorOfGeneralUpload(params: {
       uploaderName = user?.user_metadata?.full_name ?? user?.email ?? 'A client';
     }
 
-    const lines = [
+    const text = [
       `${uploaderName} has uploaded a new file for your review.`,
-      '',
       `File: ${params.fileName}`,
       ...(params.notes ? [`Note: ${params.notes}`] : []),
       `Site: ${siteName}`,
-      '',
       `Log in to review: ${PORTAL_URL}`,
-    ];
-    await sendEmail(advisorEmail, `New file uploaded for review — ${siteName}`, lines.join('\n'));
+    ].join('\n');
+
+    const html = advisorGeneralUploadHtml({ uploaderName, fileName: params.fileName, siteName, notes: params.notes });
+    await sendEmail(advisorEmail, `New file uploaded for review — ${siteName}`, text, html);
   })();
 }
 
@@ -94,18 +100,21 @@ export function notifyAdvisorOfEvidenceUpload(params: {
     if (!advisorEmail) return;
 
     const ref = params.hazardRef ? `Ref ${params.hazardRef}` : null;
-    const lines = [
+    const text = [
       `A client has uploaded evidence for an action.`,
-      '',
       `File: ${params.fileName}`,
       ...(ref ? [`Action ref: ${ref}`] : []),
       ...(params.sourceDocumentName ? [`Document: ${params.sourceDocumentName}`] : []),
       `Site: ${siteName}`,
-      '',
       `Log in to review: ${PORTAL_URL}`,
-    ];
+    ].join('\n');
+
+    const html = advisorEvidenceUploadHtml({
+      siteName, fileName: params.fileName,
+      hazardRef: params.hazardRef, sourceDocumentName: params.sourceDocumentName,
+    });
     const subjectRef = ref ? `${ref} — ` : '';
-    await sendEmail(advisorEmail, `New evidence uploaded — ${subjectRef}${siteName}`, lines.join('\n'));
+    await sendEmail(advisorEmail, `New evidence uploaded — ${subjectRef}${siteName}`, text, html);
   })();
 }
 
@@ -116,15 +125,15 @@ export function notifyClientOfUploadRejection(params: {
     const clientEmail = await lookupClientEmail(params.uploadedBy);
     if (!clientEmail) return;
 
-    const lines = [
+    const text = [
       `Your uploaded file "${params.fileName}" has been returned by your advisor.`,
-      '',
-      ...(params.reviewNote ? [`Advisor note: ${params.reviewNote}`, ''] : []),
+      ...(params.reviewNote ? [`Advisor note: ${params.reviewNote}`] : []),
       `Please log in to the portal to review the feedback and re-upload if needed.`,
-      '',
       PORTAL_URL,
-    ];
-    await sendEmail(clientEmail, `Your uploaded file has been returned — ${params.fileName}`, lines.join('\n'));
+    ].join('\n');
+
+    const html = clientUploadRejectionHtml({ fileName: params.fileName, reviewNote: params.reviewNote });
+    await sendEmail(clientEmail, `Your uploaded file has been returned — ${params.fileName}`, text, html);
   })();
 }
 
@@ -139,7 +148,6 @@ export function notifyClientOfActionRejection(params: {
       .eq('site_id', params.siteId);
 
     if (!clients?.length) {
-      // Also check client_site_assignments
       const { data: assignments } = await supabase
         .from('client_site_assignments')
         .select('client_user_id')
@@ -163,14 +171,14 @@ async function sendRejectionEmail(
   to: string,
   params: { actionTitle: string; reviewNote: string | null },
 ): Promise<void> {
-  const lines = [
+  const text = [
     `Your action has been reviewed and sent back for revision.`,
-    '',
     `Action: ${params.actionTitle}`,
-    ...(params.reviewNote ? [`Advisor note: ${params.reviewNote}`, ''] : []),
+    ...(params.reviewNote ? [`Advisor note: ${params.reviewNote}`] : []),
     `Please log in to the portal to view the feedback.`,
-    '',
     PORTAL_URL,
-  ];
-  await sendEmail(to, `An action has been returned for revision`, lines.join('\n'));
+  ].join('\n');
+
+  const html = clientActionRejectionHtml({ actionTitle: params.actionTitle, reviewNote: params.reviewNote });
+  await sendEmail(to, `An action has been returned for revision`, text, html);
 }
