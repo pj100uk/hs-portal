@@ -100,10 +100,17 @@ export async function DELETE(request: NextRequest) {
   const { userId } = await request.json();
   if (!userId) return NextResponse.json({ error: 'userId is required' }, { status: 400 });
 
-  // Remove related records that would block deletion
+  // Null out nullable FK references (don't delete the rows, just unlink the user)
+  await supabaseAdmin.from('sites').update({ advisor_id: null }).eq('advisor_id', userId);
+  await supabaseAdmin.from('activity_log').update({ user_id: null }).eq('user_id', userId);
+
+  // Delete rows that belong to this user
   await supabaseAdmin.from('client_site_assignments').delete().eq('client_user_id', userId);
   await supabaseAdmin.from('advisor_site_assignments').delete().eq('advisor_id', userId);
   await supabaseAdmin.from('advisor_organisations').delete().eq('advisor_id', userId);
+
+  // Delete profile before auth user (FK may not cascade)
+  await supabaseAdmin.from('profiles').delete().eq('id', userId);
 
   const { error } = await supabaseAdmin.auth.admin.deleteUser(userId);
   if (error) return NextResponse.json({ error: error.message }, { status: 400 });
