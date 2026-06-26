@@ -3865,10 +3865,6 @@ const SuperadminPanel = ({ onViewSite, onViewOrg, onSyncSite }: { onViewSite: (s
                                                   <input type="checkbox" checked={!!u.profile?.view_only} onChange={e => handleSetViewOnly(u.id, e.target.checked)} className="accent-indigo-600" />
                                                   Viewer only
                                                 </label>
-                                                <label className="flex items-center gap-1.5 text-[10px] font-bold text-slate-500 cursor-pointer select-none">
-                                                  <input type="checkbox" checked={u.profile?.receive_emails !== false} onChange={e => handleSetReceiveEmails(u.id, e.target.checked)} className="accent-indigo-600" />
-                                                  Emails
-                                                </label>
                                                 <button onClick={() => handleRemoveOrgClient(u.id)} className="text-rose-400 hover:text-rose-600 p-0.5 rounded" title="Remove this client from the organisation"><X size={13} /></button>
                                               </div>
                                             </div>
@@ -3891,6 +3887,12 @@ const SuperadminPanel = ({ onViewSite, onViewOrg, onSyncSite }: { onViewSite: (s
                                                   );
                                                 })}
                                                 {orgSites.length === 0 && <p className="text-xs text-slate-400">No sites in this org</p>}
+                                                <div className="pt-2 mt-2 border-t border-slate-200">
+                                                  <label className="flex items-center gap-2 text-xs font-bold text-slate-600 cursor-pointer select-none">
+                                                    <input type="checkbox" checked={u.profile?.receive_emails !== false} onChange={e => handleSetReceiveEmails(u.id, e.target.checked)} className="accent-indigo-600" />
+                                                    Send email notifications
+                                                  </label>
+                                                </div>
                                               </div>
                                             )}
                                           </div>
@@ -4302,12 +4304,6 @@ const SuperadminPanel = ({ onViewSite, onViewOrg, onSyncSite }: { onViewSite: (s
                           </td>
                           <td className="px-6 py-4 text-right">
                             <div className="flex items-center justify-end gap-2">
-                              {user.profile?.role !== 'superadmin' && (
-                                <label className="flex items-center gap-1.5 text-[10px] font-bold text-slate-500 cursor-pointer select-none" onClick={e => e.stopPropagation()}>
-                                  <input type="checkbox" checked={user.profile?.receive_emails !== false} onChange={e => handleSetReceiveEmails(user.id, e.target.checked)} className="accent-indigo-600" />
-                                  Emails
-                                </label>
-                              )}
                               {user.profile?.role !== 'superadmin' && <button onClick={e => { e.stopPropagation(); setAdminRenameUser({ id: user.id, email: user.email, currentName: user.profile?.full_name || '', currentPhone: user.profile?.phone || '' }); setAdminRenameValue(user.profile?.full_name || ''); setAdminRenamePhoneValue(user.profile?.phone || ''); }} className="text-slate-400 hover:text-indigo-600 p-1.5 rounded-lg hover:bg-indigo-50" title="Set display name"><Pencil size={14} /></button>}
                               {user.profile?.role !== 'superadmin' && <button onClick={e => { e.stopPropagation(); setAdminSetPwUser({ id: user.id, email: user.email }); setAdminSetPwValue(''); }} className="text-slate-400 hover:text-indigo-600 p-1.5 rounded-lg hover:bg-indigo-50" title="Set password"><KeyRound size={14} /></button>}
                               {user.profile?.role !== 'superadmin' && <button onClick={e => { e.stopPropagation(); handleDeleteUser(user.id); }} className="text-rose-400 hover:text-rose-600 p-1.5 rounded-lg hover:bg-rose-50" title="Permanently delete this user account"><X size={14} /></button>}
@@ -4341,6 +4337,15 @@ const SuperadminPanel = ({ onViewSite, onViewOrg, onSyncSite }: { onViewSite: (s
                                     </div>
                                   )}
                                 </div>
+                              </div>
+
+                              {/* Email notifications */}
+                              <div className="mt-4 pt-4 border-t border-slate-200">
+                                <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">Notifications</p>
+                                <label className="flex items-center gap-2 text-xs font-bold text-slate-600 cursor-pointer select-none">
+                                  <input type="checkbox" checked={user.profile?.receive_emails !== false} onChange={e => handleSetReceiveEmails(user.id, e.target.checked)} className="accent-indigo-600" />
+                                  Send email notifications to this user
+                                </label>
                               </div>
 
                               {/* Recent Activity */}
@@ -4895,6 +4900,13 @@ const SuperadminPanel = ({ onViewSite, onViewOrg, onSyncSite }: { onViewSite: (s
             <div className="space-y-3">
               <div><label className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1 block">Full Name</label><input type="text" value={adminRenameValue} onChange={e => setAdminRenameValue(e.target.value)} placeholder="e.g. Jane Smith" className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300" /></div>
               <div><label className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1 block">Phone <span className="font-normal normal-case tracking-normal text-slate-300">(optional)</span></label><input type="tel" value={adminRenamePhoneValue} onChange={e => setAdminRenamePhoneValue(e.target.value)} placeholder="e.g. 07700 900000" className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300" /></div>
+              <div className="pt-1">
+                <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2 block">Notifications</label>
+                <label className="flex items-center gap-2 text-xs font-bold text-slate-600 cursor-pointer select-none">
+                  <input type="checkbox" checked={users.find(u => u.id === adminRenameUser.id)?.profile?.receive_emails !== false} onChange={e => handleSetReceiveEmails(adminRenameUser.id, e.target.checked)} className="accent-indigo-600" />
+                  Send email notifications
+                </label>
+              </div>
             </div>
             <div className="flex gap-2 mt-5">
               <button onClick={() => { setAdminRenameUser(null); setAdminRenameValue(''); setAdminRenamePhoneValue(''); }} className="flex-1 py-2.5 border border-slate-200 rounded-xl text-[11px] font-black uppercase tracking-wider text-slate-500 hover:bg-slate-50" title="Cancel without saving">Cancel</button>
