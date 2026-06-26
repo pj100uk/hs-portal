@@ -26,25 +26,28 @@ async function sendEmail(to: string, subject: string, text: string, html: string
   }
 }
 
-async function lookupAdvisorEmail(siteId: string): Promise<string | null> {
+async function lookupAdvisorEmails(siteId: string): Promise<string[]> {
   const { data: site } = await supabase.from('sites').select('advisor_id, organisation_id').eq('id', siteId).single();
-  let advisorId: string | null = site?.advisor_id ?? null;
+  const advisorIds = new Set<string>();
 
-  if (!advisorId) {
-    const { data: assignment } = await supabase
-      .from('advisor_site_assignments').select('advisor_id').eq('site_id', siteId).limit(1).single();
-    advisorId = assignment?.advisor_id ?? null;
+  if (site?.advisor_id) advisorIds.add(site.advisor_id);
+
+  const { data: siteAssignments } = await supabase
+    .from('advisor_site_assignments').select('advisor_id').eq('site_id', siteId);
+  siteAssignments?.forEach(a => advisorIds.add(a.advisor_id));
+
+  if (site?.organisation_id) {
+    const { data: orgAdvisors } = await supabase
+      .from('advisor_organisations').select('advisor_id').eq('organisation_id', site.organisation_id);
+    orgAdvisors?.forEach(a => advisorIds.add(a.advisor_id));
   }
 
-  if (!advisorId && site?.organisation_id) {
-    const { data: orgAdvisor } = await supabase
-      .from('advisor_organisations').select('advisor_id').eq('organisation_id', site.organisation_id).limit(1).single();
-    advisorId = orgAdvisor?.advisor_id ?? null;
+  const emails: string[] = [];
+  for (const id of advisorIds) {
+    const { data: { user } } = await supabase.auth.admin.getUserById(id);
+    if (user?.email) emails.push(user.email);
   }
-
-  if (!advisorId) return null;
-  const { data: { user } } = await supabase.auth.admin.getUserById(advisorId);
-  return user?.email ?? null;
+  return emails;
 }
 
 async function lookupClientEmail(userId: string): Promise<string | null> {
@@ -63,11 +66,11 @@ export function notifyAdvisorOfGeneralUpload(params: {
   siteId: string; uploadedBy: string | null; fileName: string; notes: string | null;
 }): void {
   void (async () => {
-    const [advisorEmail, siteName] = await Promise.all([
-      lookupAdvisorEmail(params.siteId),
+    const [advisorEmails, siteName] = await Promise.all([
+      lookupAdvisorEmails(params.siteId),
       lookupSiteName(params.siteId),
     ]);
-    if (!advisorEmail) return;
+    if (!advisorEmails.length) return;
 
     let uploaderName = 'A client';
     if (params.uploadedBy) {
@@ -84,7 +87,9 @@ export function notifyAdvisorOfGeneralUpload(params: {
     ].join('\n');
 
     const html = advisorGeneralUploadHtml({ uploaderName, fileName: params.fileName, siteName, notes: params.notes });
-    await sendEmail(advisorEmail, `New file uploaded for review — ${siteName}`, text, html);
+    for (const email of advisorEmails) {
+      await sendEmail(email, `New file uploaded for review — ${siteName}`, text, html);
+    }
   })();
 }
 
@@ -93,11 +98,11 @@ export function notifyAdvisorOfEvidenceUpload(params: {
   hazardRef: string | null; sourceDocumentName: string | null;
 }): void {
   void (async () => {
-    const [advisorEmail, siteName] = await Promise.all([
-      lookupAdvisorEmail(params.siteId),
+    const [advisorEmails, siteName] = await Promise.all([
+      lookupAdvisorEmails(params.siteId),
       lookupSiteName(params.siteId),
     ]);
-    if (!advisorEmail) return;
+    if (!advisorEmails.length) return;
 
     const ref = params.hazardRef ? `Ref ${params.hazardRef}` : null;
     const text = [
@@ -114,7 +119,9 @@ export function notifyAdvisorOfEvidenceUpload(params: {
       hazardRef: params.hazardRef, sourceDocumentName: params.sourceDocumentName,
     });
     const subjectRef = ref ? `${ref} — ` : '';
-    await sendEmail(advisorEmail, `New evidence uploaded — ${subjectRef}${siteName}`, text, html);
+    for (const email of advisorEmails) {
+      await sendEmail(email, `New evidence uploaded — ${subjectRef}${siteName}`, text, html);
+    }
   })();
 }
 
