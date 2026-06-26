@@ -3537,7 +3537,26 @@ const SuperadminPanel = ({ onViewSite, onViewOrg, onSyncSite }: { onViewSite: (s
     if (!res.ok) { flash(json.error ?? 'Failed to clear actions', true); return; }
     flash(`Cleared ${json.deleted.actions} action${json.deleted.actions !== 1 ? 's' : ''} and ${json.deleted.evidence} evidence record${json.deleted.evidence !== 1 ? 's' : ''}`);
   };
-  const handleDeleteUser = async (id: string) => { if (!confirm('Delete this user? This cannot be undone.')) return; const res = await fetch('/api/admin/users', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userId: id }) }); if (!res.ok) { const d = await res.json().catch(() => ({})); flash(apiErr(d, 'Delete failed'), true); return; } flash('User deleted'); loadUsers(); };
+  const handleDeleteUser = async (id: string) => {
+    const [{ count: siteCount }, { count: uploadCount }, { count: advisorSiteCount }, { count: advisorOrgCount }] = await Promise.all([
+      supabase.from('client_site_assignments').select('id', { count: 'exact', head: true }).eq('client_user_id', id),
+      supabase.from('client_uploads').select('id', { count: 'exact', head: true }).eq('uploaded_by', id),
+      supabase.from('advisor_site_assignments').select('id', { count: 'exact', head: true }).eq('advisor_id', id),
+      supabase.from('advisor_organisations').select('id', { count: 'exact', head: true }).eq('advisor_id', id),
+    ]);
+    const warnings: string[] = [];
+    if ((siteCount ?? 0) > 0) warnings.push(`${siteCount} site assignment${siteCount !== 1 ? 's' : ''}`);
+    if ((uploadCount ?? 0) > 0) warnings.push(`${uploadCount} uploaded file${uploadCount !== 1 ? 's' : ''}`);
+    if ((advisorSiteCount ?? 0) > 0) warnings.push(`${advisorSiteCount} advisor site assignment${advisorSiteCount !== 1 ? 's' : ''}`);
+    if ((advisorOrgCount ?? 0) > 0) warnings.push(`${advisorOrgCount} organisation assignment${advisorOrgCount !== 1 ? 's' : ''}`);
+    const msg = warnings.length > 0
+      ? `This user has ${warnings.join(', ')}. All associated data will be permanently deleted.\n\nAre you sure?`
+      : 'Delete this user? This cannot be undone.';
+    if (!confirm(msg)) return;
+    const res = await fetch('/api/admin/users', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userId: id }) });
+    if (!res.ok) { const d = await res.json().catch(() => ({})); flash(apiErr(d, 'Delete failed'), true); return; }
+    flash('User deleted'); loadUsers();
+  };
   const handleDeleteAssignment = async (id: string) => { if (!confirm('Remove this assignment?')) return; await supabase.from('advisor_organisations').delete().eq('id', id); flash('Assignment removed'); loadAssignments(); };
 
   const advisors = users.filter(u => u.profile?.role === 'advisor');
