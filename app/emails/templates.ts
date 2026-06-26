@@ -22,7 +22,8 @@ function layout(content: string): string {
                 <img src="https://www.riskdox.co.uk/logo.png" alt="MBHS" height="52" style="display:block;height:52px;border:0;" />
               </td>
               <td style="vertical-align:middle;text-align:right;">
-                <span style="color:#a5b4fc;font-size:12px;font-weight:500;letter-spacing:0.3px;">RiskDox Health &amp; Safety Portal</span>
+                <span style="display:block;color:#ffffff;font-size:20px;font-weight:800;letter-spacing:-0.5px;line-height:1.1;">RiskDox</span>
+                <span style="display:block;color:#a5b4fc;font-size:10px;font-weight:600;letter-spacing:1.5px;text-transform:uppercase;margin-top:3px;">Health &amp; Safety Portal</span>
               </td>
             </tr></table>
           </td>
