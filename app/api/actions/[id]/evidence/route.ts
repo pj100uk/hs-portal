@@ -183,17 +183,18 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
       }
     }
 
-    notifyAdvisorOfEvidenceUpload({ siteId, uploadedBy: userId || null, fileName: finalFileName, hazardRef: hazardRef || null, sourceDocumentName: sourceDocumentName || null });
-
-    logActivity({
-      userId: userId || null,
-      siteId: siteId || null,
-      action: 'evidence_uploaded',
-      resourceType: 'action_evidence',
-      resourceId: row.id,
-      resourceName: finalFileName,
-      metadata: { actionId, fileSizeBytes: fileSize || null },
-    });
+    await Promise.allSettled([
+      notifyAdvisorOfEvidenceUpload({ siteId, uploadedBy: userId || null, fileName: finalFileName, hazardRef: hazardRef || null, sourceDocumentName: sourceDocumentName || null }),
+      logActivity({
+        userId: userId || null,
+        siteId: siteId || null,
+        action: 'evidence_uploaded',
+        resourceType: 'action_evidence',
+        resourceId: row.id,
+        resourceName: finalFileName,
+        metadata: { actionId, fileSizeBytes: fileSize || null },
+      }),
+    ]);
 
     return NextResponse.json({
       evidence: {

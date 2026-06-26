@@ -118,17 +118,18 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: insertErr.message }, { status: 500 });
     }
 
-    notifyAdvisorOfGeneralUpload({ siteId, uploadedBy: userId || null, fileName: storedFileName, notes: notes || null });
-
-    logActivity({
-      userId: userId || null,
-      siteId: siteId || null,
-      action: 'file_uploaded',
-      resourceType: 'client_upload',
-      resourceId: row.id,
-      resourceName: storedFileName,
-      metadata: { fileSizeBytes: fileSize || null },
-    });
+    await Promise.allSettled([
+      notifyAdvisorOfGeneralUpload({ siteId, uploadedBy: userId || null, fileName: storedFileName, notes: notes || null }),
+      logActivity({
+        userId: userId || null,
+        siteId: siteId || null,
+        action: 'file_uploaded',
+        resourceType: 'client_upload',
+        resourceId: row.id,
+        resourceName: storedFileName,
+        metadata: { fileSizeBytes: fileSize || null },
+      }),
+    ]);
 
     return NextResponse.json({ upload: row });
   } catch (err: any) {

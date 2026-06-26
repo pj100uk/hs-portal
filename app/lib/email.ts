@@ -69,67 +69,63 @@ async function lookupSiteName(siteId: string): Promise<string> {
 
 // ─── Exported notification functions (fire-and-forget) ───────────────────────
 
-export function notifyAdvisorOfGeneralUpload(params: {
+export async function notifyAdvisorOfGeneralUpload(params: {
   siteId: string; uploadedBy: string | null; fileName: string; notes: string | null;
-}): void {
-  void (async () => {
-    const [advisorEmails, siteName] = await Promise.all([
-      lookupAdvisorEmails(params.siteId),
-      lookupSiteName(params.siteId),
-    ]);
-    if (!advisorEmails.length) return;
+}): Promise<void> {
+  const [advisorEmails, siteName] = await Promise.all([
+    lookupAdvisorEmails(params.siteId),
+    lookupSiteName(params.siteId),
+  ]);
+  if (!advisorEmails.length) return;
 
-    let uploaderName = 'A client';
-    if (params.uploadedBy) {
-      const { data: { user } } = await supabase.auth.admin.getUserById(params.uploadedBy);
-      uploaderName = user?.user_metadata?.full_name ?? user?.email ?? 'A client';
-    }
+  let uploaderName = 'A client';
+  if (params.uploadedBy) {
+    const { data: { user } } = await supabase.auth.admin.getUserById(params.uploadedBy);
+    uploaderName = user?.user_metadata?.full_name ?? user?.email ?? 'A client';
+  }
 
-    const text = [
-      `${uploaderName} has uploaded a new file for your review.`,
-      `File: ${params.fileName}`,
-      ...(params.notes ? [`Note: ${params.notes}`] : []),
-      `Site: ${siteName}`,
-      `Log in to review: ${PORTAL_URL}`,
-    ].join('\n');
+  const text = [
+    `${uploaderName} has uploaded a new file for your review.`,
+    `File: ${params.fileName}`,
+    ...(params.notes ? [`Note: ${params.notes}`] : []),
+    `Site: ${siteName}`,
+    `Log in to review: ${PORTAL_URL}`,
+  ].join('\n');
 
-    const html = advisorGeneralUploadHtml({ uploaderName, fileName: params.fileName, siteName, notes: params.notes });
-    for (const email of advisorEmails) {
-      await sendEmail(email, `New file uploaded for review — ${siteName}`, text, html);
-    }
-  })();
+  const html = advisorGeneralUploadHtml({ uploaderName, fileName: params.fileName, siteName, notes: params.notes });
+  for (const email of advisorEmails) {
+    await sendEmail(email, `New file uploaded for review — ${siteName}`, text, html);
+  }
 }
 
-export function notifyAdvisorOfEvidenceUpload(params: {
+export async function notifyAdvisorOfEvidenceUpload(params: {
   siteId: string; uploadedBy: string | null; fileName: string;
   hazardRef: string | null; sourceDocumentName: string | null;
-}): void {
-  void (async () => {
-    const [advisorEmails, siteName] = await Promise.all([
-      lookupAdvisorEmails(params.siteId),
-      lookupSiteName(params.siteId),
-    ]);
-    if (!advisorEmails.length) return;
+}): Promise<void> {
+  const [advisorEmails, siteName] = await Promise.all([
+    lookupAdvisorEmails(params.siteId),
+    lookupSiteName(params.siteId),
+  ]);
+  if (!advisorEmails.length) return;
 
-    const ref = params.hazardRef ? `Ref ${params.hazardRef}` : null;
-    const text = [
-      `A client has uploaded evidence for an action.`,
-      `File: ${params.fileName}`,
-      ...(ref ? [`Action ref: ${ref}`] : []),
-      ...(params.sourceDocumentName ? [`Document: ${params.sourceDocumentName}`] : []),
-      `Site: ${siteName}`,
-      `Log in to review: ${PORTAL_URL}`,
-    ].join('\n');
+  const ref = params.hazardRef ? `Ref ${params.hazardRef}` : null;
+  const text = [
+    `A client has uploaded evidence for an action.`,
+    `File: ${params.fileName}`,
+    ...(ref ? [`Action ref: ${ref}`] : []),
+    ...(params.sourceDocumentName ? [`Document: ${params.sourceDocumentName}`] : []),
+    `Site: ${siteName}`,
+    `Log in to review: ${PORTAL_URL}`,
+  ].join('\n');
 
-    const html = advisorEvidenceUploadHtml({
-      siteName, fileName: params.fileName,
-      hazardRef: params.hazardRef, sourceDocumentName: params.sourceDocumentName,
-    });
-    const subjectRef = ref ? `${ref} — ` : '';
-    for (const email of advisorEmails) {
-      await sendEmail(email, `New evidence uploaded — ${subjectRef}${siteName}`, text, html);
-    }
-  })();
+  const html = advisorEvidenceUploadHtml({
+    siteName, fileName: params.fileName,
+    hazardRef: params.hazardRef, sourceDocumentName: params.sourceDocumentName,
+  });
+  const subjectRef = ref ? `${ref} — ` : '';
+  for (const email of advisorEmails) {
+    await sendEmail(email, `New evidence uploaded — ${subjectRef}${siteName}`, text, html);
+  }
 }
 
 export function notifyClientOfUploadRejection(params: {

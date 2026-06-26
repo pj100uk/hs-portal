@@ -3176,6 +3176,8 @@ const SuperadminPanel = ({ onViewSite, onViewOrg, onSyncSite }: { onViewSite: (s
   const [adminRenameValue, setAdminRenameValue] = useState('');
   const [adminRenamePhoneValue, setAdminRenamePhoneValue] = useState('');
   const [userSiteSearch, setUserSiteSearch] = useState('');
+  const [userFilterOrg, setUserFilterOrg] = useState('');
+  const [userFilterSite, setUserFilterSite] = useState('');
 
   // Assignment data
   const [clientSiteAssignments, setClientSiteAssignments] = useState<any[]>([]);
@@ -3581,6 +3583,30 @@ const SuperadminPanel = ({ onViewSite, onViewOrg, onSyncSite }: { onViewSite: (s
   ];
 
   // Reusable folder picker field
+
+  const filteredUsers = users.filter(user => {
+    const role = user.profile?.role;
+    if (userFilterOrg) {
+      if (role === 'superadmin') return false;
+      if (role === 'client' && user.profile?.organisation_id !== userFilterOrg) return false;
+      if (role === 'advisor' && !assignments.some((a: any) => a.advisor_id === user.id && a.organisation_id === userFilterOrg)) return false;
+    }
+    if (userFilterSite) {
+      const site = sites.find((s: any) => s.id === userFilterSite);
+      if (!site) return false;
+      if (role === 'superadmin') return false;
+      if (role === 'client') {
+        const hasSpecific = clientSiteAssignments.some((a: any) => a.client_user_id === user.id);
+        if (hasSpecific) {
+          if (!clientSiteAssignments.some((a: any) => a.client_user_id === user.id && a.site_id === userFilterSite)) return false;
+        } else {
+          if (user.profile?.organisation_id !== site.organisation_id) return false;
+        }
+      }
+      if (role === 'advisor' && !assignments.some((a: any) => a.advisor_id === user.id && a.organisation_id === site.organisation_id)) return false;
+    }
+    return true;
+  });
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
@@ -4219,9 +4245,22 @@ const SuperadminPanel = ({ onViewSite, onViewOrg, onSyncSite }: { onViewSite: (s
       {/* ── USERS TAB ── */}
       {activeTab === 'users' && (
         <div className="space-y-4">
-          <div className="flex justify-between items-center">
-            <h3 className="font-black text-slate-900 uppercase tracking-widest text-sm">{users.length} User{users.length !== 1 ? 's' : ''}</h3>
-            <button onClick={() => setShowUserForm(v => !v)} className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-xl text-[11px] font-black uppercase tracking-wider hover:bg-indigo-700" title="Add a new user account"><Plus size={13} />Add User</button>
+          <div className="flex flex-wrap justify-between items-center gap-3">
+            <h3 className="font-black text-slate-900 uppercase tracking-widest text-sm">
+              {filteredUsers.length}{filteredUsers.length !== users.length ? ` / ${users.length}` : ''} User{users.length !== 1 ? 's' : ''}
+            </h3>
+            <div className="flex items-center gap-2 flex-wrap">
+              <select value={userFilterOrg} onChange={e => { setUserFilterOrg(e.target.value); setUserFilterSite(''); }} className="px-3 py-2 border border-slate-200 rounded-xl text-xs font-bold text-slate-600 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-300">
+                <option value="">All organisations</option>
+                {organisations.map(org => <option key={org.id} value={org.id}>{org.name}</option>)}
+              </select>
+              <select value={userFilterSite} onChange={e => setUserFilterSite(e.target.value)} className="px-3 py-2 border border-slate-200 rounded-xl text-xs font-bold text-slate-600 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-300">
+                <option value="">All sites</option>
+                {(userFilterOrg ? sites.filter((s: any) => s.organisation_id === userFilterOrg) : sites).map((s: any) => <option key={s.id} value={s.id}>{s.name}</option>)}
+              </select>
+              {(userFilterOrg || userFilterSite) && <button onClick={() => { setUserFilterOrg(''); setUserFilterSite(''); }} className="text-xs text-slate-400 hover:text-slate-600 font-bold px-2 py-2 rounded-lg hover:bg-slate-100" title="Clear filters">Clear</button>}
+              <button onClick={() => setShowUserForm(v => !v)} className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-xl text-[11px] font-black uppercase tracking-wider hover:bg-indigo-700" title="Add a new user account"><Plus size={13} />Add User</button>
+            </div>
           </div>
           {showUserForm && (
             <div className="bg-white border border-indigo-200 rounded-lg p-6 space-y-4">
@@ -4282,7 +4321,7 @@ const SuperadminPanel = ({ onViewSite, onViewOrg, onSyncSite }: { onViewSite: (s
               <table className="w-full text-left">
                 <thead><tr className="bg-slate-50 text-[10px] uppercase font-black text-slate-400 border-b border-slate-100"><th className="px-6 py-3">Email</th><th className="px-6 py-3">Role</th><th className="px-6 py-3">Organisation</th><th className="px-6 py-3">Sites</th><th className="px-6 py-3"></th></tr></thead>
                 <tbody className="divide-y divide-slate-100">
-                  {users.map(user => {
+                  {filteredUsers.map(user => {
                     const isClient = user.profile?.role === 'client';
                     const userAssignments = clientSiteAssignments.filter((a: any) => a.client_user_id === user.id);
                     const isExpanded = expandingUserId === user.id;

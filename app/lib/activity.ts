@@ -16,17 +16,16 @@ export interface ActivityEvent {
   metadata?: Record<string, unknown>;
 }
 
-export function logActivity(event: ActivityEvent): void {
-  Promise.resolve(
-    supabase.from('activity_log').insert({
-      user_id:         event.userId,
-      site_id:         event.siteId,
-      organisation_id: event.organisationId ?? null,
-      action:          event.action,
-      resource_type:   event.resourceType ?? null,
-      resource_id:     event.resourceId ?? null,
-      resource_name:   event.resourceName ?? null,
-      metadata:        event.metadata ?? {},
-    })
-  ).catch(err => console.error('[activity_log] write error:', err));
+export async function logActivity(event: ActivityEvent): Promise<void> {
+  const { error } = await supabase.from('activity_log').insert({
+    user_id:         event.userId,
+    site_id:         event.siteId,
+    organisation_id: event.organisationId ?? null,
+    action:          event.action,
+    resource_type:   event.resourceType ?? null,
+    resource_id:     event.resourceId ?? null,
+    resource_name:   event.resourceName ?? null,
+    metadata:        event.metadata ?? {},
+  });
+  if (error) console.error('[activity_log] write error:', error);
 }

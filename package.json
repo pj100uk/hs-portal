@@ -20,7 +20,7 @@
     "jszip": "^3.10.1",
     "lucide-react": "^0.344.0",
     "mammoth": "^1.12.0",
-    "next": "14.1.0",
+    "next": "14.2.29",
     "react": "^18",
     "react-dom": "^18",
     "resend": "^6.14.0",
