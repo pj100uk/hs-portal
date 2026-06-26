@@ -25,7 +25,7 @@ export async function GET() {
 
 // POST — create a new user
 export async function POST(request: NextRequest) {
-  const { email, password, role, organisation_id, site_ids, full_name, view_only } = await request.json();
+  const { email, password, role, organisation_id, site_ids, full_name, phone, view_only } = await request.json();
 
   if (!email || !password || !role) {
     return NextResponse.json({ error: 'Email, password and role are required' }, { status: 400 });
@@ -40,7 +40,7 @@ export async function POST(request: NextRequest) {
 
   if (userError) return NextResponse.json({ error: userError.message }, { status: 400 });
 
-  const profileUpdates: Record<string, unknown> = { role, organisation_id: organisation_id || null, full_name: full_name || null };
+  const profileUpdates: Record<string, unknown> = { role, organisation_id: organisation_id || null, full_name: full_name || null, phone: phone || null };
   if (role === 'client' && view_only !== undefined) profileUpdates.view_only = !!view_only;
 
   const { error: profileError } = await supabaseAdmin
@@ -60,9 +60,9 @@ export async function POST(request: NextRequest) {
   return NextResponse.json({ user: userData.user });
 }
 
-// PATCH — update a user's profile (organisation_id, datto_base_path, full_name) or set password
+// PATCH — update a user's profile (organisation_id, datto_base_path, full_name, phone) or set password
 export async function PATCH(request: NextRequest) {
-  const { userId, organisation_id, datto_base_path, view_only, newPassword, full_name } = await request.json();
+  const { userId, organisation_id, datto_base_path, view_only, newPassword, full_name, phone } = await request.json();
   if (!userId) return NextResponse.json({ error: 'userId is required' }, { status: 400 });
 
   // Admin password set — no profile update needed
@@ -77,6 +77,7 @@ export async function PATCH(request: NextRequest) {
   if (datto_base_path !== undefined) updates.datto_base_path = datto_base_path || null;
   if (view_only !== undefined) updates.view_only = view_only;
   if (full_name !== undefined) updates.full_name = full_name || null;
+  if (phone !== undefined) updates.phone = phone || null;
   if (Object.keys(updates).length === 0) return NextResponse.json({ error: 'Nothing to update' }, { status: 400 });
 
   const { error } = await supabaseAdmin
@@ -94,10 +95,15 @@ export async function PATCH(request: NextRequest) {
   return NextResponse.json({ success: true });
 }
 
-// DELETE — delete a user
+// DELETE — delete a user (cleans up related records first)
 export async function DELETE(request: NextRequest) {
   const { userId } = await request.json();
   if (!userId) return NextResponse.json({ error: 'userId is required' }, { status: 400 });
+
+  // Remove related records that would block deletion
+  await supabaseAdmin.from('client_site_assignments').delete().eq('client_user_id', userId);
+  await supabaseAdmin.from('advisor_site_assignments').delete().eq('advisor_id', userId);
+  await supabaseAdmin.from('advisor_organisations').delete().eq('advisor_id', userId);
 
   const { error } = await supabaseAdmin.auth.admin.deleteUser(userId);
   if (error) return NextResponse.json({ error: error.message }, { status: 400 });

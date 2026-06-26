@@ -55,6 +55,7 @@ interface Site {
   iagScore: number | null;
   iagWeightedScore: number | null;
   employeeCount: number | null;
+  logo_url?: string | null;
 }
 
 interface DocumentMeta {
@@ -3103,6 +3104,8 @@ const SuperadminPanel = ({ onViewSite, onViewOrg, onSyncSite }: { onViewSite: (s
   const [showEditSitePicker, setShowEditSitePicker] = useState(false);
   const [editSiteAdvisorId, setEditSiteAdvisorId] = useState('');
   const [editSiteEmployeeCount, setEditSiteEmployeeCount] = useState<string>('');
+  const [editSiteLogoUrl, setEditSiteLogoUrl] = useState('');
+  const [editSiteLogoUploading, setEditSiteLogoUploading] = useState(false);
   const [siteServices, setSiteServices] = useState<any[]>([]);
   const [siteServicesLoading, setSiteServicesLoading] = useState(false);
 
@@ -3135,6 +3138,7 @@ const SuperadminPanel = ({ onViewSite, onViewOrg, onSyncSite }: { onViewSite: (s
   const [userPassword, setUserPassword] = useState('');
   const [showUserPassword, setShowUserPassword] = useState(false);
   const [userFullName, setUserFullName] = useState('');
+  const [userPhone, setUserPhone] = useState('');
   const [userRole, setUserRole] = useState<'advisor' | 'client'>('advisor');
   const [userViewOnly, setUserViewOnly] = useState(false);
   const [userOrgId, setUserOrgId] = useState('');
@@ -3168,8 +3172,9 @@ const SuperadminPanel = ({ onViewSite, onViewOrg, onSyncSite }: { onViewSite: (s
   const [adminSetPwValue, setAdminSetPwValue] = useState('');
   const [adminSetPwLoading, setAdminSetPwLoading] = useState(false);
   const [showAdminSetPw, setShowAdminSetPw] = useState(false);
-  const [adminRenameUser, setAdminRenameUser] = useState<{ id: string; email: string; currentName: string } | null>(null);
+  const [adminRenameUser, setAdminRenameUser] = useState<{ id: string; email: string; currentName: string; currentPhone: string } | null>(null);
   const [adminRenameValue, setAdminRenameValue] = useState('');
+  const [adminRenamePhoneValue, setAdminRenamePhoneValue] = useState('');
   const [userSiteSearch, setUserSiteSearch] = useState('');
 
   // Assignment data
@@ -3396,10 +3401,10 @@ const SuperadminPanel = ({ onViewSite, onViewOrg, onSyncSite }: { onViewSite: (s
     if (!userEmail.trim()) { flash('Email is required', true); return; }
     if (!userPassword.trim()) { flash('Password is required', true); return; }
     if (userRole === 'client' && !userOrgId) { flash('Organisation is required for client users', true); return; }
-    const res = await fetch('/api/admin/users', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: userEmail.trim(), password: userPassword, role: userRole, organisation_id: userOrgId || null, site_ids: userSiteIds, full_name: userFullName.trim() || null, view_only: userRole === 'client' ? userViewOnly : undefined }) });
+    const res = await fetch('/api/admin/users', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: userEmail.trim(), password: userPassword, role: userRole, organisation_id: userOrgId || null, site_ids: userSiteIds, full_name: userFullName.trim() || null, phone: userPhone.trim() || null, view_only: userRole === 'client' ? userViewOnly : undefined }) });
     const data = await res.json();
     if (!res.ok) { flash(apiErr(data, 'Create user failed'), true); return; }
-    flash('User created!'); setUserEmail(''); setUserPassword(''); setUserFullName(''); setUserRole('advisor'); setUserViewOnly(false); setUserOrgId(''); setUserSiteIds([]); setShowUserPassword(false); setShowUserForm(false); loadUsers(); loadClientSiteAssignments();
+    flash('User created!'); setUserEmail(''); setUserPassword(''); setUserFullName(''); setUserPhone(''); setUserRole('advisor'); setUserViewOnly(false); setUserOrgId(''); setUserSiteIds([]); setShowUserPassword(false); setShowUserForm(false); loadUsers(); loadClientSiteAssignments();
   };
 
   const handleCreateAssignment = async () => {
@@ -3497,6 +3502,7 @@ const SuperadminPanel = ({ onViewSite, onViewOrg, onSyncSite }: { onViewSite: (s
     const orgAdvisorId = assignments.find((a: any) => a.organisation_id === site.organisation_id)?.advisor_id || '';
     setEditSiteAdvisorId(site.advisor_id || orgAdvisorId);
     setEditSiteEmployeeCount(site.employee_count != null ? String(site.employee_count) : '');
+    setEditSiteLogoUrl(site.logo_url || '');
     setShowEditSitePicker(false);
     // Load services purchased for this site
     setSiteServicesLoading(true);
@@ -3512,7 +3518,7 @@ const SuperadminPanel = ({ onViewSite, onViewOrg, onSyncSite }: { onViewSite: (s
     if (!finalId) { flash('Datto folder is required — select the site\'s H&S document folder before saving.', true); return; }
     const editTypeValue = editSiteType === 'OTHER' ? (editSiteTypeOther.trim() || 'OTHER') : editSiteType;
     const empCount = editSiteEmployeeCount !== '' ? parseInt(editSiteEmployeeCount, 10) : null;
-    const { error } = await supabase.from('sites').update({ name: editSiteName.trim(), type: editTypeValue, datto_folder_id: finalId || null, datto_folder_path: editSiteFolderPath || null, advisor_id: editSiteAdvisorId || null, employee_count: empCount }).eq('id', id);
+    const { error } = await supabase.from('sites').update({ name: editSiteName.trim(), type: editTypeValue, datto_folder_id: finalId || null, datto_folder_path: editSiteFolderPath || null, advisor_id: editSiteAdvisorId || null, employee_count: empCount, logo_url: editSiteLogoUrl || null }).eq('id', id);
     if (error) { flash(error.message, true); return; }
     if (editSiteFolderPath) fetch('/api/datto/setup-site-folders', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ folderPath: editSiteFolderPath, siteId: id }) });
     flash('Site updated!'); setEditingSiteId(null); setShowEditSitePicker(false); setSiteServices([]); loadSites();
@@ -3531,7 +3537,7 @@ const SuperadminPanel = ({ onViewSite, onViewOrg, onSyncSite }: { onViewSite: (s
     if (!res.ok) { flash(json.error ?? 'Failed to clear actions', true); return; }
     flash(`Cleared ${json.deleted.actions} action${json.deleted.actions !== 1 ? 's' : ''} and ${json.deleted.evidence} evidence record${json.deleted.evidence !== 1 ? 's' : ''}`);
   };
-  const handleDeleteUser = async (id: string) => { if (!confirm('Delete this user?')) return; await fetch('/api/admin/users', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userId: id }) }); flash('User deleted'); loadUsers(); };
+  const handleDeleteUser = async (id: string) => { if (!confirm('Delete this user? This cannot be undone.')) return; const res = await fetch('/api/admin/users', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userId: id }) }); if (!res.ok) { const d = await res.json().catch(() => ({})); flash(apiErr(d, 'Delete failed'), true); return; } flash('User deleted'); loadUsers(); };
   const handleDeleteAssignment = async (id: string) => { if (!confirm('Remove this assignment?')) return; await supabase.from('advisor_organisations').delete().eq('id', id); flash('Assignment removed'); loadAssignments(); };
 
   const advisors = users.filter(u => u.profile?.role === 'advisor');
@@ -3731,6 +3737,36 @@ const SuperadminPanel = ({ onViewSite, onViewOrg, onSyncSite }: { onViewSite: (s
                                 <div className="space-y-3">
                                   <div><label className={labelClass}>Name</label><input value={editOrgName} onChange={e => setEditOrgName(e.target.value)} className={inputClass} /></div>
                                   <div>
+                                    <label className={labelClass}>Datto Folder</label>
+                                    {showEditOrgPicker ? (
+                                      <DattoFolderPicker startFolderId={DATTO_ROOT_ID} startFolderName="Customer Documents"
+                                        onSelect={(name, id, _path) => { setEditOrgFolderName(name); setEditOrgFolderId(id); setShowEditOrgPicker(false); }}
+                                        onNavigate={(name, id) => { setEditOrgFolderName(name); setEditOrgFolderId(id); }}
+                                        onClose={() => setShowEditOrgPicker(false)} />
+                                    ) : (
+                                      <div onClick={() => setShowEditOrgPicker(true)} className={`${inputClass} flex items-center justify-between gap-2 cursor-pointer hover:border-indigo-300 min-h-[42px]`}>
+                                        {editOrgFolderName && editOrgFolderName !== `ID: ${editOrgFolderId}` ? (
+                                          <span className="flex flex-col gap-0.5 min-w-0">
+                                            <span className="flex items-center gap-1.5 text-indigo-700 font-bold text-sm truncate"><Folder size={13} className="text-amber-400 shrink-0" />{editOrgFolderName}</span>
+                                            {editOrgFolderId && <span className="text-[10px] font-mono text-slate-400 pl-5 truncate">{editOrgFolderId}</span>}
+                                          </span>
+                                        ) : editOrgFolderId ? (
+                                          <span className="flex items-center gap-1.5 text-amber-600 font-mono text-xs"><Folder size={13} className="text-amber-400 shrink-0" />{editOrgFolderId}</span>
+                                        ) : (
+                                          <span className="text-slate-400 text-sm">Click to browse…</span>
+                                        )}
+                                        <FolderOpen size={16} className="text-slate-300 shrink-0" />
+                                      </div>
+                                    )}
+                                  </div>
+                                  <div className="flex gap-2 pt-1">
+                                    <button onClick={() => handleUpdateOrg(org.id)} className="px-4 py-2 bg-indigo-600 text-white rounded-xl text-[11px] font-black uppercase tracking-wider hover:bg-indigo-700" title="Save organisation changes">Save Changes</button>
+                                    <button onClick={() => { setEditingOrgId(null); setShowEditOrgPicker(false); setOrgAdvisorSearch(''); setOrgClientSearch(''); }} className="px-4 py-2 bg-white border border-slate-200 text-slate-500 rounded-xl text-[11px] font-black uppercase tracking-wider" title="Cancel without saving">Cancel</button>
+                                  </div>
+                                </div>
+                                {/* Right: logo + user assignment */}
+                                <div className="space-y-4">
+                                  <div>
                                     <label className={labelClass}>Logo <span className="font-normal text-slate-400 normal-case tracking-normal">PNG/JPG/SVG · max 500KB</span></label>
                                     <div className="flex items-center gap-3">
                                       {editOrgLogoUrl && (
@@ -3763,36 +3799,6 @@ const SuperadminPanel = ({ onViewSite, onViewOrg, onSyncSite }: { onViewSite: (s
                                       )}
                                     </div>
                                   </div>
-                                  <div>
-                                    <label className={labelClass}>Datto Folder</label>
-                                    {showEditOrgPicker ? (
-                                      <DattoFolderPicker startFolderId={DATTO_ROOT_ID} startFolderName="Customer Documents"
-                                        onSelect={(name, id, _path) => { setEditOrgFolderName(name); setEditOrgFolderId(id); setShowEditOrgPicker(false); }}
-                                        onNavigate={(name, id) => { setEditOrgFolderName(name); setEditOrgFolderId(id); }}
-                                        onClose={() => setShowEditOrgPicker(false)} />
-                                    ) : (
-                                      <div onClick={() => setShowEditOrgPicker(true)} className={`${inputClass} flex items-center justify-between gap-2 cursor-pointer hover:border-indigo-300 min-h-[42px]`}>
-                                        {editOrgFolderName && editOrgFolderName !== `ID: ${editOrgFolderId}` ? (
-                                          <span className="flex flex-col gap-0.5 min-w-0">
-                                            <span className="flex items-center gap-1.5 text-indigo-700 font-bold text-sm truncate"><Folder size={13} className="text-amber-400 shrink-0" />{editOrgFolderName}</span>
-                                            {editOrgFolderId && <span className="text-[10px] font-mono text-slate-400 pl-5 truncate">{editOrgFolderId}</span>}
-                                          </span>
-                                        ) : editOrgFolderId ? (
-                                          <span className="flex items-center gap-1.5 text-amber-600 font-mono text-xs"><Folder size={13} className="text-amber-400 shrink-0" />{editOrgFolderId}</span>
-                                        ) : (
-                                          <span className="text-slate-400 text-sm">Click to browse…</span>
-                                        )}
-                                        <FolderOpen size={16} className="text-slate-300 shrink-0" />
-                                      </div>
-                                    )}
-                                  </div>
-                                  <div className="flex gap-2 pt-1">
-                                    <button onClick={() => handleUpdateOrg(org.id)} className="px-4 py-2 bg-indigo-600 text-white rounded-xl text-[11px] font-black uppercase tracking-wider hover:bg-indigo-700" title="Save organisation changes">Save Changes</button>
-                                    <button onClick={() => { setEditingOrgId(null); setShowEditOrgPicker(false); setOrgAdvisorSearch(''); setOrgClientSearch(''); }} className="px-4 py-2 bg-white border border-slate-200 text-slate-500 rounded-xl text-[11px] font-black uppercase tracking-wider" title="Cancel without saving">Cancel</button>
-                                  </div>
-                                </div>
-                                {/* Right: user assignment */}
-                                <div className="space-y-4">
                                   <div>
                                     <label className={labelClass}>Advisors</label>
                                     <div className="space-y-1 mb-2">
@@ -4011,14 +4017,17 @@ const SuperadminPanel = ({ onViewSite, onViewOrg, onSyncSite }: { onViewSite: (s
                                 {/* Left: fields */}
                                 <div className="space-y-3">
                                   <div><label className={labelClass}>Name</label><input value={editSiteName} onChange={e => setEditSiteName(e.target.value)} className={inputClass} /></div>
-                                  <div>
-                                    <label className={labelClass}>Type</label>
-                                    <select value={editSiteType} onChange={e => setEditSiteType(e.target.value)} className={inputClass}>
-                                      {SITE_TYPES.map(t => <option key={t} value={t}>{getSiteLabel(t)}</option>)}
-                                    </select>
-                                    {editSiteType === 'OTHER' && (
-                                      <input value={editSiteTypeOther} onChange={e => setEditSiteTypeOther(e.target.value)} placeholder="Describe the site type…" className={`${inputClass} mt-2`} />
-                                    )}
+                                  <div className="grid grid-cols-2 gap-3">
+                                    <div>
+                                      <label className={labelClass}>Type</label>
+                                      <select value={editSiteType} onChange={e => setEditSiteType(e.target.value)} className={inputClass}>
+                                        {SITE_TYPES.map(t => <option key={t} value={t}>{getSiteLabel(t)}</option>)}
+                                      </select>
+                                      {editSiteType === 'OTHER' && (
+                                        <input value={editSiteTypeOther} onChange={e => setEditSiteTypeOther(e.target.value)} placeholder="Describe the site type…" className={`${inputClass} mt-2`} />
+                                      )}
+                                    </div>
+                                    <div><label className={labelClass}>Employees</label><input type="number" min="1" value={editSiteEmployeeCount} onChange={e => setEditSiteEmployeeCount(e.target.value)} placeholder="e.g. 25" className={inputClass} /></div>
                                   </div>
                                   <div>
                                     <label className={labelClass}>Datto Folder</label>
@@ -4043,10 +4052,42 @@ const SuperadminPanel = ({ onViewSite, onViewOrg, onSyncSite }: { onViewSite: (s
                                       </div>
                                     )}
                                   </div>
-                                  <div><label className={labelClass}>Employee Count (optional)</label><input type="number" min="1" value={editSiteEmployeeCount} onChange={e => setEditSiteEmployeeCount(e.target.value)} placeholder="e.g. 25" className={inputClass} /></div>
                                 </div>
-                                {/* Right: user assignment */}
+                                {/* Right: logo + user assignment */}
                                 <div className="space-y-4">
+                                  <div>
+                                    <label className={labelClass}>Site Logo <span className="font-normal text-slate-400 normal-case tracking-normal">PNG/JPG/SVG · max 500KB · overrides org logo</span></label>
+                                    <div className="flex items-center gap-3">
+                                      {editSiteLogoUrl && (
+                                        <div className="bg-white border border-slate-200 rounded-xl p-2 flex items-center justify-center h-12 w-32 shrink-0">
+                                          <img src={editSiteLogoUrl} alt="logo" className="max-h-8 max-w-full object-contain" />
+                                        </div>
+                                      )}
+                                      <label className={`cursor-pointer px-3 py-2 bg-white border border-slate-200 rounded-xl text-[11px] font-black uppercase tracking-wider text-slate-500 hover:border-indigo-300 hover:text-indigo-600 ${editSiteLogoUploading ? 'opacity-50 pointer-events-none' : ''}`}>
+                                        {editSiteLogoUploading ? 'Uploading…' : editSiteLogoUrl ? 'Replace' : 'Upload Logo'}
+                                        <input type="file" accept="image/png,image/jpeg,image/svg+xml" className="hidden" onChange={async e => {
+                                          const file = e.target.files?.[0];
+                                          if (!file) return;
+                                          if (file.size > 500_000) { flash('Logo must be under 500KB', true); return; }
+                                          setEditSiteLogoUploading(true);
+                                          const ext = file.name.split('.').pop();
+                                          const path = `sites/${editingSiteId}.${ext}`;
+                                          const { error: upErr } = await supabase.storage.from('org-logos').upload(path, file, { upsert: true });
+                                          if (upErr) { flash(upErr.message, true); setEditSiteLogoUploading(false); return; }
+                                          const { data: { publicUrl } } = supabase.storage.from('org-logos').getPublicUrl(path);
+                                          setEditSiteLogoUrl(publicUrl);
+                                          setEditSiteLogoUploading(false);
+                                        }} />
+                                      </label>
+                                      {editSiteLogoUrl && (
+                                        <button onClick={async () => {
+                                          const ext = editSiteLogoUrl.split('/').pop()?.split('?')[0]?.split('.').pop();
+                                          await supabase.storage.from('org-logos').remove([`sites/${editingSiteId}.${ext}`]);
+                                          setEditSiteLogoUrl('');
+                                        }} className="text-rose-400 hover:text-rose-600 text-[11px] font-black uppercase">Remove</button>
+                                      )}
+                                    </div>
+                                  </div>
                                   <div>
                                     <label className={labelClass}>Advisors</label>
                                     <div className="space-y-1 mb-1.5">
@@ -4123,15 +4164,17 @@ const SuperadminPanel = ({ onViewSite, onViewOrg, onSyncSite }: { onViewSite: (s
                                   {siteServices.some(s => s.is_mandatory && !s.purchased) && (
                                     <p className="text-[11px] font-bold text-rose-600 mt-1.5 flex items-center gap-1.5"><AlertCircle size={12} />{siteServices.filter(s => s.is_mandatory && !s.purchased).length} mandatory service(s) not covered — IAG score will show Red</p>
                                   )}
-                                  <div className="flex gap-2 pt-2">
-                                    <button onClick={async () => {
-                                      await handleUpdateSite(site.id);
-                                      await Promise.all(siteServices.map(svc => fetch(`/api/sites/${site.id}/services`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ requirementId: svc.id, purchased: svc.purchased }) })));
-                                    }} className="px-4 py-2 bg-indigo-600 text-white rounded-xl text-[11px] font-black uppercase tracking-wider hover:bg-indigo-700" title="Save site changes">Save Changes</button>
-                                    <button onClick={() => { setEditingSiteId(null); setShowEditSitePicker(false); setSiteServices([]); setSiteAdvisorSearch(''); setSiteClientSearch(''); }} className="px-4 py-2 bg-white border border-slate-200 text-slate-500 rounded-xl text-[11px] font-black uppercase tracking-wider" title="Cancel without saving">Cancel</button>
-                                  </div>
                                 </div>
                               ) : null}
+                              {!siteServicesLoading && (
+                                <div className="flex gap-2 pt-1">
+                                  <button onClick={async () => {
+                                    await handleUpdateSite(site.id);
+                                    if (siteServices.length > 0) await Promise.all(siteServices.map(svc => fetch(`/api/sites/${site.id}/services`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ requirementId: svc.id, purchased: svc.purchased }) })));
+                                  }} className="px-4 py-2 bg-indigo-600 text-white rounded-xl text-[11px] font-black uppercase tracking-wider hover:bg-indigo-700" title="Save site changes">Save Changes</button>
+                                  <button onClick={() => { setEditingSiteId(null); setShowEditSitePicker(false); setSiteServices([]); setSiteAdvisorSearch(''); setSiteClientSearch(''); }} className="px-4 py-2 bg-white border border-slate-200 text-slate-500 rounded-xl text-[11px] font-black uppercase tracking-wider" title="Cancel without saving">Cancel</button>
+                                </div>
+                              )}
                             </div>
                           </td></tr>
                         )}
@@ -4158,7 +4201,10 @@ const SuperadminPanel = ({ onViewSite, onViewOrg, onSyncSite }: { onViewSite: (s
                 <div><label className={labelClass}>Email *</label><input type="email" value={userEmail} onChange={e => setUserEmail(e.target.value)} autoComplete="off" placeholder="user@company.com" className={inputClass} /></div>
                 <div><label className={labelClass}>Password *</label><div className="relative"><input type={showUserPassword ? 'text' : 'password'} value={userPassword} onChange={e => setUserPassword(e.target.value)} autoComplete="new-password" placeholder="Min 8 characters" className={`${inputClass} pr-10`} /><button type="button" onClick={() => setShowUserPassword(v => !v)} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">{showUserPassword ? <EyeOff size={15} /> : <Eye size={15} />}</button></div></div>
               </div>
-              <div><label className={labelClass}>Full Name</label><input type="text" value={userFullName} onChange={e => setUserFullName(e.target.value)} placeholder="e.g. Jane Smith" className={inputClass} /></div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div><label className={labelClass}>Full Name</label><input type="text" value={userFullName} onChange={e => setUserFullName(e.target.value)} placeholder="e.g. Jane Smith" className={inputClass} /></div>
+                <div><label className={labelClass}>Phone <span className="text-slate-300 font-normal normal-case tracking-normal">(optional)</span></label><input type="tel" value={userPhone} onChange={e => setUserPhone(e.target.value)} placeholder="e.g. 07700 900000" className={inputClass} /></div>
+              </div>
               <div>
                 <label className={labelClass}>Role *</label>
                 <div className="flex gap-2">
@@ -4229,7 +4275,7 @@ const SuperadminPanel = ({ onViewSite, onViewOrg, onSyncSite }: { onViewSite: (s
                           </td>
                           <td className="px-6 py-4 text-right">
                             <div className="flex items-center justify-end gap-1">
-                              {user.profile?.role !== 'superadmin' && <button onClick={e => { e.stopPropagation(); setAdminRenameUser({ id: user.id, email: user.email, currentName: user.profile?.full_name || '' }); setAdminRenameValue(user.profile?.full_name || ''); }} className="text-slate-400 hover:text-indigo-600 p-1.5 rounded-lg hover:bg-indigo-50" title="Set display name"><Pencil size={14} /></button>}
+                              {user.profile?.role !== 'superadmin' && <button onClick={e => { e.stopPropagation(); setAdminRenameUser({ id: user.id, email: user.email, currentName: user.profile?.full_name || '', currentPhone: user.profile?.phone || '' }); setAdminRenameValue(user.profile?.full_name || ''); setAdminRenamePhoneValue(user.profile?.phone || ''); }} className="text-slate-400 hover:text-indigo-600 p-1.5 rounded-lg hover:bg-indigo-50" title="Set display name"><Pencil size={14} /></button>}
                               {user.profile?.role !== 'superadmin' && <button onClick={e => { e.stopPropagation(); setAdminSetPwUser({ id: user.id, email: user.email }); setAdminSetPwValue(''); }} className="text-slate-400 hover:text-indigo-600 p-1.5 rounded-lg hover:bg-indigo-50" title="Set password"><KeyRound size={14} /></button>}
                               {user.profile?.role !== 'superadmin' && <button onClick={e => { e.stopPropagation(); handleDeleteUser(user.id); }} className="text-rose-400 hover:text-rose-600 p-1.5 rounded-lg hover:bg-rose-50" title="Permanently delete this user account"><X size={14} /></button>}
                             </div>
@@ -4811,16 +4857,19 @@ const SuperadminPanel = ({ onViewSite, onViewOrg, onSyncSite }: { onViewSite: (s
       {adminRenameUser && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-lg shadow-2xl w-full max-w-sm p-6">
-            <h3 className="font-black text-slate-900 text-base mb-1">Set display name</h3>
+            <h3 className="font-black text-slate-900 text-base mb-1">Edit contact info</h3>
             <p className="text-xs text-slate-400 mb-4">{adminRenameUser.email}</p>
-            <div><label className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1 block">Full Name</label><input type="text" value={adminRenameValue} onChange={e => setAdminRenameValue(e.target.value)} placeholder="e.g. Jane Smith" className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300" /></div>
+            <div className="space-y-3">
+              <div><label className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1 block">Full Name</label><input type="text" value={adminRenameValue} onChange={e => setAdminRenameValue(e.target.value)} placeholder="e.g. Jane Smith" className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300" /></div>
+              <div><label className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1 block">Phone <span className="font-normal normal-case tracking-normal text-slate-300">(optional)</span></label><input type="tel" value={adminRenamePhoneValue} onChange={e => setAdminRenamePhoneValue(e.target.value)} placeholder="e.g. 07700 900000" className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300" /></div>
+            </div>
             <div className="flex gap-2 mt-5">
-              <button onClick={() => { setAdminRenameUser(null); setAdminRenameValue(''); }} className="flex-1 py-2.5 border border-slate-200 rounded-xl text-[11px] font-black uppercase tracking-wider text-slate-500 hover:bg-slate-50" title="Cancel without saving">Cancel</button>
+              <button onClick={() => { setAdminRenameUser(null); setAdminRenameValue(''); setAdminRenamePhoneValue(''); }} className="flex-1 py-2.5 border border-slate-200 rounded-xl text-[11px] font-black uppercase tracking-wider text-slate-500 hover:bg-slate-50" title="Cancel without saving">Cancel</button>
               <button onClick={async () => {
-                const res = await fetch('/api/admin/users', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userId: adminRenameUser.id, full_name: adminRenameValue.trim() || null }) });
-                if (!res.ok) { const d = await res.json().catch(() => ({})); flash(apiErr(d, 'Failed to update name'), true); return; }
-                setAdminRenameUser(null); setAdminRenameValue(''); flash('Name updated'); loadUsers();
-              }} className="flex-1 py-2.5 bg-indigo-600 text-white rounded-xl text-[11px] font-black uppercase tracking-wider hover:bg-indigo-700" title="Save display name">Save</button>
+                const res = await fetch('/api/admin/users', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userId: adminRenameUser.id, full_name: adminRenameValue.trim() || null, phone: adminRenamePhoneValue.trim() || null }) });
+                if (!res.ok) { const d = await res.json().catch(() => ({})); flash(apiErr(d, 'Failed to update contact info'), true); return; }
+                setAdminRenameUser(null); setAdminRenameValue(''); setAdminRenamePhoneValue(''); flash('Contact info updated'); loadUsers();
+              }} className="flex-1 py-2.5 bg-indigo-600 text-white rounded-xl text-[11px] font-black uppercase tracking-wider hover:bg-indigo-700" title="Save contact info">Save</button>
             </div>
           </div>
         </div>
@@ -6248,6 +6297,7 @@ export default function App() {
   const [pendingUploadsCount, setPendingUploadsCount] = useState(0);
   const [portfolioSuggestionCounts, setPortfolioSuggestionCounts] = useState<Record<string, number>>({});
   const [portfolioUploadCounts, setPortfolioUploadCounts] = useState<Record<string, number>>({});
+  const [siteAdvisor, setSiteAdvisor] = useState<{ full_name: string | null; email: string; phone: string | null } | null>(null);
   const [portfolioReviewedUploadCounts, setPortfolioReviewedUploadCounts] = useState<Record<string, number>>({});
   // File browser state
   const [folderData, setFolderData] = useState<Map<string, { items: DattoItem[]; path: string }>>(new Map());
@@ -6404,6 +6454,7 @@ export default function App() {
           last_ai_sync: s.last_ai_sync ?? null,
           excluded_datto_folder_ids: s.excluded_datto_folder_ids ?? [],
           included_datto_folder_ids: s.included_datto_folder_ids ?? null,
+          logo_url: s.logo_url ?? null,
         }));
         // Also include any sites assigned directly to this advisor
         let finalMapped = mapped;
@@ -6422,6 +6473,7 @@ export default function App() {
                 advisor_id: s.advisor_id ?? null, last_ai_sync: s.last_ai_sync ?? null,
                 excluded_datto_folder_ids: s.excluded_datto_folder_ids ?? [],
                 included_datto_folder_ids: s.included_datto_folder_ids ?? null,
+                logo_url: s.logo_url ?? null,
               }))];
             }
           }
@@ -6436,6 +6488,18 @@ export default function App() {
     };
     load();
   }, [user, profile, organisations]);
+
+  // Fetch advisor contact details for client view
+  useEffect(() => {
+    if (profile?.role !== 'client' || !selectedSite) { setSiteAdvisor(null); return; }
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      const token = session?.access_token ?? '';
+      fetch(`/api/my-advisor?siteId=${selectedSite.id}`, { headers: { Authorization: `Bearer ${token}` } })
+        .then(r => r.ok ? r.json() : null)
+        .then(data => setSiteAdvisor(data))
+        .catch(() => setSiteAdvisor(null));
+    });
+  }, [selectedSite?.id, profile?.role]);
 
   // Load per-site AI suggestion counts for the dashboard notification
   useEffect(() => {
@@ -8095,14 +8159,18 @@ export default function App() {
       </nav>
 
       <main className="lg:pl-20 pb-16 lg:pb-0">
-        <header className="bg-white/95 backdrop-blur-sm border-b border-slate-200 px-4 md:px-8 py-3 md:py-4 flex items-center justify-between sticky top-0 z-10">
+        <header className="bg-white/95 backdrop-blur-sm border-b border-slate-200 px-4 md:px-8 py-3 md:py-4 flex items-center justify-between sticky top-0 z-10 relative">
           <div className="flex items-center gap-3">
             {view === 'site' && (profile?.role === 'advisor' || (profile?.role === 'client' && sites.length > 1)) && <button onClick={() => { setView('portfolio'); setSelectedSite(null); }} className="p-2 hover:bg-slate-100 rounded-lg text-slate-400"><ArrowLeft size={18} /></button>}
             <img src="/logo-full.svg" alt="McCormack Benson Health & Safety" className="h-14 w-auto object-contain" />
           </div>
           <div className="flex items-center gap-5">
             <button onClick={() => setShowChangePassword(true)} className="p-2 rounded-xl text-slate-400 hover:text-slate-600 hover:bg-slate-100" title="Change password"><KeyRound size={16} /></button>
-            <div className="text-right hidden sm:block"><p className="text-xs font-black text-slate-800">{user.email}</p><p className="text-[10px] text-indigo-600 font-bold uppercase tracking-widest">● {profile?.role}</p>{(profile?.role === 'advisor' || profile?.role === 'superadmin') && <p className="text-[9px] text-slate-400 font-bold uppercase tracking-widest flex items-center justify-end gap-1 mt-0.5"><Database size={8} />Sync: {syncLastRun}</p>}</div>
+            <div className="text-right hidden sm:block">
+              <p className="text-xs font-black text-slate-800">{user.email}</p>
+              <p className="text-[10px] text-indigo-600 font-bold uppercase tracking-widest">● {profile?.role}</p>
+              {(profile?.role === 'advisor' || profile?.role === 'superadmin') && <p className="text-[9px] text-slate-400 font-bold uppercase tracking-widest flex items-center justify-end gap-1 mt-0.5"><Database size={8} />Sync: {syncLastRun}</p>}
+            </div>
             {(profile?.role === 'advisor' || (profile?.role === 'client' && sites.length > 1)) && (
               <div className="hidden md:flex bg-slate-100 p-1 rounded-xl">
                 <button onClick={() => { setView('portfolio'); setSelectedSite(null); }} className={`px-4 py-1.5 text-[10px] font-black uppercase rounded-lg transition-all ${view === 'portfolio' ? 'bg-white shadow-sm text-indigo-600' : 'text-slate-400 hover:text-slate-600'}`}>Sites</button>
@@ -8110,6 +8178,14 @@ export default function App() {
               </div>
             )}
           </div>
+          {profile?.role === 'client' && siteAdvisor && (
+            <p className="absolute bottom-1 right-4 md:right-8 text-[10px] text-slate-400 leading-none hidden sm:block">
+              Your advisor is: {siteAdvisor.full_name && <span className="font-bold text-slate-500">{siteAdvisor.full_name}</span>}
+              {siteAdvisor.full_name && ' · '}
+              <a href={`mailto:${siteAdvisor.email}`} className="hover:text-indigo-500 transition-colors">{siteAdvisor.email}</a>
+              {siteAdvisor.phone && <> · <a href={`tel:${siteAdvisor.phone}`} className="hover:text-indigo-500 transition-colors">{siteAdvisor.phone}</a></>}
+            </p>
+          )}
         </header>
 
         <div className="p-4 md:p-6 lg:p-8 max-w-7xl mx-auto">
@@ -8125,6 +8201,7 @@ export default function App() {
                 advisor_id: s.advisor_id ?? null, last_ai_sync: s.last_ai_sync ?? null,
                 excluded_datto_folder_ids: s.excluded_datto_folder_ids ?? [],
                 included_datto_folder_ids: s.included_datto_folder_ids ?? null,
+                logo_url: s.logo_url ?? null,
               });
               setViewAsRole(viewRole);
               if (tab) setSiteTab(tab);
@@ -8140,6 +8217,7 @@ export default function App() {
                 advisor_id: s.advisor_id ?? null, last_ai_sync: s.last_ai_sync ?? null,
                 excluded_datto_folder_ids: s.excluded_datto_folder_ids ?? [],
                 included_datto_folder_ids: s.included_datto_folder_ids ?? null,
+                logo_url: s.logo_url ?? null,
               }));
               setSites(mapped);
               setFilterOrgId(orgId);
@@ -8185,12 +8263,12 @@ export default function App() {
                   return (
                     <div key={site.id} className="w-full sm:w-[420px] bg-white rounded-xl border border-slate-200 p-6 shadow-sm">
                       <div className="flex justify-end mb-4">
-                        {clientOrg?.logo_url
-                          ? <img src={clientOrg.logo_url} alt={clientOrg.name ?? ''} className="h-8 max-w-[130px] object-contain" />
+                        {(site.logo_url || clientOrg?.logo_url)
+                          ? <img src={site.logo_url || clientOrg?.logo_url || ''} alt={site.name ?? ''} className="h-8 max-w-[130px] object-contain" />
                           : <div className="w-8 h-8 bg-indigo-50 rounded-lg flex items-center justify-center text-indigo-400"><Building2 size={16} /></div>
                         }
                       </div>
-                      <p className="font-black text-slate-900 text-base leading-tight">{site.name}</p>
+                      <button onClick={() => { pendingTabRef.current = 'files'; setSiteTab('files'); setSelectedSite(site); setView('site'); }} className="font-black text-slate-900 text-base leading-tight hover:text-indigo-700 transition-colors text-left">{site.name}</button>
                       {syncLabel && <p className="text-[10px] text-slate-400 font-bold mt-1">Documents updated {syncLabel}</p>}
                       <div className="mt-4 border-t border-slate-100 pt-3 space-y-0.5">
                         <button onClick={() => { pendingTabRef.current = 'files'; setSiteTab('files'); setSelectedSite(site); setView('site'); }} className="w-full flex items-center gap-2 px-1 py-px text-left text-[12px] text-indigo-600 hover:text-indigo-800 font-semibold group transition-colors">
@@ -8509,9 +8587,9 @@ export default function App() {
                     )}
                   </div>
                   <div className="flex flex-col items-end gap-2 shrink-0">
-                    {siteOrg?.logo_url && (
+                    {(selectedSite?.logo_url || siteOrg?.logo_url) && (
                       <div className="bg-white border border-slate-200 rounded-lg px-4 py-2 flex items-center justify-center max-w-[200px]">
-                        <img src={siteOrg.logo_url} alt={siteOrg.name} className="max-h-20 max-w-[170px] object-contain" />
+                        <img src={selectedSite?.logo_url || siteOrg?.logo_url || ''} alt={selectedSite?.name || siteOrg?.name} className="max-h-20 max-w-[170px] object-contain" />
                       </div>
                     )}
                     {profile?.role === 'superadmin' && selectedSite.datto_folder_id && (
