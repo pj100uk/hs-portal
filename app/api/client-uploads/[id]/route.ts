@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { BASE_URL, AUTH_HEADER, resolveSubfolder } from '../../datto/folder-utils';
-import { notifyClientOfUploadRejection } from '../../lib/email';
+import { notifyClientOfUploadRejection } from '../../../lib/email';
 
 export const runtime = 'nodejs';
 
