@@ -1,4 +1,4 @@
--- Schema dumped at 2026-06-24T15:01:00.870Z
+-- Schema dumped at 2026-07-13T14:40:06.980Z
 
 TABLE: action_evidence
   id uuid NOT NULL DEFAULT gen_random_uuid()
@@ -126,6 +126,8 @@ TABLE: profiles
   datto_base_path text
   view_only bool NOT NULL DEFAULT false
   full_name text
+  phone text
+  receive_emails bool NOT NULL DEFAULT true
 
 TABLE: site_documents
   id uuid NOT NULL DEFAULT gen_random_uuid()
@@ -194,6 +196,7 @@ TABLE: sites
   vault_folder_id text
   iag_weighted_score int4
   action_progress int4
+  logo_url text
 
 TABLE: sync_log
   id uuid NOT NULL DEFAULT gen_random_uuid()

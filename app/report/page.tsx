@@ -638,6 +638,7 @@ function ReportPageInner() {
   const [checking, setChecking] = useState(true);
   const [orgName, setOrgName] = useState('');
   const [orgLogo, setOrgLogo] = useState('');
+  const [siteLogo, setSiteLogo] = useState('');
   const [siteName, setSiteName] = useState('');
 
   useEffect(() => {
@@ -645,9 +646,10 @@ function ReportPageInner() {
       if (!session) { router.replace('/'); return; }
       setChecking(false);
       if (siteId) {
-        supabase.from('sites').select('name, organisation_id').eq('id', siteId).single().then(({ data: s }) => {
+        supabase.from('sites').select('name, organisation_id, logo_url').eq('id', siteId).single().then(({ data: s }) => {
           if (s) {
             setSiteName(s.name);
+            if (s.logo_url) setSiteLogo(s.logo_url);
             if (s.organisation_id) {
               supabase.from('organisations').select('name, logo_url').eq('id', s.organisation_id).single().then(({ data: o }) => {
                 if (o) { setOrgName(o.name); if (o.logo_url) setOrgLogo(o.logo_url); }
@@ -706,10 +708,10 @@ function ReportPageInner() {
                 </>
               )}
             </div>
-            {/* Right: org logo */}
-            {orgLogo && (
+            {/* Right: site logo (falls back to org logo) */}
+            {(siteLogo || orgLogo) && (
               /* eslint-disable-next-line @next/next/no-img-element */
-              <img src={orgLogo} alt="" style={{ maxHeight: 90, maxWidth: 200, objectFit: 'contain', display: 'block', alignSelf: 'center' }} onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+              <img src={siteLogo || orgLogo} alt="" style={{ maxHeight: 90, maxWidth: 200, objectFit: 'contain', display: 'block', alignSelf: 'center' }} onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }} />
             )}
           </div>
         </div>
