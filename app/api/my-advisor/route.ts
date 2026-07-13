@@ -23,23 +23,20 @@ export async function GET(request: NextRequest) {
   const siteId = new URL(request.url).searchParams.get('siteId');
   if (!siteId) return NextResponse.json({ error: 'siteId is required' }, { status: 400 });
 
-  let advisorId: string | null = null;
+  const [{ data: site }, { data: siteAssigns }] = await Promise.all([
+    supabaseAdmin.from('sites').select('advisor_id, organisation_id').eq('id', siteId).single(),
+    supabaseAdmin.from('advisor_site_assignments').select('advisor_id').eq('site_id', siteId).limit(1),
+  ]);
 
-  // 1. sites.advisor_id
-  const { data: site } = await supabaseAdmin.from('sites').select('advisor_id, organisation_id').eq('id', siteId).single();
-  if (site?.advisor_id) advisorId = site.advisor_id;
+  let advisorId: string | null =
+    siteAssigns?.[0]?.advisor_id ?? null;
 
-  // 2. advisor_site_assignments
-  if (!advisorId) {
-    const { data: siteAssigns } = await supabaseAdmin.from('advisor_site_assignments').select('advisor_id').eq('site_id', siteId).limit(1);
-    if (siteAssigns && siteAssigns.length > 0) advisorId = siteAssigns[0].advisor_id;
-  }
-
-  // 3. advisor_organisations
   if (!advisorId && site?.organisation_id) {
     const { data: orgAssigns } = await supabaseAdmin.from('advisor_organisations').select('advisor_id').eq('organisation_id', site.organisation_id).limit(1);
-    if (orgAssigns && orgAssigns.length > 0) advisorId = orgAssigns[0].advisor_id;
+    advisorId = orgAssigns?.[0]?.advisor_id ?? null;
   }
+
+  if (!advisorId && site?.advisor_id) advisorId = site.advisor_id;
 
   if (!advisorId) return NextResponse.json(null);
 
