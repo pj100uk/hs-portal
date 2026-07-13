@@ -17,6 +17,7 @@ export async function GET() {
   const combined = users.map(user => ({
     id: user.id,
     email: user.email,
+    user_metadata: user.user_metadata ?? null,
     profile: profiles?.find(p => p.id === user.id) || null,
   }));
 
@@ -65,9 +66,12 @@ export async function PATCH(request: NextRequest) {
   const { userId, organisation_id, datto_base_path, view_only, receive_emails, newPassword, full_name, phone } = await request.json();
   if (!userId) return NextResponse.json({ error: 'userId is required' }, { status: 400 });
 
-  // Admin password set — no profile update needed
+  // Admin password set — store in metadata so welcome modal can recall it
   if (newPassword) {
-    const { error } = await supabaseAdmin.auth.admin.updateUserById(userId, { password: newPassword });
+    const { error } = await supabaseAdmin.auth.admin.updateUserById(userId, {
+      password: newPassword,
+      user_metadata: { welcome_password: newPassword },
+    });
     if (error) return NextResponse.json({ error: error.message }, { status: 400 });
     return NextResponse.json({ success: true });
   }

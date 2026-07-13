@@ -3171,6 +3171,13 @@ const SuperadminPanel = ({ onViewSite, onViewOrg, onSyncSite }: { onViewSite: (s
   const [adminSetPwUser, setAdminSetPwUser] = useState<{ id: string; email: string } | null>(null);
   const [adminSetPwValue, setAdminSetPwValue] = useState('');
   const [adminSetPwLoading, setAdminSetPwLoading] = useState(false);
+  const [adminWelcomeUser, setAdminWelcomeUser] = useState<{ id: string; email: string; name: string | null } | null>(null);
+  const [adminWelcomePw, setAdminWelcomePw] = useState('');
+  const [adminWelcomeAdvisor, setAdminWelcomeAdvisor] = useState('Paul Johnson');
+  const [adminWelcomeLoading, setAdminWelcomeLoading] = useState(false);
+  const [showAdminWelcomePw, setShowAdminWelcomePw] = useState(false);
+  const [adminWelcomeCc, setAdminWelcomeCc] = useState<string[]>([]);
+  const [adminWelcomeCcCustom, setAdminWelcomeCcCustom] = useState('');
   const [showAdminSetPw, setShowAdminSetPw] = useState(false);
   const [adminRenameUser, setAdminRenameUser] = useState<{ id: string; email: string; currentName: string; currentPhone: string } | null>(null);
   const [adminRenameValue, setAdminRenameValue] = useState('');
@@ -4347,6 +4354,7 @@ const SuperadminPanel = ({ onViewSite, onViewOrg, onSyncSite }: { onViewSite: (s
                           </td>
                           <td className="px-6 py-4 text-right">
                             <div className="flex items-center justify-end gap-2">
+                              {user.profile?.role !== 'superadmin' && <button onClick={e => { e.stopPropagation(); setAdminWelcomeUser({ id: user.id, email: user.email, name: user.profile?.full_name || null }); setAdminWelcomePw(user.user_metadata?.welcome_password ?? ''); setShowAdminWelcomePw(false); }} className="text-slate-400 hover:text-indigo-600 p-1.5 rounded-lg hover:bg-indigo-50" title="Send welcome email"><Mail size={14} /></button>}
                               {isClient && <button onClick={e => { e.stopPropagation(); setUserRole('client'); setUserOrgId(user.profile?.organisation_id || ''); setUserSiteIds(clientSiteAssignments.filter((a: any) => a.client_user_id === user.id).map((a: any) => a.site_id)); setUserViewOnly(user.profile?.view_only || false); setUserEmail(''); setUserPassword(''); setUserFullName(''); setUserPhone(''); setShowUserForm(true); }} className="text-slate-400 hover:text-indigo-600 p-1.5 rounded-lg hover:bg-indigo-50" title="Duplicate user — copies org & site access"><Copy size={14} /></button>}
                               {user.profile?.role !== 'superadmin' && <button onClick={e => { e.stopPropagation(); setAdminRenameUser({ id: user.id, email: user.email, currentName: user.profile?.full_name || '', currentPhone: user.profile?.phone || '' }); setAdminRenameValue(user.profile?.full_name || ''); setAdminRenamePhoneValue(user.profile?.phone || ''); }} className="text-slate-400 hover:text-indigo-600 p-1.5 rounded-lg hover:bg-indigo-50" title="Set display name"><Pencil size={14} /></button>}
                               {user.profile?.role !== 'superadmin' && <button onClick={e => { e.stopPropagation(); setAdminSetPwUser({ id: user.id, email: user.email }); setAdminSetPwValue(''); }} className="text-slate-400 hover:text-indigo-600 p-1.5 rounded-lg hover:bg-indigo-50" title="Set password"><KeyRound size={14} /></button>}
@@ -4965,6 +4973,79 @@ const SuperadminPanel = ({ onViewSite, onViewOrg, onSyncSite }: { onViewSite: (s
       )}
 
       {/* Admin set password modal */}
+      {adminWelcomeUser && (() => {
+        const recipientProfile = users.find((u: any) => u.id === adminWelcomeUser.id);
+        const recipientOrgId = recipientProfile?.profile?.organisation_id ?? null;
+        const recipientSiteIds: string[] = clientSiteAssignments.filter((a: any) => a.client_user_id === adminWelcomeUser.id).map((a: any) => a.site_id);
+        const advisorUsers = users.filter((u: any) => u.profile?.role === 'advisor' && u.email && u.id !== adminWelcomeUser.id);
+        const orgSiteUsers = users.filter((u: any) => {
+          if (!u.email || u.id === adminWelcomeUser.id || u.profile?.role === 'superadmin' || u.profile?.role === 'advisor') return false;
+          if (recipientOrgId && u.profile?.organisation_id === recipientOrgId) return true;
+          if (recipientSiteIds.length && clientSiteAssignments.some((a: any) => a.client_user_id === u.id && recipientSiteIds.includes(a.site_id))) return true;
+          return false;
+        });
+        const storedPw = recipientProfile?.user_metadata?.welcome_password ?? '';
+        const closeWelcome = () => { setAdminWelcomeUser(null); setAdminWelcomePw(''); setAdminWelcomeCc([]); setAdminWelcomeCcCustom(''); };
+        const CcCheckboxList = ({ users: list }: { users: any[] }) => (
+          <div className="border border-slate-200 rounded-xl p-2.5 space-y-1.5 max-h-32 overflow-y-auto">
+            {list.map((u: any) => (
+              <label key={u.id} className="flex items-center gap-2 text-sm text-slate-700 cursor-pointer px-1">
+                <input type="checkbox" checked={adminWelcomeCc.includes(u.email)} onChange={e => setAdminWelcomeCc(prev => e.target.checked ? [...prev, u.email] : prev.filter(x => x !== u.email))} className="accent-indigo-600 rounded" />
+                <span className="font-medium">{u.profile?.full_name || u.email}</span>
+                {u.profile?.full_name && <span className="text-slate-400 text-xs">{u.email}</span>}
+              </label>
+            ))}
+          </div>
+        );
+        return (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-lg shadow-2xl w-full max-w-sm p-6 max-h-[90vh] overflow-y-auto">
+            <h3 className="font-black text-slate-900 text-base mb-1">Send Welcome Email</h3>
+            <p className="text-xs text-slate-400 mb-4">{adminWelcomeUser.email}{adminWelcomeUser.name ? ` · ${adminWelcomeUser.name}` : ''}</p>
+            <div className="space-y-3">
+              <div><label className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1 block">Advisor Name</label><input type="text" value={adminWelcomeAdvisor} onChange={e => setAdminWelcomeAdvisor(e.target.value)} placeholder="e.g. Paul Johnson" className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300" /></div>
+              <div>
+                <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1 block">
+                  Password <span className="font-normal normal-case tracking-normal text-slate-300">(also resets account password)</span>
+                </label>
+                <div className="relative"><Lock size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300" /><input type={showAdminWelcomePw ? 'text' : 'password'} value={adminWelcomePw} onChange={e => setAdminWelcomePw(e.target.value)} autoComplete="new-password" placeholder="Min. 8 characters" className="w-full pl-9 pr-10 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300" /><button type="button" onClick={() => setShowAdminWelcomePw(v => !v)} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">{showAdminWelcomePw ? <EyeOff size={15} /> : <Eye size={15} />}</button></div>
+                {storedPw && adminWelcomePw === storedPw && !showAdminWelcomePw && <p className="text-[11px] text-amber-500 mt-1">Pre-filled from last welcome email — confirm or change before sending.</p>}
+              </div>
+              {advisorUsers.length > 0 && (
+                <div>
+                  <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1.5 block">CC Advisors</label>
+                  <CcCheckboxList users={advisorUsers} />
+                </div>
+              )}
+              {orgSiteUsers.length > 0 && (
+                <div>
+                  <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1.5 block">CC Organisation / Site Users</label>
+                  <CcCheckboxList users={orgSiteUsers} />
+                </div>
+              )}
+              <div>
+                <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1 block">CC Other <span className="font-normal normal-case tracking-normal text-slate-300">(comma-separated)</span></label>
+                <input type="text" value={adminWelcomeCcCustom} onChange={e => setAdminWelcomeCcCustom(e.target.value)} placeholder="e.g. manager@company.com" className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300" />
+              </div>
+            </div>
+            <div className="flex gap-2 mt-5">
+              <button onClick={closeWelcome} className="flex-1 py-2.5 border border-slate-200 rounded-xl text-[11px] font-black uppercase tracking-wider text-slate-500 hover:bg-slate-50" title="Cancel">Cancel</button>
+              <button disabled={adminWelcomeLoading} onClick={async () => {
+                if (!adminWelcomeAdvisor.trim()) { flash('Enter an advisor name', true); return; }
+                if (adminWelcomePw.length < 8) { flash('Password must be at least 8 characters', true); return; }
+                const customCc = adminWelcomeCcCustom.split(',').map(s => s.trim()).filter(Boolean);
+                const allCc = [...adminWelcomeCc, ...customCc];
+                setAdminWelcomeLoading(true);
+                const res = await fetch(`/api/admin/users/${adminWelcomeUser.id}/welcome`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ advisorName: adminWelcomeAdvisor.trim(), password: adminWelcomePw, cc: allCc }) });
+                setAdminWelcomeLoading(false);
+                if (!res.ok) { const d = await res.json().catch(() => ({})); flash(d.error || 'Failed to send welcome email', true); return; }
+                closeWelcome(); flash('Welcome email sent');
+              }} className="flex-1 py-2.5 bg-indigo-600 text-white rounded-xl text-[11px] font-black uppercase tracking-wider hover:bg-indigo-700 disabled:opacity-50" title="Send welcome email to this user">{adminWelcomeLoading ? 'Sending…' : 'Send Welcome Email'}</button>
+            </div>
+          </div>
+        </div>
+        );
+      })()}
       {adminSetPwUser && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-lg shadow-2xl w-full max-w-sm p-6">
@@ -6291,7 +6372,7 @@ const LoginScreen = ({ onLogin }: { onLogin: () => void }) => {
   const handleForgot = async () => {
     if (!email) { setError('Enter your email address first'); return; }
     setLoading(true); setError('');
-    await supabase.auth.resetPasswordForEmail(email, { redirectTo: window.location.origin });
+    await fetch('/api/auth/send-reset', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, origin: window.location.origin }) });
     setLoading(false); setMode('sent');
   };
   return (
@@ -6899,8 +6980,8 @@ export default function App() {
   };
 
   const handleClientSubmit = async (id: string) => {
-    const { error } = await supabase.from('actions').update({ status: 'pending_review', review_note: null }).eq('id', id);
-    if (error) { console.error('[handleClientSubmit] DB error:', error); showAppFlash('Failed to submit — please try again.'); return; }
+    const res = await fetch(`/api/actions/${id}/submit`, { method: 'POST' });
+    if (!res.ok) { console.error('[handleClientSubmit] API error:', await res.text()); showAppFlash('Failed to submit — please try again.'); return; }
     setAllActions(prev => prev.map(a => a.id === id ? { ...a, status: 'pending_review' as ActionStatus, reviewNote: null } : a));
     const action = allActions.find(a => a.id === id);
     const siteId = sites.find(s => s.name === action?.site)?.id;
@@ -9946,7 +10027,13 @@ export default function App() {
       {showPasswordReset && (
         <SetPasswordModal
           title="Set your new password"
-          onSubmit={async (pw) => { const { error } = await supabase.auth.updateUser({ password: pw }); if (error) throw error; setShowPasswordReset(false); showAppFlash('Password updated successfully'); }}
+          onSubmit={async (pw) => {
+            const { error } = await supabase.auth.updateUser({ password: pw });
+            if (error) throw error;
+            setShowPasswordReset(false);
+            showAppFlash('Password updated successfully');
+            fetch('/api/auth/password-changed', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userId: user.id, origin: window.location.origin }) }).catch(() => {});
+          }}
           onClose={() => setShowPasswordReset(false)}
         />
       )}
@@ -9955,7 +10042,13 @@ export default function App() {
       {showChangePassword && (
         <SetPasswordModal
           title="Change your password"
-          onSubmit={async (pw) => { const { error } = await supabase.auth.updateUser({ password: pw }); if (error) throw error; setShowChangePassword(false); showAppFlash('Password updated successfully'); }}
+          onSubmit={async (pw) => {
+            const { error } = await supabase.auth.updateUser({ password: pw });
+            if (error) throw error;
+            setShowChangePassword(false);
+            showAppFlash('Password updated successfully');
+            fetch('/api/auth/password-changed', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userId: user.id, origin: window.location.origin }) }).catch(() => {});
+          }}
           onClose={() => setShowChangePassword(false)}
         />
       )}
