@@ -50,7 +50,27 @@
       "PowerShell(cd E:\\\\hs-portal; npx tsc --noEmit 2>&1 | Select-String \"error TS\" | Select-Object -First 10 | ForEach-Object { $_.Line })",
       "Bash(grep -E \"\\\\.\\(ts|tsx|js\\)$\")",
       "Bash(dir \"E:\\\\hs-portal\\\\app\\\\api\" /b /s)",
-      "Bash(findstr \"user\\\\|admin\\\\|invite\")"
+      "Bash(findstr \"user\\\\|admin\\\\|invite\")",
+      "Bash(xargs grep -l \"getPublicUrl\\\\|\\\\.storage\\\\.from\")",
+      "PowerShell(cd E:\\\\hs-portal; $out = npx tsc --noEmit 2>&1; $out | Where-Object { $_ -match \"logo\" }; Write-Host \"---\"; $out | Where-Object { $_ -match \"page.tsx\" } | Select-Object -First 10)",
+      "Skill(run)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:3000)",
+      "mcp__plugin_vercel_vercel__list_teams",
+      "mcp__plugin_vercel_vercel__list_projects",
+      "mcp__plugin_vercel_vercel__get_project",
+      "mcp__plugin_vercel_vercel__get_runtime_logs",
+      "PowerShell(node \"C:\\\\Users\\\\Paul\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\E--hs-portal\\\\7c2bf77c-ef97-488a-bd3c-bdec807969e1\\\\scratchpad\\\\render-emails.mjs\")",
+      "PowerShell(Start-Process \"C:\\\\Users\\\\Paul\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\E--hs-portal\\\\7c2bf77c-ef97-488a-bd3c-bdec807969e1\\\\scratchpad\\\\email-1-advisor-upload.html\"; Start-Process \"C:\\\\Users\\\\Paul\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\E--hs-portal\\\\7c2bf77c-ef97-488a-bd3c-bdec807969e1\\\\scratchpad\\\\email-2-advisor-evidence.html\"; Start-Process \"C:\\\\Users\\\\Paul\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\E--hs-portal\\\\7c2bf77c-ef97-488a-bd3c-bdec807969e1\\\\scratchpad\\\\email-3-client-upload-rejected.html\"; Start-Process \"C:\\\\Users\\\\Paul\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\E--hs-portal\\\\7c2bf77c-ef97-488a-bd3c-bdec807969e1\\\\scratchpad\\\\email-4-client-action-rejected.html\")",
+      "PowerShell(Start-Process \"C:\\\\Users\\\\Paul\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\E--hs-portal\\\\7c2bf77c-ef97-488a-bd3c-bdec807969e1\\\\scratchpad\\\\email-header-options.html\")",
+      "PowerShell(Start-Process \"C:\\\\Users\\\\Paul\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\E--hs-portal\\\\7c2bf77c-ef97-488a-bd3c-bdec807969e1\\\\scratchpad\\\\email-body-options.html\")",
+      "PowerShell(Start-Process \"C:\\\\Users\\\\Paul\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\E--hs-portal\\\\7c2bf77c-ef97-488a-bd3c-bdec807969e1\\\\scratchpad\\\\email-c3-fix.html\")",
+      "PowerShell(Start-Process \"C:\\\\Users\\\\Paul\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\E--hs-portal\\\\7c2bf77c-ef97-488a-bd3c-bdec807969e1\\\\scratchpad\\\\email-c3-6px.html\")",
+      "PowerShell(node \"C:\\\\Users\\\\Paul\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\E--hs-portal\\\\7c2bf77c-ef97-488a-bd3c-bdec807969e1\\\\scratchpad\\\\render-new-emails.mjs\")",
+      "PowerShell($s = \"C:\\\\Users\\\\Paul\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\E--hs-portal\\\\7c2bf77c-ef97-488a-bd3c-bdec807969e1\\\\scratchpad\"; Start-Process \"$s\\\\email-5-password-reset.html\"; Start-Process \"$s\\\\email-6-welcome.html\"; Start-Process \"$s\\\\email-7-action-submitted.html\"; Start-Process \"$s\\\\email-8-due-soon.html\"; Start-Process \"$s\\\\email-9-overdue.html\")",
+      "PowerShell(Start-Process \"C:\\\\Users\\\\Paul\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\E--hs-portal\\\\7c2bf77c-ef97-488a-bd3c-bdec807969e1\\\\scratchpad\\\\email-6-welcome-v2.html\")",
+      "PowerShell(Start-Process \"C:\\\\Users\\\\Paul\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\E--hs-portal\\\\7c2bf77c-ef97-488a-bd3c-bdec807969e1\\\\scratchpad\\\\email-6-welcome-v4.html\")",
+      "PowerShell(if \\(Test-Path \"E:\\\\hs-portal\\\\.env.local\"\\) { Select-String \"RESEND_API_KEY\" \"E:\\\\hs-portal\\\\.env.local\" | ForEach-Object { if \\($_.Line -match \"=.+\"\\) { \"RESEND_API_KEY is set\" } else { \"RESEND_API_KEY is present but empty\" } } } else { \"No .env.local found\" })",
+      "mcp__supabase__get_project_url"
     ]
   }
 }
