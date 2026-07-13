@@ -10,7 +10,7 @@ import {
   Folder, FolderOpen, File, Pencil, GraduationCap, Heart,
   Warehouse, ShoppingBag, Home, Sparkles, AlertCircle,
   Upload, FileCheck, Trash2, Users, Search, KeyRound, Download,
-  Archive, Copy, RotateCcw, Minus, EyeOff, Eye, ArrowRight
+  Archive, Copy, RotateCcw, Minus, EyeOff, Eye, ArrowRight, Activity, MonitorPlay
 } from 'lucide-react';
 import mammoth from 'mammoth';
 import * as XLSX from 'xlsx';
@@ -21,7 +21,7 @@ import { CURRENT_EXTRACTION_VERSION } from '../lib/extraction-version';
 type Priority = 'red' | 'amber' | 'green';
 type ActionStatus = 'open' | 'resolved' | 'pending_review' | 'archived' | 'ai_suggested';
 type AppView = 'portfolio' | 'site' | 'admin';
-type AdminTab = 'organisations' | 'sites' | 'users' | 'requirements' | 'usage' | 'data-health' | 'sync-logs';
+type AdminTab = 'organisations' | 'sites' | 'users' | 'requirements' | 'usage' | 'data-health' | 'sync-logs' | 'activity';
 
 interface Action {
   id: string; action: string; description: string; date: string; site: string;
@@ -3197,6 +3197,12 @@ const SuperadminPanel = ({ onViewSite, onViewOrg, onSyncSite }: { onViewSite: (s
   const [quickSyncModalSites, setQuickSyncModalSites] = useState<{ id: string; name: string }[] | null>(null);
   const [syncModalMinimised, setSyncModalMinimised] = useState(false);
 
+  // Activity tab state
+  const [adminActivity, setAdminActivity] = useState<any[]>([]);
+  const [adminActivityLoading, setAdminActivityLoading] = useState(false);
+  const [adminActivityOrgFilter, setAdminActivityOrgFilter] = useState('');
+  const [adminActivityUserFilter, setAdminActivityUserFilter] = useState('');
+
   // Requirements tab state
   const [reqSiteType, setReqSiteType] = useState('OFFICE');
   const [requirements, setRequirements] = useState<any[]>([]);
@@ -3241,6 +3247,19 @@ const SuperadminPanel = ({ onViewSite, onViewOrg, onSyncSite }: { onViewSite: (s
   const loadSites = async () => { const { data } = await supabase.from('sites').select('*, organisations(name)').order('name'); if (data) setSites(data); };
   const loadClientSiteAssignments = async () => { const { data } = await supabase.from('client_site_assignments').select('*, sites(name)').order('created_at'); if (data) setClientSiteAssignments(data); };
   const loadAdvisorSiteAssignments = async () => { const { data } = await supabase.from('advisor_site_assignments').select('*, sites(name)').order('created_at'); if (data) setAdvisorSiteAssignments(data); };
+
+  const loadAdminActivity = async (orgId?: string, userId?: string) => {
+    setAdminActivityLoading(true);
+    const { data: { session } } = await supabase.auth.getSession();
+    const callerId = session?.user?.id;
+    if (!callerId) { setAdminActivityLoading(false); return; }
+    const params = new URLSearchParams({ callerId, limit: '200' });
+    if (orgId)    params.set('orgId', orgId);
+    if (userId)   params.set('userId', userId);
+    const res = await fetch(`/api/activity?${params}`);
+    if (res.ok) { const d = await res.json(); setAdminActivity(d.events ?? []); }
+    setAdminActivityLoading(false);
+  };
 
   const loadUsage = async () => {
     setUsageLoading(true);
@@ -3587,6 +3606,7 @@ const SuperadminPanel = ({ onViewSite, onViewOrg, onSyncSite }: { onViewSite: (s
     { key: 'usage', label: 'Usage & Costs', icon: <BarChart3 size={14} /> },
     { key: 'data-health', label: 'Data Health', icon: <Database size={14} /> },
     { key: 'sync-logs', label: 'Sync Logs', icon: <RefreshCw size={14} /> },
+    { key: 'activity', label: 'Activity', icon: <Activity size={14} /> },
   ];
 
   // Reusable folder picker field
@@ -4354,6 +4374,7 @@ const SuperadminPanel = ({ onViewSite, onViewOrg, onSyncSite }: { onViewSite: (s
                           </td>
                           <td className="px-6 py-4 text-right">
                             <div className="flex items-center justify-end gap-2">
+                              {user.profile?.role !== 'superadmin' && (() => { const uSites = clientSiteAssignments.filter((a: any) => a.client_user_id === user.id).map((a: any) => sites.find((s: any) => s.id === a.site_id)).filter(Boolean); const orgSites = user.profile?.organisation_id ? sites.filter((s: any) => s.organisation_id === user.profile.organisation_id) : []; const viewSites = uSites.length > 0 ? uSites : orgSites; const isAdvisorUser = user.profile?.role === 'advisor'; const advisorOrgIds = assignments.filter((a: any) => a.advisor_id === user.id).map((a: any) => a.organisation_id); const advisorSites = advisorSiteAssignments.filter((a: any) => a.advisor_id === user.id).map((a: any) => sites.find((s: any) => s.id === a.site_id)).filter(Boolean); const advViewSites = advisorSites.length > 0 ? advisorSites : (advisorOrgIds.length > 0 ? sites.filter((s: any) => advisorOrgIds.includes(s.organisation_id)) : []); const canView = isAdvisorUser ? advViewSites.length > 0 : viewSites.length > 0; if (!canView) return null; const handleView = (role: 'advisor' | 'client') => { const targetSites = role === 'advisor' ? advViewSites : viewSites; const orgId = user.profile?.organisation_id ?? targetSites[0]?.organisation_id; if (targetSites.length === 1) { onViewSite(targetSites[0], role); } else if (orgId) { onViewOrg(targetSites, orgId, role); } else { onViewSite(targetSites[0], role); } }; return <button onClick={e => { e.stopPropagation(); handleView(isAdvisorUser ? 'advisor' : 'client'); }} className="text-slate-400 hover:text-violet-600 p-1.5 rounded-lg hover:bg-violet-50" title={`View portal as ${user.profile?.full_name || user.email}`}><MonitorPlay size={14} /></button>; })()}
                               {user.profile?.role !== 'superadmin' && <button onClick={e => { e.stopPropagation(); const storedPw = user.user_metadata?.welcome_password ?? ''; const autoPw = storedPw || `Welcome${Math.floor(1000 + Math.random() * 9000)}!`; const advisorEmails = users.filter((u: any) => u.profile?.role === 'advisor' && u.email && u.id !== user.id).map((u: any) => u.email); setAdminWelcomeUser({ id: user.id, email: user.email, name: user.profile?.full_name || null }); setAdminWelcomePw(autoPw); const _userSiteIds = clientSiteAssignments.filter((a: any) => a.client_user_id === user.id).map((a: any) => a.site_id); let _assignedAdvisorId: string | null = null; if (user.profile?.role === 'client') { if (_userSiteIds.length > 0) { const _sa = advisorSiteAssignments.find((a: any) => _userSiteIds.includes(a.site_id)); if (_sa) _assignedAdvisorId = _sa.advisor_id; } if (!_assignedAdvisorId && user.profile?.organisation_id) { const _oa = assignments.find((a: any) => a.organisation_id === user.profile.organisation_id); if (_oa) _assignedAdvisorId = _oa.advisor_id; } if (!_assignedAdvisorId && _userSiteIds.length > 0) { const _s = sites.find((s: any) => _userSiteIds.includes(s.id)); if (_s?.advisor_id) _assignedAdvisorId = _s.advisor_id; } } const _advisorNameForModal = (() => { if (_assignedAdvisorId) { const _av = users.find((u: any) => u.id === _assignedAdvisorId); return _av?.profile?.full_name || _av?.email || ''; } return ''; })(); setAdminWelcomeAdvisor(_advisorNameForModal); setAdminWelcomeCc(advisorEmails); setAdminWelcomeCcCustom(''); setShowAdminWelcomePw(false); }} className="text-slate-400 hover:text-indigo-600 p-1.5 rounded-lg hover:bg-indigo-50" title="Send welcome email"><Mail size={14} /></button>}
                               {isClient && <button onClick={e => { e.stopPropagation(); setUserRole('client'); setUserOrgId(user.profile?.organisation_id || ''); setUserSiteIds(clientSiteAssignments.filter((a: any) => a.client_user_id === user.id).map((a: any) => a.site_id)); setUserViewOnly(user.profile?.view_only || false); setUserEmail(''); setUserPassword(''); setUserFullName(''); setUserPhone(''); setShowUserForm(true); }} className="text-slate-400 hover:text-indigo-600 p-1.5 rounded-lg hover:bg-indigo-50" title="Duplicate user — copies org & site access"><Copy size={14} /></button>}
                               {user.profile?.role !== 'superadmin' && <button onClick={e => { e.stopPropagation(); setAdminRenameUser({ id: user.id, email: user.email, currentName: user.profile?.full_name || '', currentPhone: user.profile?.phone || '' }); setAdminRenameValue(user.profile?.full_name || ''); setAdminRenamePhoneValue(user.profile?.phone || ''); }} className="text-slate-400 hover:text-indigo-600 p-1.5 rounded-lg hover:bg-indigo-50" title="Set display name"><Pencil size={14} /></button>}
@@ -4911,6 +4932,79 @@ const SuperadminPanel = ({ onViewSite, onViewOrg, onSyncSite }: { onViewSite: (s
       })()}
 
       {activeTab === 'sync-logs' && <SyncLogsTab />}
+
+      {activeTab === 'activity' && (() => {
+        const actionLabel: Record<string, string> = {
+          login: 'Logged in',
+          document_viewed: 'Viewed document',
+          file_uploaded: 'Uploaded file',
+          evidence_uploaded: 'Uploaded evidence',
+          action_completed: 'Completed action',
+        };
+        const filteredActivity = adminActivity.filter(e => {
+          if (adminActivityOrgFilter && e.organisation_id !== adminActivityOrgFilter) return false;
+          if (adminActivityUserFilter && e.user_id !== adminActivityUserFilter) return false;
+          return true;
+        });
+        const csvExport = async () => {
+          const { data: { session } } = await supabase.auth.getSession();
+          const callerId = session?.user?.id;
+          if (!callerId) return;
+          const params = new URLSearchParams({ callerId, limit: '500', format: 'csv' });
+          if (adminActivityOrgFilter) params.set('orgId', adminActivityOrgFilter);
+          if (adminActivityUserFilter) params.set('userId', adminActivityUserFilter);
+          const res = await fetch(`/api/activity?${params}`);
+          if (!res.ok) return;
+          const blob = await res.blob();
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a'); a.href = url; a.download = `activity-${Date.now()}.csv`; a.click();
+          URL.revokeObjectURL(url);
+        };
+        const uniqueUsers = [...new Map(adminActivity.filter(e => e.user_id && e.userName).map(e => [e.user_id, { id: e.user_id, name: e.userName }])).values()];
+        return (
+          <div className="space-y-4">
+            <div className="flex items-center justify-between flex-wrap gap-3">
+              <div className="flex items-center gap-3 flex-wrap">
+                <select value={adminActivityOrgFilter} onChange={e => setAdminActivityOrgFilter(e.target.value)} className="text-sm border border-slate-200 rounded-lg px-3 py-1.5 text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-300">
+                  <option value="">All organisations</option>
+                  {organisations.map(o => <option key={o.id} value={o.id}>{o.name}</option>)}
+                </select>
+                <select value={adminActivityUserFilter} onChange={e => setAdminActivityUserFilter(e.target.value)} className="text-sm border border-slate-200 rounded-lg px-3 py-1.5 text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-300">
+                  <option value="">All users</option>
+                  {uniqueUsers.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+                </select>
+                <button onClick={() => loadAdminActivity(adminActivityOrgFilter || undefined, adminActivityUserFilter || undefined)} className="px-3 py-1.5 bg-indigo-600 text-white rounded-lg text-sm font-bold hover:bg-indigo-700">{adminActivityLoading ? 'Loading…' : 'Refresh'}</button>
+                {adminActivity.length === 0 && !adminActivityLoading && <button onClick={() => loadAdminActivity()} className="px-3 py-1.5 bg-slate-100 text-slate-700 rounded-lg text-sm font-bold hover:bg-slate-200">Load activity</button>}
+              </div>
+              <button onClick={csvExport} className="flex items-center gap-1.5 px-3 py-1.5 border border-slate-200 rounded-lg text-sm text-slate-600 hover:bg-slate-50"><Download size={13} />Export CSV</button>
+            </div>
+            {adminActivityLoading ? (
+              <div className="text-center py-16 text-slate-400 text-sm">Loading activity…</div>
+            ) : filteredActivity.length === 0 ? (
+              <div className="text-center py-16 text-slate-400 text-sm">{adminActivity.length === 0 ? 'Click "Load activity" to fetch the log.' : 'No events match the current filters.'}</div>
+            ) : (
+              <div className="bg-white rounded-2xl border border-slate-100 overflow-hidden">
+                <table className="w-full text-sm">
+                  <thead><tr className="border-b border-slate-100 bg-slate-50">{['Date', 'User', 'Action', 'Resource', 'Site', 'Organisation'].map(h => <th key={h} className="px-4 py-3 text-left text-[10px] font-black uppercase tracking-wider text-slate-400">{h}</th>)}</tr></thead>
+                  <tbody className="divide-y divide-slate-50">
+                    {filteredActivity.map(e => (
+                      <tr key={e.id} className="hover:bg-slate-50">
+                        <td className="px-4 py-3 text-xs text-slate-400 whitespace-nowrap">{new Date(e.created_at).toLocaleString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</td>
+                        <td className="px-4 py-3 font-medium text-slate-700">{e.userName}</td>
+                        <td className="px-4 py-3"><span className={`text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-lg ${e.action === 'login' ? 'bg-indigo-50 text-indigo-600' : e.action === 'evidence_uploaded' || e.action === 'file_uploaded' ? 'bg-emerald-50 text-emerald-700' : e.action === 'action_completed' ? 'bg-violet-50 text-violet-700' : 'bg-slate-100 text-slate-500'}`}>{actionLabel[e.action] ?? e.action}</span></td>
+                        <td className="px-4 py-3 text-xs text-slate-500 max-w-[200px] truncate">{e.resource_name ?? '—'}</td>
+                        <td className="px-4 py-3 text-xs text-slate-500">{e.siteName ?? '—'}</td>
+                        <td className="px-4 py-3 text-xs text-slate-500">{e.orgName ?? '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                <div className="px-4 py-2 border-t border-slate-100 text-xs text-slate-400">{filteredActivity.length} events shown</div>
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       {syncConfigSite && (
         <SyncConfigModal
