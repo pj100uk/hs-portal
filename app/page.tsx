@@ -6651,7 +6651,6 @@ export default function App() {
         setSites(finalMapped);
         if (finalMapped.length > 0 && !selectedSite) {
           setSelectedSite(finalMapped[0]); recalcActionProgress(finalMapped[0].id); refreshComplianceScore(finalMapped[0].id);
-          // Auto-navigate to single site view only when there is exactly one site
           if (finalMapped.length === 1) setView('site');
         }
       }
@@ -8396,7 +8395,7 @@ export default function App() {
             }}
           />}
 
-          {view === 'portfolio' && isViewOnly && (
+          {view === 'portfolio' && isViewOnly && (profile?.role !== 'client' || sites.length > 1) && (
             <div className="space-y-8 animate-in fade-in duration-500">
               <div className="bg-gradient-to-br from-slate-800 via-slate-900 to-indigo-950 rounded-xl p-6 md:p-10 text-white flex flex-col lg:flex-row justify-between items-start lg:items-center gap-6 shadow-2xl relative overflow-hidden">
                 <div className="absolute top-0 right-0 w-96 h-96 bg-indigo-500 rounded-full -mr-32 -mt-32 blur-[100px] opacity-10 pointer-events-none" />
@@ -8460,7 +8459,7 @@ export default function App() {
               </div>
             </div>
           )}
-          {view === 'portfolio' && !isViewOnly && (profile?.role === 'advisor' || profile?.role === 'client' || profile?.role === 'superadmin') && (
+          {view === 'portfolio' && !isViewOnly && (profile?.role === 'advisor' || profile?.role === 'client' || profile?.role === 'superadmin') && (profile?.role !== 'client' || sites.length > 1) && (
             <div className="space-y-8 animate-in fade-in duration-500">
               <div className="bg-gradient-to-br from-indigo-900 via-indigo-950 to-slate-900 rounded-xl p-6 md:p-10 text-white flex flex-col lg:flex-row justify-between items-start lg:items-center gap-6 md:gap-8 shadow-2xl relative overflow-hidden">
                 <div className="absolute top-0 right-0 w-96 h-96 bg-indigo-500 rounded-full -mr-32 -mt-32 blur-[100px] opacity-20 pointer-events-none" />
