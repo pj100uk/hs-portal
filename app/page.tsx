@@ -6663,7 +6663,7 @@ export default function App() {
     if (profile?.role !== 'client' || !selectedSite) { setSiteAdvisor(null); return; }
     supabase.auth.getSession().then(({ data: { session } }) => {
       const token = session?.access_token ?? '';
-      fetch(`/api/my-advisor?siteId=${selectedSite.id}`, { headers: { Authorization: `Bearer ${token}` } })
+      fetch(`/api/my-advisor?siteId=${selectedSite.id}`, { headers: { Authorization: `Bearer ${token}` }, cache: 'no-store' })
         .then(r => r.ok ? r.json() : null)
         .then(data => setSiteAdvisor(data))
         .catch(() => setSiteAdvisor(null));
