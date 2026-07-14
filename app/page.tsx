@@ -3065,7 +3065,7 @@ const SyncLogsTab = () => {
 };
 
 // ─── Superadmin Panel ─────────────────────────────────────────────────────────
-const SuperadminPanel = ({ onViewSite, onViewOrg, onSyncSite }: { onViewSite: (site: any, role: 'advisor' | 'client', tab?: 'actions' | 'documents' | 'dochealth' | 'iag' | 'files') => void; onViewOrg: (orgSites: any[], orgId: string, role: 'advisor' | 'client') => void; onSyncSite?: (site: any) => Promise<void> }) => {
+const SuperadminPanel = ({ onViewSite, onViewOrg, onSyncSite }: { onViewSite: (site: any, role: 'advisor' | 'client', tab?: 'actions' | 'documents' | 'dochealth' | 'iag' | 'files', viewOnly?: boolean) => void; onViewOrg: (orgSites: any[], orgId: string, role: 'advisor' | 'client', viewOnly?: boolean) => void; onSyncSite?: (site: any) => Promise<void> }) => {
   const [activeTab, setActiveTab] = useState<AdminTab>('organisations');
   const [organisations, setOrganisations] = useState<Organisation[]>([]);
   const [sites, setSites] = useState<any[]>([]);
@@ -4374,7 +4374,7 @@ const SuperadminPanel = ({ onViewSite, onViewOrg, onSyncSite }: { onViewSite: (s
                           </td>
                           <td className="px-6 py-4 text-right">
                             <div className="flex items-center justify-end gap-2">
-                              {user.profile?.role !== 'superadmin' && (() => { const uSites = clientSiteAssignments.filter((a: any) => a.client_user_id === user.id).map((a: any) => sites.find((s: any) => s.id === a.site_id)).filter(Boolean); const orgSites = user.profile?.organisation_id ? sites.filter((s: any) => s.organisation_id === user.profile.organisation_id) : []; const viewSites = uSites.length > 0 ? uSites : orgSites; const isAdvisorUser = user.profile?.role === 'advisor'; const advisorOrgIds = assignments.filter((a: any) => a.advisor_id === user.id).map((a: any) => a.organisation_id); const advisorSites = advisorSiteAssignments.filter((a: any) => a.advisor_id === user.id).map((a: any) => sites.find((s: any) => s.id === a.site_id)).filter(Boolean); const advViewSites = advisorSites.length > 0 ? advisorSites : (advisorOrgIds.length > 0 ? sites.filter((s: any) => advisorOrgIds.includes(s.organisation_id)) : []); const canView = isAdvisorUser ? advViewSites.length > 0 : viewSites.length > 0; if (!canView) return null; const handleView = (role: 'advisor' | 'client') => { const targetSites = role === 'advisor' ? advViewSites : viewSites; const orgId = user.profile?.organisation_id ?? targetSites[0]?.organisation_id; if (targetSites.length === 1) { onViewSite(targetSites[0], role); } else if (orgId) { onViewOrg(targetSites, orgId, role); } else { onViewSite(targetSites[0], role); } }; return <button onClick={e => { e.stopPropagation(); handleView(isAdvisorUser ? 'advisor' : 'client'); }} className="text-slate-400 hover:text-violet-600 p-1.5 rounded-lg hover:bg-violet-50" title={`View portal as ${user.profile?.full_name || user.email}`}><MonitorPlay size={14} /></button>; })()}
+                              {user.profile?.role !== 'superadmin' && (() => { const uSites = clientSiteAssignments.filter((a: any) => a.client_user_id === user.id).map((a: any) => sites.find((s: any) => s.id === a.site_id)).filter(Boolean); const orgSites = user.profile?.organisation_id ? sites.filter((s: any) => s.organisation_id === user.profile.organisation_id) : []; const viewSites = uSites.length > 0 ? uSites : orgSites; const isAdvisorUser = user.profile?.role === 'advisor'; const advisorOrgIds = assignments.filter((a: any) => a.advisor_id === user.id).map((a: any) => a.organisation_id); const advisorSites = advisorSiteAssignments.filter((a: any) => a.advisor_id === user.id).map((a: any) => sites.find((s: any) => s.id === a.site_id)).filter(Boolean); const advViewSites = advisorSites.length > 0 ? advisorSites : (advisorOrgIds.length > 0 ? sites.filter((s: any) => advisorOrgIds.includes(s.organisation_id)) : []); const canView = isAdvisorUser ? advViewSites.length > 0 : viewSites.length > 0; if (!canView) return null; const handleView = (role: 'advisor' | 'client') => { const targetSites = role === 'advisor' ? advViewSites : viewSites; const orgId = user.profile?.organisation_id ?? targetSites[0]?.organisation_id; const viewOnly = role === 'client' ? !!user.profile?.view_only : undefined; if (targetSites.length === 1) { onViewSite(targetSites[0], role, undefined, viewOnly); } else if (orgId) { onViewOrg(targetSites, orgId, role, viewOnly); } else { onViewSite(targetSites[0], role, undefined, viewOnly); } }; return <button onClick={e => { e.stopPropagation(); handleView(isAdvisorUser ? 'advisor' : 'client'); }} className="text-slate-400 hover:text-violet-600 p-1.5 rounded-lg hover:bg-violet-50" title={`View portal as ${user.profile?.full_name || user.email}${!isAdvisorUser && user.profile?.view_only ? ' (view only)' : ''}`}><MonitorPlay size={14} /></button>; })()}
                               {user.profile?.role !== 'superadmin' && <button onClick={e => { e.stopPropagation(); const storedPw = user.user_metadata?.welcome_password ?? ''; const autoPw = storedPw || `Welcome${Math.floor(1000 + Math.random() * 9000)}!`; const advisorEmails = users.filter((u: any) => u.profile?.role === 'advisor' && u.email && u.id !== user.id).map((u: any) => u.email); setAdminWelcomeUser({ id: user.id, email: user.email, name: user.profile?.full_name || null }); setAdminWelcomePw(autoPw); const _userSiteIds = clientSiteAssignments.filter((a: any) => a.client_user_id === user.id).map((a: any) => a.site_id); let _assignedAdvisorId: string | null = null; if (user.profile?.role === 'client') { if (_userSiteIds.length > 0) { const _sa = advisorSiteAssignments.find((a: any) => _userSiteIds.includes(a.site_id)); if (_sa) _assignedAdvisorId = _sa.advisor_id; } if (!_assignedAdvisorId && user.profile?.organisation_id) { const _oa = assignments.find((a: any) => a.organisation_id === user.profile.organisation_id); if (_oa) _assignedAdvisorId = _oa.advisor_id; } if (!_assignedAdvisorId && _userSiteIds.length > 0) { const _s = sites.find((s: any) => _userSiteIds.includes(s.id)); if (_s?.advisor_id) _assignedAdvisorId = _s.advisor_id; } } const _advisorNameForModal = (() => { if (_assignedAdvisorId) { const _av = users.find((u: any) => u.id === _assignedAdvisorId); return _av?.profile?.full_name || _av?.email || ''; } return ''; })(); setAdminWelcomeAdvisor(_advisorNameForModal); setAdminWelcomeCc(advisorEmails); setAdminWelcomeCcCustom(''); setShowAdminWelcomePw(false); }} className="text-slate-400 hover:text-indigo-600 p-1.5 rounded-lg hover:bg-indigo-50" title="Send welcome email"><Mail size={14} /></button>}
                               {isClient && <button onClick={e => { e.stopPropagation(); setUserRole('client'); setUserOrgId(user.profile?.organisation_id || ''); setUserSiteIds(clientSiteAssignments.filter((a: any) => a.client_user_id === user.id).map((a: any) => a.site_id)); setUserViewOnly(user.profile?.view_only || false); setUserEmail(''); setUserPassword(''); setUserFullName(''); setUserPhone(''); setShowUserForm(true); }} className="text-slate-400 hover:text-indigo-600 p-1.5 rounded-lg hover:bg-indigo-50" title="Duplicate user — copies org & site access"><Copy size={14} /></button>}
                               {user.profile?.role !== 'superadmin' && <button onClick={e => { e.stopPropagation(); setAdminRenameUser({ id: user.id, email: user.email, currentName: user.profile?.full_name || '', currentPhone: user.profile?.phone || '' }); setAdminRenameValue(user.profile?.full_name || ''); setAdminRenamePhoneValue(user.profile?.phone || ''); }} className="text-slate-400 hover:text-indigo-600 p-1.5 rounded-lg hover:bg-indigo-50" title="Set display name"><Pencil size={14} /></button>}
@@ -6516,7 +6516,9 @@ const LoginScreen = ({ onLogin }: { onLogin: () => void }) => {
 export default function App() {
   const [user, setUser] = useState<any>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
-  const isViewOnly = profile?.role === 'client' && profile?.view_only === true;
+  const [viewAsRole, setViewAsRole] = useState<'advisor' | 'client' | null>(null);
+  const [viewAsViewOnly, setViewAsViewOnly] = useState(false);
+  const isViewOnly = viewAsRole ? (viewAsRole === 'client' && viewAsViewOnly) : (profile?.role === 'client' && profile?.view_only === true);
   const [authLoading, setAuthLoading] = useState(true);
   const [showPasswordReset, setShowPasswordReset] = useState(false);
   const [showChangePassword, setShowChangePassword] = useState(false);
@@ -6524,7 +6526,6 @@ export default function App() {
   const appFlashRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const showAppFlash = (msg: string, durationMs = 3500) => { setAppFlash(msg); if (appFlashRef.current) clearTimeout(appFlashRef.current); appFlashRef.current = setTimeout(() => setAppFlash(''), durationMs); };
   const [view, setView] = useState<AppView>('portfolio');
-  const [viewAsRole, setViewAsRole] = useState<'advisor' | 'client' | null>(null);
   const effectiveRole = viewAsRole ?? profile?.role ?? 'client';
   const [siteTab, setSiteTab] = useState<'actions' | 'documents' | 'dochealth' | 'iag' | 'files'>('actions');
   const effectiveSiteTab = isViewOnly && siteTab === 'actions' ? 'files' : siteTab;
@@ -8454,7 +8455,7 @@ export default function App() {
         <div className="p-4 md:p-6 lg:p-8 max-w-7xl mx-auto">
           {view === 'admin' && profile?.role === 'superadmin' && <SuperadminPanel
             onSyncSite={(s) => handleForceAiSync(s)}
-            onViewSite={(s, viewRole, tab) => {
+            onViewSite={(s, viewRole, tab, viewOnly) => {
               setSelectedSite({
                 id: s.id, name: s.name, type: s.type ?? 'SCHOOL', organisation_id: s.organisation_id ?? null,
                 compliance: s.compliance_score ?? 0, trend: s.trend ?? 0, actionProgress: s.action_progress ?? 100,
@@ -8467,10 +8468,11 @@ export default function App() {
                 logo_url: s.logo_url ?? null,
               });
               setViewAsRole(viewRole);
+              setViewAsViewOnly(!!viewOnly);
               if (tab) setSiteTab(tab);
               setView('site');
             }}
-            onViewOrg={(orgSites, orgId, viewRole) => {
+            onViewOrg={(orgSites, orgId, viewRole, viewOnly) => {
               const mapped = orgSites.map((s: any) => ({
                 id: s.id, name: s.name, type: s.type ?? 'SCHOOL', organisation_id: s.organisation_id ?? null,
                 compliance: s.compliance_score ?? 0, trend: s.trend ?? 0, actionProgress: s.action_progress ?? 100,
@@ -8485,6 +8487,7 @@ export default function App() {
               setSites(mapped);
               setFilterOrgId(orgId);
               setViewAsRole(viewRole);
+              setViewAsViewOnly(!!viewOnly);
               setView('portfolio');
             }}
           />}
@@ -8706,9 +8709,9 @@ export default function App() {
               {/* Org / site filter bar */}
               <div className="flex items-center gap-3 flex-wrap">
                 {profile?.role === 'superadmin' && (
-                  <button onClick={() => { setView('admin'); setViewAsRole(null); setFilterOrgId(''); setSites([]); }} className="flex items-center gap-1 text-xs font-bold text-slate-500 hover:text-indigo-600 transition-colors">← Back to Admin</button>
+                  <button onClick={() => { setView('admin'); setViewAsRole(null); setViewAsViewOnly(false); setFilterOrgId(''); setSites([]); }} className="flex items-center gap-1 text-xs font-bold text-slate-500 hover:text-indigo-600 transition-colors">← Back to Admin</button>
                 )}
-                {viewAsRole && <span className="text-[10px] font-black uppercase tracking-wider text-indigo-500 bg-indigo-50 border border-indigo-100 px-2 py-0.5 rounded-full">Viewing as {viewAsRole}</span>}
+                {viewAsRole && <span className="text-[10px] font-black uppercase tracking-wider text-indigo-500 bg-indigo-50 border border-indigo-100 px-2 py-0.5 rounded-full">Viewing as {viewAsRole}{viewAsRole === 'client' && viewAsViewOnly ? ' (view only)' : ''}</span>}
                 {organisations.length > 1 && profile?.role !== 'superadmin' && (
                   <select value={filterOrgId} onChange={e => { setFilterOrgId(e.target.value); }} className="px-3 py-2 border border-slate-200 rounded-xl text-xs font-bold text-slate-600 focus:outline-none bg-white">
                     <option value="">All Organisations</option>
@@ -8844,8 +8847,8 @@ export default function App() {
                     )}
                     {profile?.role === 'superadmin' && (
                       <div className="flex items-center gap-3 mt-2">
-                        <button onClick={() => { setView('admin'); setSelectedSite(null); setViewAsRole(null); }} className="flex items-center gap-1 text-xs font-bold text-slate-500 hover:text-indigo-600 transition-colors">← Back to Admin</button>
-                        {viewAsRole && <span className="text-[10px] font-black uppercase tracking-wider text-indigo-500 bg-indigo-50 border border-indigo-100 px-2 py-0.5 rounded-full">Viewing as {viewAsRole}</span>}
+                        <button onClick={() => { setView('admin'); setSelectedSite(null); setViewAsRole(null); setViewAsViewOnly(false); }} className="flex items-center gap-1 text-xs font-bold text-slate-500 hover:text-indigo-600 transition-colors">← Back to Admin</button>
+                        {viewAsRole && <span className="text-[10px] font-black uppercase tracking-wider text-indigo-500 bg-indigo-50 border border-indigo-100 px-2 py-0.5 rounded-full">Viewing as {viewAsRole}{viewAsRole === 'client' && viewAsViewOnly ? ' (view only)' : ''}</span>}
                       </div>
                     )}
                   </div>
